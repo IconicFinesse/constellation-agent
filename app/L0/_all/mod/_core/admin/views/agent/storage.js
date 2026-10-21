@@ -152,7 +152,12 @@ async function normalizeStoredConfig(runtime, parsedConfig) {
       localProvider,
       maxTokens: config.normalizeAdminChatMaxTokens(storedMaxTokens),
       model: String(storedConfig.model || config.DEFAULT_ADMIN_CHAT_SETTINGS.model || "").trim(),
-      paramsText: String(storedConfig.params || storedConfig.paramsText || config.DEFAULT_ADMIN_CHAT_SETTINGS.paramsText || "").trim(),
+      paramsText: String(
+        storedConfig.params ??
+          storedConfig.paramsText ??
+          config.DEFAULT_ADMIN_CHAT_SETTINGS.paramsText ??
+          ""
+      ).trim(),
       promptBudgetRatios: normalizeStoredPromptBudgetRatios(storedConfig),
       provider,
       supportsVision: config.normalizeAdminChatSupportsVision(
@@ -184,7 +189,11 @@ async function buildStoredConfigPayload(runtime, { settings, systemPrompt }) {
     llm_provider: config.normalizeAdminChatLlmProvider(settings?.provider),
     max_tokens: config.normalizeAdminChatMaxTokens(settings?.maxTokens),
     model: String(settings?.model || config.DEFAULT_ADMIN_CHAT_SETTINGS.model || "").trim(),
-    params: String(settings?.paramsText || config.DEFAULT_ADMIN_CHAT_SETTINGS.paramsText || "").trim(),
+    params: String(
+      settings?.paramsText ??
+        config.DEFAULT_ADMIN_CHAT_SETTINGS.paramsText ??
+        ""
+    ).trim(),
     prompt_budget_ratios: {
       history: config.normalizeAdminChatPromptBudgetRatios(settings?.promptBudgetRatios).history,
       single_message: config.normalizeAdminChatPromptBudgetRatios(settings?.promptBudgetRatios).singleMessage,
