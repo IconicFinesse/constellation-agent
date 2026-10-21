@@ -70,6 +70,7 @@ Current defaults:
 - endpoint: `https://openrouter.ai/api/v1/chat/completions`
 - model: `anthropic/claude-sonnet-4.6`
 - params: `temperature: 0.2`
+- the `params` default applies only when the stored field is absent; clearing the Params box persists an empty value instead of rewriting `temperature:0.2` back into `~/conf/onscreen-agent.yaml`
 - max tokens: `120000`
 - display mode: `compact`
 - first run with no `~/conf/onscreen-agent.yaml` and no matching owner-tagged browser UI state: start with the compact avatar-plus-chat box horizontally centered, with its bottom edge targeting whichever is lower on screen: `7em` above the viewport bottom or `90%` of viewport height, instead of restoring browser-global position state
