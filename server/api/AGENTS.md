@@ -82,7 +82,7 @@ Current rules:
 - single-file or single-folder copy and move requests must keep working when request plumbing omits `entries`; only real batch calls should forward an `entries` array to the shared helper
 - endpoint-specific validation should stay thin and reuse the shared helper contract
 - `folder_download` supports `HEAD` for permission-only validation and `GET` or `POST` for the actual streamed ZIP response
-- `folder_download` validates readable folder paths through the shared file-access permission model, creates a ZIP archive in `server/tmp/`, and returns a streamed attachment response without buffering the archive in memory
+- `folder_download` validates readable folder paths through the shared file-access permission model, creates a ZIP archive in the resolved runtime temp directory (`context.tmpDir`, defaulting to `server/tmp/`), and returns a streamed attachment response without buffering the archive in memory; it must forward that resolved `tmpDir` so packaged desktop installs never stage archives inside the read-only bundled `server/tmp/` tree
 - `git_history_list` returns paginated local-history commit metadata for a readable or writable `L1/<group>/` or `L2/<user>/` owner root when `CUSTOMWARE_GIT_HISTORY` is enabled; it accepts `limit`, `offset`, and `fileFilter`, returns full per-commit file action metadata for listed commits, and does not return patch bodies
 - `git_history_diff` returns the patch body for one file in one commit after read permission is verified
 - `git_history_preview` returns affected-file metadata for a travel or revert operation after write permission is verified, and returns an operation-specific patch when `filePath` is provided

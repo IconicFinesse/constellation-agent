@@ -36,7 +36,7 @@ Documentation is top priority for this area. After any change under `server/` or
 - optionally enforce `USER_FOLDER_SIZE_LIMIT_BYTES` for each on-disk `L2/<user>/` folder through app-file mutation quota checks that use cached per-user size totals
 - run deterministic primary-owned periodic maintenance jobs from `server/jobs/` for backend-enforced cleanup such as guest-account pruning
 - keep the backend-only auth secrets outside the logical app tree, using shared environment injection via `SPACE_AUTH_PASSWORD_SEAL_KEY` and `SPACE_AUTH_SESSION_HMAC_KEY` plus local gitignored fallback storage under `server/data/` by default or `SPACE_AUTH_DATA_DIR` when that override is set; `userCrypto` also keeps a local backend-share cache there, while the shared `L2/<username>/meta/user_crypto.json` record carries a backend-sealed share copy for multi-instance recovery
-- manage `server/tmp/` as janitor-backed transient storage for low-RAM server-side artifacts such as folder-download archives
+- manage the resolved runtime temp root as janitor-backed transient storage for low-RAM server-side artifacts such as folder-download archives; it defaults to `server/tmp/` but packaged desktop hosts override it to a writable OS temp location, and API dispatch forwards that resolved `tmpDir` so endpoints never stage artifacts inside a read-only bundled tree
 - resolve runtime parameters from launch overrides, stored `.env` values, process environment variables, and schema defaults, including backend storage parameters such as `CUSTOMWARE_PATH`, password-login gating through `LOGIN_ALLOWED`, and hosted-share receiver settings through `CLOUD_SHARE_ALLOWED` plus `CLOUD_SHARE_URL`
 - when `WORKERS>1`, run a clustered primary-plus-worker runtime where the primary owns authoritative shared state and the live watchdog while workers serve HTTP in parallel; `CUSTOMWARE_WATCHDOG=false` keeps primary-owned L0/L1 startup indexing, on-demand L2 loading, and the explicit mutation sync path but disables background `fs.watch`, config watching, and the periodic reconcile loop
 - expose distinct OS process titles for operator visibility: `space-serve` for single-process runtime, `space-serve-p` for clustered primary, and `space-serve-w<N>` for clustered workers
@@ -67,9 +67,9 @@ Current server layout:
 - `server/lib/auth/`: password verification, session service, user file helpers, user indexing, and user-management helpers
 - `server/lib/file_watch/`: config-driven watchdog plus sharded `file_index` state and derived `group_index` and `user_index`, all keyed by logical `/app/...` project paths
 - `server/lib/share/`: backend-owned hosted-share archive storage, ZIP validation, authenticated import, and anonymous guest-clone helpers
-- `server/lib/tmp/`: `server/tmp/` lifecycle, stale-entry cleanup, and low-RAM ZIP archive creation for attachment-style downloads
+- `server/lib/tmp/`: resolved runtime temp-root lifecycle, stale-entry cleanup, and low-RAM ZIP archive creation for attachment-style downloads
 - `server/lib/git/`: Git backend abstraction used by update flows and Git-backed module installs
-- `server/tmp/`: transient disk-backed artifacts such as folder-download ZIP files
+- `server/tmp/`: default repo-local runtime temp root for transient disk-backed artifacts such as folder-download ZIP files when no `tmpDir` override is configured
 
 ### Request Flow And Runtime Contracts
 
@@ -126,7 +126,7 @@ The server relies on a small set of shared infrastructure contracts. Do not re-i
 - `server/lib/customware/git_history.js` is the canonical entry point for optional per-owner writable-layer Git history and rollback, including L2 auth-file ignore and rollback preservation rules
 - `server/lib/git/` owns Git backend selection for source-checkout update flows, Git-backed module installs, and local-history clients; server runtime param `GIT_BACKEND` defaults to `auto` and may force `native` or `isomorphic`
 - `server/lib/share/service.js` is the canonical hosted-share helper for backend-owned ZIP storage under `CUSTOMWARE_PATH/share/spaces/`, archive validation, authenticated imports, and guest-clone session issuance; endpoints and page shells must not duplicate that logic
-- `server/lib/tmp/` owns the canonical `server/tmp/` janitor and disk-backed archive creation for streamed folder downloads
+- `server/lib/tmp/` owns the canonical resolved-temp-root janitor and disk-backed archive creation for streamed folder downloads, with `server/tmp/` as the default root
 - `server/lib/customware/module_inheritance.js` and `server/lib/customware/extension_overrides.js` are the canonical module and extension resolution helpers
 - `server/lib/customware/module_manage.js` is the canonical module list, info, install, and remove helper
 - `server/lib/auth/service.js` is the canonical session and login service
