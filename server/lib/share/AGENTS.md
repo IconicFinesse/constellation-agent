@@ -33,7 +33,9 @@ Current storage contract:
 Current validation contract:
 
 - archives are unpacked only into a unique per-request directory under `server/tmp/`
-- ZIP inspection and extraction use the host `unzip` tool through the shared helper, not endpoint-local shell calls
+- ZIP inspection and extraction are implemented in-process in the shared helper with Node `zlib`, so imports never depend on a host `unzip` binary and must not shell out
+- every archive entry keeps its declared name, compression method, size, and CRC32; extraction streams each entry to disk, rejects entries whose decompressed size or CRC32 does not match the archive metadata, and caps inflate work at the declared uncompressed size
+- malformed, truncated, byte-damaged, or otherwise unreadable archives fail as explicit `400` errors with a short user-safe message naming the archive problem instead of surfacing as a redacted `500`
 - archive entries must stay relative and must not contain `..`, absolute roots, or drive-qualified paths
 - extracted trees must not contain symbolic links
 - the archive must contain exactly one space root, either directly or one folder deep
