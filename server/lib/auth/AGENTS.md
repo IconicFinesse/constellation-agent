@@ -64,6 +64,8 @@ Current password rules:
 
 - `meta/password.json` stores a server-sealed SCRAM verifier envelope, not plaintext `stored_key` and `server_key` fields
 - only backend helpers that hold the auth seal key may generate accepted password records
+- a shape-valid sealed verifier that fails AES-GCM authentication means the running runtime holds different auth keys than the process that sealed it; `service.js` reports that through a loud `[auth]` operator log naming the user, the seal failure, and the active key source, while the client still receives the generic `Invalid username or password` response so usernames stay unenumerable
+- `openPasswordVerifierRecord()` keeps returning `null` on any open failure; callers that need the distinction pass `onSealOpenFailure`, which never changes the login outcome
 - authenticated self-service password changes validate the current password in `service.js`, then reuse the shared password-reset primitive so the sealed verifier and cleared sessions are published through the normal auth mutation path
 - when the current user has a ready `userCrypto` record, authenticated self-service password changes must also carry a browser-generated replacement `meta/user_crypto.json` record that rewraps the same user master key for the new password
 - admin or CLI password resets cannot rewrap that browser-owned key material, so they invalidate `meta/user_crypto.json` and delete the backend-only server share instead

@@ -181,6 +181,7 @@ Guidance:
 - keep child `space serve` launch args opaque and passthrough; `supervise` should only consume supervisor flags, normalize `CUSTOMWARE_PATH`, and replace child `HOST` and `PORT`
 - normalize `CUSTOMWARE_PATH` to an absolute path before passing it to children so every release shares the same writable `L1` and `L2` roots
 - inject the same canonical backend auth keys that `serve` and `user` commands use, loading them from `server/data/auth_keys.json` by default or `SPACE_AUTH_DATA_DIR/auth_keys.json` when configured; only migrate legacy `supervisor/auth/auth_keys.json` when the canonical file is absent
+- when `SPACE_AUTH_PASSWORD_SEAL_KEY` and `SPACE_AUTH_SESSION_HMAC_KEY` are injected, warn at startup if the injected seal key differs from the canonical auth-key store, because users sealed by that store cannot log in until they are re-sealed with the injected keys
 - keep the watched update repository shared with `node space update`: `--remote-url` overrides `GIT_URL`, `GIT_URL` overrides the local `origin` remote URL, and only then should the canonical fallback apply
 - keep release staging out of the live source checkout to avoid mixed old-code/new-asset windows
 - keep update attempts non-overlapping and bounded so a stalled Git, install, or child-readiness step cannot block future intervals forever
@@ -352,6 +353,7 @@ Guidance:
 - keep user creation idempotent only when explicitly requested; otherwise fail on existing users
 - password-changing commands must clear sessions unless the auth model is intentionally changed
 - keep auth storage layout consistent: metadata in `user.yaml`, auth state under `meta/`, and backend-only seal keys outside `app/`
+- before sealing, `create` and `password` print a `[user]` warning when the active seal key comes from environment injection or when a different legacy `supervisor/auth/auth_keys.json` store is present, because a verifier sealed by one key source cannot be opened by a runtime started with another
 
 ### `group`
 

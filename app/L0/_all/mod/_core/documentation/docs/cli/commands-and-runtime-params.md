@@ -136,6 +136,7 @@ Supervisor state:
 
 - default state directory: `<projectRoot>/supervisor`
 - shared child auth keys: `server/data/auth_keys.json` by default, or `SPACE_AUTH_DATA_DIR/auth_keys.json` when configured, unless `SPACE_AUTH_PASSWORD_SEAL_KEY` and `SPACE_AUTH_SESSION_HMAC_KEY` are already injected
+- injected keys always win over the on-disk store, so startup prints a `[supervise]` warning when the injected seal key differs from the canonical store; users sealed by that store cannot log in until they are re-sealed with the injected keys
 - legacy `<projectRoot>/supervisor/auth/auth_keys.json` is migrated into canonical auth-key storage only when no canonical auth key file exists yet
 - staged source releases: `releases/<revision>/`
 

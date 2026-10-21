@@ -35,6 +35,7 @@ Stable behavior:
 - staged releases live under that project-root supervisor directory, separate from both the live source files and `CUSTOMWARE_PATH`
 - auto-update polling uses `--auto-update-interval`, defaults to `300` seconds, and is disabled when the interval is less than or equal to `0`
 - auth keys are either inherited from `SPACE_AUTH_PASSWORD_SEAL_KEY` and `SPACE_AUTH_SESSION_HMAC_KEY` or loaded from the canonical backend auth-key fallback at `server/data/auth_keys.json`, or `SPACE_AUTH_DATA_DIR/auth_keys.json` when that override is set, then injected into every child
+- inherited env keys take precedence over the canonical store, so `loadSupervisorAuthEnv()` also returns a `warning` when the injected seal key differs from the canonical store; `supervise` prints it as a `[supervise]` warning so a key mismatch that would reject existing sealed verifiers is visible before login fails
 - legacy `<projectRoot>/supervisor/auth/auth_keys.json` files are migrated into the canonical backend auth-key fallback only when that canonical file does not already exist
 - `supervise` should stay independent from server runtime-param parsing so new `space serve` flags can flow through without a supervisor-specific change
 - the watched update repository is resolved in shared order: `--remote-url`, then `GIT_URL`, then the local `origin` remote URL, then the canonical fallback
