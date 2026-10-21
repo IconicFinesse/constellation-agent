@@ -219,7 +219,19 @@ function inspectPasswordRecord(record) {
   };
 }
 
-function openPasswordVerifierRecord(record, authKeys) {
+function reportSealOpenFailure(options, detail) {
+  if (typeof options?.onSealOpenFailure !== "function") {
+    return;
+  }
+
+  try {
+    options.onSealOpenFailure(detail);
+  } catch {
+    // Operator diagnostics must never change the login outcome.
+  }
+}
+
+function openPasswordVerifierRecord(record, authKeys, options = {}) {
   const normalizedRecord = normalizeStoredPasswordRecord(record, {
     allowLegacy: false
   });
@@ -243,7 +255,11 @@ function openPasswordVerifierRecord(record, authKeys) {
       decipher.update(decodeBase64Url(normalizedRecord.ciphertext)),
       decipher.final()
     ]).toString("utf8");
-  } catch {
+  } catch (error) {
+    reportSealOpenFailure(options, {
+      reason: `sealed verifier failed ${PASSWORD_SEAL_ALGORITHM} authentication`,
+      error
+    });
     return null;
   }
 
@@ -251,7 +267,11 @@ function openPasswordVerifierRecord(record, authKeys) {
 
   try {
     parsedPayload = JSON.parse(payload);
-  } catch {
+  } catch (error) {
+    reportSealOpenFailure(options, {
+      reason: "opened verifier payload is not valid JSON",
+      error
+    });
     return null;
   }
 

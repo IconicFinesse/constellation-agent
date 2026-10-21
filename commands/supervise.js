@@ -429,6 +429,10 @@ export async function execute(context) {
   console.log(`[supervise] Using shared customware at ${customwarePath}.`);
   console.log(`[supervise] Using supervisor state at ${stateDir}.`);
   console.log(`[supervise] Using auth keys from ${auth.source}.`);
+
+  if (auth.warning) {
+    console.warn(`[supervise] ${auth.warning}`);
+  }
   if (options.autoUpdateIntervalMs > 0) {
     console.log(
       `[supervise] Initial source revision ${shortRevision(updateSource.currentRevision)}; update source ${sanitizeRemoteUrl(updateSource.remoteUrl)} ${updateSource.branchName}.`

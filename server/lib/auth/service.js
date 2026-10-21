@@ -7,7 +7,11 @@ import {
   isSingleUserApp
 } from "../utils/runtime_params.js";
 import { createEmptyUserIndex } from "./user_index.js";
-import { loadAuthKeys } from "./keys_manage.js";
+import {
+  PASSWORD_SEAL_KEY_ENV_NAME,
+  SESSION_HMAC_KEY_ENV_NAME,
+  loadAuthKeys
+} from "./keys_manage.js";
 import {
   createPasswordVerifier,
   decodeBase64Url,
@@ -592,10 +596,32 @@ export function createAuthService(options = {}) {
     return normalizedUsername;
   }
 
+  function reportPasswordSealOpenFailure(username, detail) {
+    const keySource = authKeys.filePath || "unknown";
+    const injected = keySource === "process.env";
+    const hint = injected
+      ? `The runtime is sealing and opening verifiers with ${PASSWORD_SEAL_KEY_ENV_NAME}/${SESSION_HMAC_KEY_ENV_NAME} injected through the environment, so those keys must match the store that sealed the verifier.`
+      : `The runtime is using the on-disk auth-key store at ${keySource}, so CLI and server processes must share that same store.`;
+
+    console.error(
+      `[auth] Password verifier for user "${username}" could not be opened (${detail.reason}; key source: ${keySource}).`
+    );
+    console.error(
+      `[auth] This is an auth-key mismatch, not a wrong password. ${hint} Re-seal the verifier with the matching key source, for example with "node space user password ${username}".`
+    );
+
+    if (detail.error) {
+      console.error(detail.error);
+    }
+  }
+
   function readCurrentPasswordVerifier(username) {
     return openPasswordVerifierRecord(
       readUserPasswordVerifier(projectRoot, username, runtimeParams),
-      authKeys
+      authKeys,
+      {
+        onSealOpenFailure: (detail) => reportPasswordSealOpenFailure(username, detail)
+      }
     );
   }
 
