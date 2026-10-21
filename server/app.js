@@ -218,7 +218,8 @@ async function createAgentServer(overrides = {}) {
     watchdog,
     host,
     port: configuredPort,
-    projectRoot
+    projectRoot,
+    tmpDir
   });
   const server = http.createServer((req, res) => {
     Promise.resolve(requestHandler(req, res)).catch((error) => {

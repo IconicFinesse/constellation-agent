@@ -44,7 +44,8 @@ async function handleDownload(context) {
     const archiveInfo = await createDirectoryZipArchive({
       archiveBaseName: folderInfo.directoryName,
       downloadFilename: `${folderInfo.directoryName}.zip`,
-      sourceAbsolutePath: folderInfo.absolutePath
+      sourceAbsolutePath: folderInfo.absolutePath,
+      tmpDir: context.tmpDir
     });
     const archiveStats = fs.statSync(archiveInfo.archivePath);
 

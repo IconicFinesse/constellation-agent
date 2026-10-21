@@ -309,6 +309,7 @@ function createRequestHandler(options) {
     runtimeParams,
     stateSystem,
     stateSync,
+    tmpDir,
     workerNumber,
     watchdog
   } = options;
@@ -372,6 +373,7 @@ function createRequestHandler(options) {
           stateSystem,
           ensureUserFileIndex,
           requestContext,
+          tmpDir,
           user: requestContext.user
         });
         return;
