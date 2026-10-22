@@ -58,6 +58,7 @@ Current defaults:
 - API endpoint: `https://openrouter.ai/api/v1/chat/completions`
 - model: `openai/gpt-5.4-mini`
 - params: `temperature:0.2`
+- the default `params` value applies only when the stored field is absent; an explicitly cleared Params field persists as an empty string and must not be rewritten to `temperature:0.2` on save or resurrected on load
 - max tokens: `120000`
 - prompt-budget ratios: `system 30`, `history 40`, `transient 30`, `singleMessage 10`
 

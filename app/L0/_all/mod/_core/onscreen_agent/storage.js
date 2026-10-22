@@ -228,7 +228,12 @@ async function normalizeStoredConfig(runtime, parsedConfig) {
       localProvider,
       maxTokens: config.normalizeOnscreenAgentMaxTokens(storedMaxTokens),
       model: String(storedConfig.model || config.DEFAULT_ONSCREEN_AGENT_SETTINGS.model || "").trim(),
-      paramsText: String(storedConfig.params || storedConfig.paramsText || config.DEFAULT_ONSCREEN_AGENT_SETTINGS.paramsText || "").trim(),
+      paramsText: String(
+        storedConfig.params ??
+          storedConfig.paramsText ??
+          config.DEFAULT_ONSCREEN_AGENT_SETTINGS.paramsText ??
+          ""
+      ).trim(),
       promptBudgetRatios: normalizeStoredPromptBudgetRatios(storedConfig),
       provider,
       supportsVision: config.normalizeOnscreenAgentSupportsVision(
@@ -289,7 +294,11 @@ async function buildStoredConfigPayload(runtime, { settings, systemPrompt }) {
     llm_provider: config.normalizeOnscreenAgentLlmProvider(settings?.provider),
     max_tokens: config.normalizeOnscreenAgentMaxTokens(settings?.maxTokens),
     model: String(settings?.model || config.DEFAULT_ONSCREEN_AGENT_SETTINGS.model || "").trim(),
-    params: String(settings?.paramsText || config.DEFAULT_ONSCREEN_AGENT_SETTINGS.paramsText || "").trim(),
+    params: String(
+      settings?.paramsText ??
+        config.DEFAULT_ONSCREEN_AGENT_SETTINGS.paramsText ??
+        ""
+    ).trim(),
     prompt_budget_ratios: {
       history: config.normalizeOnscreenAgentPromptBudgetRatios(settings?.promptBudgetRatios).history,
       single_message: config.normalizeOnscreenAgentPromptBudgetRatios(settings?.promptBudgetRatios).singleMessage,
