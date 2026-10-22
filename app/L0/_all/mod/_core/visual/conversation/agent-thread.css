@@ -124,6 +124,7 @@
 
 .agent-thread-surface .message-bubble {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--agent-thread-bubble-gap);
   flex: 1 1 auto;
   min-width: 0;
@@ -223,6 +224,8 @@
 .agent-thread-surface .message-markdown pre code {
   padding: 0;
   background: transparent;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .agent-thread-surface .message-markdown blockquote {
