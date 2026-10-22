@@ -9,6 +9,10 @@ import * as agentLlm from "/mod/_core/onscreen_agent/llm.js";
 import * as llmParams from "/mod/_core/onscreen_agent/llm-params.js";
 import * as skills from "/mod/_core/onscreen_agent/skills.js";
 import * as storage from "/mod/_core/onscreen_agent/storage.js";
+import {
+  buildOnscreenAgentHistoryCheckpoint,
+  shouldCheckpointOnscreenAgentHistory
+} from "/mod/_core/onscreen_agent/history-persistence.js";
 import * as agentView from "/mod/_core/onscreen_agent/view.js";
 import {
   resolveOnscreenAgentBoundaryAfterAssistantResponse
@@ -1338,7 +1342,9 @@ const model = {
   dragState: null,
   executionContext: null,
   executionOutputOverrides: Object.create(null),
+  activeTurnRequestMessages: null,
   history: [],
+  historyCheckpointAt: 0,
   historyHeight: null,
   historyPersistPromise: null,
   historyResizeState: null,
@@ -3239,8 +3245,8 @@ const model = {
     return Boolean(this.historyText.trim()) && this.historyTokenCount > this.getConfiguredMaxTokens();
   },
 
-  serializeHistory() {
-    return this.history.map((message) => ({
+  serializeHistoryMessages(history = this.history) {
+    return (Array.isArray(history) ? history : []).map((message) => ({
       attachments: Array.isArray(message.attachments)
         ? message.attachments.map((attachment) => serializeAttachmentMetadata(attachment))
         : [],
@@ -3249,6 +3255,10 @@ const model = {
       kind: message.kind || "",
       role: message.role
     }));
+  },
+
+  serializeHistory() {
+    return this.serializeHistoryMessages(this.history);
   },
 
   async flushHistoryPersistence() {
@@ -3281,7 +3291,9 @@ const model = {
 
   async persistHistory(options = {}) {
     this.syncCurrentChatRuntime();
-    this.pendingHistorySnapshot = this.serializeHistory();
+    this.pendingHistorySnapshot = Array.isArray(options.snapshot)
+      ? options.snapshot
+      : this.serializeHistory();
     const flushPromise = this.flushHistoryPersistence();
 
     if (options.immediate === true) {
@@ -3291,6 +3303,50 @@ const model = {
         await this.flushHistoryPersistence();
       }
     }
+  },
+
+  async persistPendingTurnHistory(requestMessages) {
+    this.historyCheckpointAt = Date.now();
+    await this.persistHistory({
+      immediate: true,
+      snapshot: this.serializeHistoryMessages(requestMessages)
+    });
+  },
+
+  checkpointStreamingHistory(requestMessages, assistantMessage) {
+    if (!Array.isArray(requestMessages) || !assistantMessage || assistantMessage.role !== "assistant") {
+      return null;
+    }
+
+    const streamedContent = assistantMessage.content || "";
+    const now = Date.now();
+
+    if (!shouldCheckpointOnscreenAgentHistory({
+      assistantContent: streamedContent,
+      isStreaming: assistantMessage.streaming === true,
+      lastCheckpointAt: this.historyCheckpointAt,
+      now
+    })) {
+      return null;
+    }
+
+    const snapshot = buildOnscreenAgentHistoryCheckpoint(
+      this.serializeHistoryMessages(requestMessages),
+      {
+        ...assistantMessage,
+        content: streamedContent
+      }
+    );
+
+    if (!snapshot) {
+      return null;
+    }
+
+    this.historyCheckpointAt = now;
+    return this.persistHistory({
+      immediate: true,
+      snapshot
+    });
   },
 
   async init() {
@@ -3889,6 +3945,7 @@ const model = {
     this.setStreamingAssistantStatus(pendingMessage.content);
     this.maybeShowCompactStreamingAssistantBubble(pendingMessage);
     this.scheduleStreamingMessageRender(pendingMessage);
+    void this.checkpointStreamingHistory(this.activeTurnRequestMessages, pendingMessage);
     return true;
   },
 
@@ -4879,6 +4936,8 @@ const model = {
     this.executionOutputOverrides = Object.create(null);
     this.rerunningMessageId = "";
     this.stopRequested = false;
+    this.activeTurnRequestMessages = null;
+    this.historyCheckpointAt = 0;
     this.activeRequestController?.abort();
     this.activeRequestController = null;
     this.dismissUiBubble({
@@ -5262,7 +5321,9 @@ const model = {
       const assistantMessage = createStreamingAssistantMessage();
 
       this.history = [...requestMessages, assistantMessage];
+      this.activeTurnRequestMessages = requestMessages;
       this.render();
+      await this.persistPendingTurnHistory(requestMessages);
 
       try {
         const streamResult = await this.streamAssistantResponse(requestMessages, assistantMessage, preparedRequest);
@@ -5447,6 +5508,7 @@ const model = {
       this.reportError("running the submission loop", error);
     } finally {
       this.activeRequestController = null;
+      this.activeTurnRequestMessages = null;
       this.isSending = false;
       this.stopRequested = false;
       this.render();
