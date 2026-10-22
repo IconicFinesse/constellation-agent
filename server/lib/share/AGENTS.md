@@ -32,7 +32,8 @@ Current storage contract:
 
 Current validation contract:
 
-- archives are unpacked only into a unique per-request directory under `server/tmp/`
+- archives are unpacked only into a unique per-request directory under the resolved runtime temp root, which defaults to `server/tmp/` and may be overridden by packaged or relocated installs
+- callers must forward the runtime `tmpDir` from their API request context; the helper falls back to `server/tmp/` only when no override exists
 - ZIP inspection and extraction use the host `unzip` tool through the shared helper, not endpoint-local shell calls
 - archive entries must stay relative and must not contain `..`, absolute roots, or drive-qualified paths
 - extracted trees must not contain symbolic links
@@ -62,7 +63,7 @@ Current guest-clone rules:
 
 ### Local Work Rules
 
-- keep hosted-share storage outside the logical app tree and outside `server/tmp/`; `server/tmp/` is only for request-scoped extraction work
+- keep hosted-share storage outside the logical app tree and outside the resolved runtime temp root; that root is only for request-scoped extraction work
 - reuse this helper from endpoints and public share flows instead of duplicating token generation, ZIP validation, or destination naming elsewhere
 - keep browser-side password protection limited to opaque ZIP encryption metadata; the backend should treat encrypted uploads as opaque bytes until the browser submits the decrypted archive for clone or import
 - if hosted-share storage, archive validation, or install semantics change, update this file plus the matching docs in `server/api/AGENTS.md`, `server/pages/AGENTS.md`, and `app/L0/_all/mod/_core/documentation/docs/server/`

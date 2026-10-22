@@ -47,7 +47,7 @@ Important behaviors:
 - stored share metadata includes the token, create time, last-used time, payload size, and optional browser-side password-encryption parameters
 - `cloud_share_info` returns enough metadata for the public share shell to decide whether it must ask for a password before clone
 - `cloud_share_download` returns the stored ZIP bytes so the browser can decrypt password-protected shares before clone
-- `cloud_share_clone` validates the clear ZIP in a unique `server/tmp/` extraction directory, creates a fresh guest account, installs the result as `imported-N`, updates the share `lastUsedAt`, and returns the guest credentials plus redirect URL that the public share shell uses to finish the normal background login flow
+- `cloud_share_clone` validates the clear ZIP in a unique directory under the resolved runtime temp root (`server/tmp/` by default), creates a fresh guest account, installs the result as `imported-N`, updates the share `lastUsedAt`, and returns the guest credentials plus redirect URL that the public share shell uses to finish the normal background login flow
 - authenticated `space_import` uses the same archive-validation path for local ZIP imports from the spaces modal, replacing the current space only when the caller explicitly chooses overwrite; otherwise the imported space is renamed to the next `imported-N` destination
 
 ## Module Endpoints

@@ -27,6 +27,7 @@ Current rules:
 - the janitor removes top-level entries whose `mtime` is older than `25 minutes`
 - the janitor runs on startup and then on a fixed low-memory interval instead of per-file timers
 - repo-owned anchor files such as `server/tmp/.gitignore` are preserved
+- other transient staging, such as hosted-share extraction, resolves the same runtime temp root through `ensureServerTmpDir(tmpDir)` and forwards the resolved `tmpDir` from its request context instead of hardcoding `server/tmp/`
 
 ### Archive Contract
 
