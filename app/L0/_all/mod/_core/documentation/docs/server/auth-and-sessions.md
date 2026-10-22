@@ -106,7 +106,10 @@ When `SINGLE_USER_APP=true`:
 
 - every request resolves to the implicit `user` principal
 - cookie-backed login is bypassed
+- password SCRAM verification and the per-user `userCrypto` record are bypassed, and the browser module switches `userCrypto` to its bypass state instead of encrypting or decrypting text
 - permission helpers treat that principal as a virtual `_admin` member
+
+Because no password proof or client-side `crypto.subtle` consumer remains in this mode, the public-shell browser compatibility gate lets single-user sessions through on plain HTTP over a LAN, where browsers withhold `crypto.subtle` outside HTTPS and localhost; other secure-context-only browser features such as the clipboard API may still be unavailable. Multi-user runtime keeps the full Web Crypto requirement because password proofs and `userCrypto` stay active there.
 
 This mode is used especially by packaged desktop flows.
 
