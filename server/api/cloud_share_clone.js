@@ -20,7 +20,8 @@ export async function post(context) {
       payloadBuffer: context.rawBody,
       projectRoot: context.projectRoot,
       runtimeParams: context.runtimeParams,
-      shareToken: context.query?.token
+      shareToken: context.query?.token,
+      tmpDir: context.tmpDir
     })
   );
 

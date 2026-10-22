@@ -26,6 +26,7 @@ export async function post(context) {
       projectRoot: context.projectRoot,
       runtimeParams: context.runtimeParams,
       targetSpaceId: context.query?.spaceId,
+      tmpDir: context.tmpDir,
       username
     })
   );
