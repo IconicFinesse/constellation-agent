@@ -73,6 +73,7 @@ Prompt rules:
 - `_core/memory` currently uses that normal auto-loaded system-skill channel to teach prompt-include-backed `~/memory/behavior.system.include.md`, `~/memory/memories.transient.include.md`, and optional extra `~/memory/*.transient.include.md` files; do not special-case that skill in prompt-builder code
 - the API-mode fetch branch must finalize its upstream request through `api.js` seam `_core/admin/views/agent/api.js/prepareAdminAgentApiRequest`; provider-specific headers or body rewrites belong in extension modules such as `_core/open_router`, not hard-coded in the admin runtime
 - `api.js` may fold consecutive prepared `user` or `assistant` payload messages into alternating transport turns with `\n\n` joins immediately before the fetch call, but that transport-only fold must not mutate stored history or prompt-history state
+- admin response framing follows the same contract as `_core/onscreen_agent/api.js`: a `text/event-stream` content type keeps the incremental reader, every other 2xx body is buffered and re-detected so SSE delivered under `text/plain`, `application/octet-stream`, or no content type still parses as a stream, and a body that is neither SSE nor JSON raises one actionable error naming status, content type, and a body snippet instead of a raw JSON parsing failure
 - the firmware prompt documents `space.api.userSelfInfo()` as `{ username, fullName, groups, managedGroups, sessionId, userCryptoKeyId, userCryptoState }`, and admin checks should still derive from `groups.includes("_admin")`
 
 ### Execution And UI Contract

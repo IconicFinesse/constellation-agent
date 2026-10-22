@@ -350,9 +350,64 @@ async function throwResponseError(response) {
   throw new Error(`Chat request failed with status ${response.status}: ${detail || response.statusText}`);
 }
 
-async function readStandardResponse(response, onDelta) {
+function createUnsupportedCompletionBodyError(response, bodyText) {
+  const contentType = response.headers.get("content-type") || "unknown";
+  const snippet = String(bodyText || "")
+    .trim()
+    .slice(0, 120)
+    .replace(/\s+/gu, " ");
+
+  return new Error(
+    `Chat request returned status ${response.status} with an unsupported response body ` +
+      `(content-type: ${contentType}). Expected an OpenAI-compatible JSON completion or a ` +
+      `text/event-stream payload but received: ${snippet || "<empty body>"}`
+  );
+}
+
+function looksLikeEventStreamBody(bodyText) {
+  return /^(?:data|event|id|retry):|^:/u.test(String(bodyText || "").trimStart());
+}
+
+function pumpEventStreamText(bodyText, onDelta, meta) {
+  let buffer = String(bodyText || "");
+  let boundary = buffer.indexOf("\n\n");
+
+  while (boundary !== -1) {
+    const eventBlock = buffer.slice(0, boundary).trim();
+    buffer = buffer.slice(boundary + 2);
+
+    if (eventBlock && parseEventBlock(eventBlock, onDelta, meta)) {
+      return finalizeCompletionResponseMeta(meta);
+    }
+
+    boundary = buffer.indexOf("\n\n");
+  }
+
+  const remaining = buffer.trim();
+
+  if (remaining) {
+    parseEventBlock(remaining, onDelta, meta);
+  }
+
+  return finalizeCompletionResponseMeta(meta);
+}
+
+async function readBufferedResponse(response, onDelta) {
+  const bodyText = await response.text();
+
+  if (looksLikeEventStreamBody(bodyText)) {
+    return pumpEventStreamText(bodyText, onDelta, createCompletionResponseMeta("stream"));
+  }
+
+  let payload;
+
+  try {
+    payload = JSON.parse(bodyText);
+  } catch {
+    throw createUnsupportedCompletionBodyError(response, bodyText);
+  }
+
   const meta = createCompletionResponseMeta("standard");
-  const payload = await response.json();
   const message = extractNonStreamingMessage(payload);
 
   noteCompletionPayload(meta, payload, message);
@@ -513,7 +568,7 @@ async function streamAdminAgentApiCompletion({ promptContext, settings, systemPr
   const contentType = response.headers.get("content-type") || "";
 
   if (!contentType.includes("text/event-stream")) {
-    return readStandardResponse(response, onDelta);
+    return readBufferedResponse(response, onDelta);
   }
 
   if (!response.body) {
