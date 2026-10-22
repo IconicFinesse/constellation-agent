@@ -1,5 +1,6 @@
 (function (global) {
   var NAMESPACE = "SpaceBrowserCompatibility";
+  var FRONTEND_CONFIG_META_NAME = "space-config";
   var cachedPromise = null;
   var cachedResult = null;
   var hasRenderedFailure = false;
@@ -23,6 +24,48 @@
 
   function hasFunction(target, name) {
     return Boolean(target && typeof target[name] === "function");
+  }
+
+  function readFrontendConfigValue(paramName, fallback) {
+    try {
+      var documentObject = global && global.document;
+      var normalizedName = String(paramName || "").trim().toUpperCase();
+
+      if (!normalizedName || !documentObject || typeof documentObject.querySelector !== "function") {
+        return fallback;
+      }
+
+      var metaTag = documentObject.querySelector(
+        'meta[name="' + FRONTEND_CONFIG_META_NAME + '"][data-space-param="' + normalizedName + '"]'
+      );
+
+      if (!metaTag) {
+        return fallback;
+      }
+
+      var type = String((metaTag.dataset && metaTag.dataset.spaceType) || "text").trim().toLowerCase();
+      var content = String(metaTag.content || "");
+
+      if (type === "boolean") {
+        return content === "true";
+      }
+
+      if (type === "number") {
+        var numericValue = Number(content);
+        return isFinite(numericValue) ? numericValue : fallback;
+      }
+
+      return content;
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  function passwordLoginUsesWebCrypto() {
+    // Single-user runtime returns an implicit principal, skips password SCRAM and
+    // switches userCrypto to its bypass state, so no client-side crypto.subtle
+    // consumer remains. Multi-user always keeps that dependency once signed in.
+    return readFrontendConfigValue("SINGLE_USER_APP", false) !== true;
   }
 
   function canUseStorage(storageName) {
@@ -183,35 +226,48 @@
       missingCryptoParts.push("crypto.getRandomValues");
     }
 
-    if (!subtle) {
-      missingCryptoParts.push("crypto.subtle");
-    } else {
-      if (typeof subtle.importKey !== "function") {
-        missingCryptoParts.push("crypto.subtle.importKey");
-      }
-      if (typeof subtle.digest !== "function") {
-        missingCryptoParts.push("crypto.subtle.digest");
-      }
-      if (typeof subtle.sign !== "function") {
-        missingCryptoParts.push("crypto.subtle.sign");
-      }
-      if (typeof subtle.deriveBits !== "function") {
-        missingCryptoParts.push("crypto.subtle.deriveBits");
-      }
-      if (typeof subtle.encrypt !== "function") {
-        missingCryptoParts.push("crypto.subtle.encrypt");
-      }
-      if (typeof subtle.decrypt !== "function") {
-        missingCryptoParts.push("crypto.subtle.decrypt");
+    // Password login proofs and the per-user userCrypto record are the only hard
+    // crypto.subtle consumers in the public shells. Single-user runtime bypasses
+    // both, so it must not demand a secure context just to reach the launcher.
+    var passwordLoginNeedsCrypto = passwordLoginUsesWebCrypto();
+
+    if (passwordLoginNeedsCrypto) {
+      if (!subtle) {
+        missingCryptoParts.push("crypto.subtle");
+      } else {
+        if (typeof subtle.importKey !== "function") {
+          missingCryptoParts.push("crypto.subtle.importKey");
+        }
+        if (typeof subtle.digest !== "function") {
+          missingCryptoParts.push("crypto.subtle.digest");
+        }
+        if (typeof subtle.sign !== "function") {
+          missingCryptoParts.push("crypto.subtle.sign");
+        }
+        if (typeof subtle.deriveBits !== "function") {
+          missingCryptoParts.push("crypto.subtle.deriveBits");
+        }
+        if (typeof subtle.encrypt !== "function") {
+          missingCryptoParts.push("crypto.subtle.encrypt");
+        }
+        if (typeof subtle.decrypt !== "function") {
+          missingCryptoParts.push("crypto.subtle.decrypt");
+        }
       }
     }
 
     if (missingCryptoParts.length > 0) {
-      var cryptoDetail =
-        "Password login and user crypto require " + missingCryptoParts.join(", ") + ".";
+      var cryptoDetail = passwordLoginNeedsCrypto
+        ? "Password login and user crypto require " + missingCryptoParts.join(", ") + "."
+        : "Space Agent needs " + missingCryptoParts.join(", ") + ".";
 
       if (global.isSecureContext === false) {
-        cryptoDetail += " This page is not running in a secure context. Use HTTPS or localhost.";
+        cryptoDetail += " This page is not running in a secure context.";
+
+        if (passwordLoginNeedsCrypto) {
+          cryptoDetail +=
+            " Use HTTPS or localhost, or run the server with SINGLE_USER_APP=true to skip password login and its Web Crypto requirement.";
+        }
       }
 
       problems.push(createProblem("web-crypto", "Web Crypto", cryptoDetail));
@@ -368,9 +424,16 @@
         "</li>";
     }
 
-    html +=
-      "</ul>" +
-      '<p class="browser-compat-note">Use a current version of Chrome, Edge, Firefox, or Safari. If Web Crypto is unavailable, open Space Agent over HTTPS or localhost.</p>';
+    html += "</ul>";
+
+    var note = "Use a current version of Chrome, Edge, Firefox, or Safari.";
+
+    if (passwordLoginUsesWebCrypto()) {
+      note +=
+        " If Web Crypto is unavailable, open Space Agent over HTTPS or localhost, or run the server with SINGLE_USER_APP=true to skip password login.";
+    }
+
+    html += '<p class="browser-compat-note">' + note + "</p>";
 
     return html;
   }
