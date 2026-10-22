@@ -36,6 +36,9 @@ Current validation contract:
 - ZIP inspection and extraction are implemented in-process in the shared helper with Node `zlib`, so imports never depend on a host `unzip` binary and must not shell out
 - every archive entry keeps its declared name, compression method, size, and CRC32; extraction streams each entry to disk, rejects entries whose decompressed size or CRC32 does not match the archive metadata, and caps inflate work at the declared uncompressed size
 - malformed, truncated, byte-damaged, or otherwise unreadable archives fail as explicit `400` errors with a short user-safe message naming the archive problem instead of surfacing as a redacted `500`
+- archives are unpacked only into a unique per-request directory under the resolved runtime temp root, which defaults to `server/tmp/` and may be overridden by packaged or relocated installs
+- callers must forward the runtime `tmpDir` from their API request context; the helper falls back to `server/tmp/` only when no override exists
+- ZIP inspection and extraction use the host `unzip` tool through the shared helper, not endpoint-local shell calls
 - archive entries must stay relative and must not contain `..`, absolute roots, or drive-qualified paths
 - extracted trees must not contain symbolic links
 - the archive must contain exactly one space root, either directly or one folder deep
@@ -64,7 +67,7 @@ Current guest-clone rules:
 
 ### Local Work Rules
 
-- keep hosted-share storage outside the logical app tree and outside `server/tmp/`; `server/tmp/` is only for request-scoped extraction work
+- keep hosted-share storage outside the logical app tree and outside the resolved runtime temp root; that root is only for request-scoped extraction work
 - reuse this helper from endpoints and public share flows instead of duplicating token generation, ZIP validation, or destination naming elsewhere
 - keep browser-side password protection limited to opaque ZIP encryption metadata; the backend should treat encrypted uploads as opaque bytes until the browser submits the decrypted archive for clone or import
 - if hosted-share storage, archive validation, or install semantics change, update this file plus the matching docs in `server/api/AGENTS.md`, `server/pages/AGENTS.md`, and `app/L0/_all/mod/_core/documentation/docs/server/`

@@ -335,8 +335,8 @@ function sanitizeTempSegment(value) {
   return candidate || "share";
 }
 
-function createUniqueTempDir(prefix) {
-  const tmpRoot = ensureServerTmpDir(SERVER_TMP_DIR);
+function createUniqueTempDir(prefix, tmpDir) {
+  const tmpRoot = ensureServerTmpDir(tmpDir || SERVER_TMP_DIR);
   const tempDirPath = path.join(
     tmpRoot,
     sanitizeTempSegment(prefix) + "-" + Date.now().toString(36) + "-" + randomBytes(5).toString("hex")
@@ -758,6 +758,7 @@ async function validateExtractedSpaceRoot(spaceRoot) {
 }
 
 async function extractValidatedSpaceArchive(payloadBuffer, options = {}) {
+
   if (!Buffer.isBuffer(payloadBuffer)) {
     throw createShareError(
       "Shared space imports require the raw ZIP archive bytes.",
@@ -766,7 +767,7 @@ async function extractValidatedSpaceArchive(payloadBuffer, options = {}) {
   }
 
   const entries = validateArchiveEntries(readZipArchiveEntries(payloadBuffer));
-  const archiveDir = createUniqueTempDir(options.tempPrefix || "share-archive");
+  const archiveDir = createUniqueTempDir(options.tempPrefix || "share-archive", options.tmpDir);
   const extractionDir = path.join(archiveDir, "extracted");
 
   try {
@@ -883,7 +884,8 @@ async function importSpaceArchiveForUser(options = {}) {
 
   const mode = String(options.mode || "import").trim().toLowerCase();
   const archiveHandle = await extractValidatedSpaceArchive(options.payloadBuffer, {
-    tempPrefix: "space-import-" + username
+    tempPrefix: "space-import-" + username,
+    tmpDir: options.tmpDir
   });
 
   try {
@@ -933,7 +935,8 @@ async function cloneHostedCloudShareToGuest(options = {}) {
   }
 
   const archiveHandle = await extractValidatedSpaceArchive(options.payloadBuffer, {
-    tempPrefix: "share-clone-" + shareToken
+    tempPrefix: "share-clone-" + shareToken,
+    tmpDir: options.tmpDir
   });
 
   try {

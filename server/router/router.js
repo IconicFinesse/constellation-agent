@@ -371,6 +371,7 @@ function createRequestHandler(options) {
           projectRoot,
           runtimeParams,
           stateSystem,
+          tmpDir,
           ensureUserFileIndex,
           requestContext,
           tmpDir,
