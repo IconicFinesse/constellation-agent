@@ -30,22 +30,20 @@ The public site at `space-agent.ai` is the live demo entry point. The same proje
 
 ### Live Demo
 
-Use `https://space-agent.ai` to try the hosted demo server with guest access when available.
+The upstream project runs a hosted demo with guest access at `https://space-agent.ai`. Constellation Agent itself is distributed as source; there are no prebuilt binaries published yet.
 
 ### Desktop App
 
 Download the latest desktop build from:
 
-- [Latest desktop release](https://github.com/agent0ai/space-agent/releases/latest)
-
-The desktop app runs the same browser-first runtime inside a packaged host, without requiring the user to manage a separate terminal session.
+Build it from a source checkout with the packaging scripts. The desktop host runs the same browser-first runtime inside a packaged app, without requiring the user to manage a separate terminal session. No prebuilt binaries are published yet.
 
 ### Self-Hosted Server
 
 Quick start from the README:
 
 ```bash
-git clone https://github.com/agent0ai/space-agent.git
+git clone https://github.com/IconicFinesse/constellation-agent.git
 cd constellation-agent
 npm install
 node space user create admin --password "change-me-now" --full-name "Admin" --groups _admin
@@ -75,20 +73,19 @@ The project also uses plain-text `SKILL.md` files for agent capabilities and foc
 
 For a human-readable tour of the same codebase and concepts, use:
 
-- [DeepWiki](https://deepwiki.com/agent0ai/space-agent)
+- [Roadmap](https://github.com/IconicFinesse/constellation-agent/blob/main/ROADMAP.md)
 
 For the primary public product overview and quick starts, use:
 
-- [README.md](https://raw.githubusercontent.com/agent0ai/space-agent/main/README.md)
+- [README.md](https://github.com/IconicFinesse/constellation-agent#readme)
 
 For the architecture and ownership contract map that governs changes in-repo, use:
 
-- [AGENTS.md](https://raw.githubusercontent.com/agent0ai/space-agent/main/AGENTS.md)
+- [AGENTS.md](https://github.com/IconicFinesse/constellation-agent/blob/main/AGENTS.md)
 
 ## Important Links
 
-- [Live site](https://space-agent.ai/)
-- [Public login shell](https://space-agent.ai/login)
-- [GitHub repository](https://github.com/agent0ai/space-agent)
-- [Latest desktop release](https://github.com/agent0ai/space-agent/releases/latest)
+- [GitHub repository](https://github.com/IconicFinesse/constellation-agent)
+- [Upstream Space Agent](https://github.com/agent0ai/space-agent)
+- [Fork charter](https://github.com/IconicFinesse/constellation-agent/blob/main/FORK.md)
 - [Agent Zero](https://agent-zero.ai)

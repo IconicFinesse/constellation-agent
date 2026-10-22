@@ -8,19 +8,20 @@ Use `llms-full.txt` for the longer project description. Use the README for quick
 
 ## Project
 
-- [Constellation Agent full context](https://space-agent.ai/llms-full.txt): Expanded project summary derived from the current README and runtime contracts.
-- [GitHub README](https://raw.githubusercontent.com/agent0ai/space-agent/main/README.md): Product overview, quick starts, desktop app, self-hosting, and development entry points.
-- [Repo-wide AGENTS contract](https://raw.githubusercontent.com/agent0ai/space-agent/main/AGENTS.md): Documentation map, ownership rules, and top-level architecture.
+- [Constellation Agent full context](/llms-full.txt): Expanded project summary derived from the current README and runtime contracts.
+- [GitHub README](https://github.com/IconicFinesse/constellation-agent#readme): Product overview, what the fork adds, roadmap, and self-hosting entry points.
+- [Repo-wide AGENTS contract](https://github.com/IconicFinesse/constellation-agent/blob/main/AGENTS.md): Documentation map, ownership rules, and top-level architecture.
 
 ## Public Entry Points
 
-- [Live site](https://space-agent.ai/): Public Constellation Agent URL used for sharing and the hosted demo entry point.
-- [Public login shell](https://space-agent.ai/login): Public shell for the hosted demo server.
+- [Upstream hosted demo](https://space-agent.ai/): Space Agent demo server with guest access, run by the upstream project.
+- [Roadmap](https://github.com/IconicFinesse/constellation-agent/blob/main/ROADMAP.md): Shipped work, in-progress items, and exploring directions.
 
 ## Downloads And Docs
 
-- [Latest desktop release](https://github.com/agent0ai/space-agent/releases/latest): Current desktop app binaries.
-- [DeepWiki](https://deepwiki.com/agent0ai/space-agent): Human-readable tour of the codebase and architecture.
+- [Building from source](https://github.com/IconicFinesse/constellation-agent#run-it-yourself): Clone, install, and run the server. No prebuilt binaries are published yet.
+- [Fork charter](https://github.com/IconicFinesse/constellation-agent/blob/main/FORK.md): Provenance, baseline tag, and divergence policy.
+- [Project thesis](https://github.com/IconicFinesse/constellation-agent/blob/main/PROJECT-THESIS.md): Scope decision and the additive namespace rule.
 
 ## Optional
 

@@ -9,8 +9,9 @@ Disallow: /L1/
 Disallow: /L2/
 Disallow: /~/
 
-Sitemap: https://space-agent.ai/sitemap.xml
+# Set this to your own deployment origin before publishing:
+# Sitemap: https://your-domain.example/sitemap.xml
 
-# LLM context files
-# https://space-agent.ai/llms.txt
-# https://space-agent.ai/llms-full.txt
+# LLM context files are served from this same origin:
+# /llms.txt
+# /llms-full.txt

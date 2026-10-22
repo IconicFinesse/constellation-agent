@@ -50,7 +50,7 @@ Current public shell assets:
 - loads shared framework CSS and `/mod/_core/framework/js/initFw.js`
 - when the current request already has launcher access, receives a page-shell guard before `/mod/...` assets so a new browser-opened tab or window is redirected to `/enter?next=<current-url>` before customware loads; framework-created same-origin `_blank` opens may pre-grant the same tab-access marker before loading this shell
 - receives injected `meta[name="space-config"]` tags for any `frontend_exposed` runtime parameters
-- declares the shared product-level social-preview metadata for Open Graph and Twitter, using the production card title `Constellation Agent | Browser-First AI Agent Runtime`, the shared browser-first runtime description, and the local `server/pages/res/readme-banner.webp` asset published at `https://space-agent.ai/pages/res/readme-banner.webp`
+- declares the shared product-level social-preview metadata for Open Graph and Twitter, using the production card title `Constellation Agent | Browser-First AI Agent Runtime`, the shared browser-first runtime description, and the local `server/pages/res/readme-banner.webp` asset referenced by a same-origin path so no deployment hardcodes a domain it does not own
 - declares the shared Constellation Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and app manifest metadata
 - keeps the body minimal and exposes exactly the `body/start` extension anchor
 
@@ -68,7 +68,7 @@ Current public shell assets:
 
 - is public and must not depend on authenticated `/mod/...` assets
 - owns the login flow, guest creation flow, login-disabled fallback copy, and pre-auth layout
-- declares the same shared product-level Open Graph and Twitter social-preview card as the other shells, so anonymous shares of `https://space-agent.ai/` still resolve to a Constellation Agent product preview after the server redirects crawlers to `/login`
+- declares the same shared product-level Open Graph and Twitter social-preview card as the other shells, so anonymous shares of any deployment origin still resolve to a Constellation Agent product preview after the server redirects crawlers to `/login`
 - renders a centered footer below the main shell content with white semi-transparent outbound icons for GitHub, Discord, X, and a slightly larger Agent Zero logo in the last slot, then places the injected `SPACE_PROJECT_VERSION` value beneath that icon row
 - reads injected `meta[name="space-config"]` tags directly so guest-login UI and the password form can follow backend runtime parameters such as `ALLOW_GUEST_USERS` and `LOGIN_ALLOWED` without authenticated module imports
 - declares the shared Constellation Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and the `Login | Constellation Agent` document title
@@ -85,7 +85,7 @@ Current public shell assets:
 - renders the guest-account removal warning with yellow warning treatment and a recovery-safe inline Google Material Symbols warning icon, without depending on authenticated icon fonts
 - keeps the self-host call-to-action visually separated from the sign-in form even when guest account creation is disabled and the guest-only block is hidden
 - opens the self-host call-to-action as a two-panel login-styled modal: `Native App` and `Own Server` panels split left-right on desktop and stack top-bottom on mobile, with a privacy/security subtitle, one short explanatory line per panel, a large inline Material icon, and a local inline-icon action button
-- keeps the modal's outbound URLs as navigation only: the native app button links to the `agent0ai/space-agent` latest-release redirect, and the server-hosting button links to the README `#host` section
+- keeps the modal's outbound URLs as navigation only: the native app button links to this repository's own release page, and the server-hosting button links to the README `#run-it-yourself` section
 - keeps the footer social links as navigation-only outbound targets to the Constellation Agent repository, Discord community, Agent Zero website, and X account
 - keeps the mobile shell scrollable when the viewport is shorter than the content, and reserves extra small-screen side spacing for the intro column rather than inflating the login card
 - keeps the mirrored canvas gradient and star or glow backdrop pinned to fixed viewport layers while the login shell content scrolls

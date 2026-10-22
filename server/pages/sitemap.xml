@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <!-- Sitemap specifications require absolute URLs. Replace the placeholder
+       origin below with your own deployment origin before publishing. -->
   <url>
-    <loc>https://space-agent.ai/</loc>
+    <loc>https://your-domain.example/</loc>
   </url>
   <url>
-    <loc>https://space-agent.ai/login</loc>
+    <loc>https://your-domain.example/login</loc>
   </url>
 </urlset>
