@@ -36,7 +36,7 @@ Current UI and persistence contract:
 - the route should rely on its inner shell width and card spacing instead of extra page-root horizontal padding, so it stays aligned with the shared routed column
 - the first card is informational and should keep the floating astronaut asset from the login shell via `/pages/res/astronaut_no_bg.webp`
 - that floating astronaut should stay shadowless so the page matches the shared glass direction
-- the first card should explain Space Agent as a browser-first runtime that can reshape the live workspace and scale from personal use to shared group use; it should not foreground implementation paths or prompt-include filenames
+- the first card should explain Constellation Agent as a browser-first runtime that can reshape the live workspace and scale from personal use to shared group use; it should not foreground implementation paths or prompt-include filenames
 - the first card does not show current-user identity text and ends with one compact external repo action that links to `https://github.com/agent0ai/space-agent`
 - the second card owns the personality textarea and should load or save the exact file body from `~/conf/personality.system.include.md`
 - the personality textarea has no extra label line above it and uses compact shared button styling for reload and save actions

@@ -1,20 +1,20 @@
-# Space Agent
+# Constellation Agent
 
 > Browser-first AI agent runtime for building AI spaces, tools, widgets, and workflows directly in the browser, with a thin Node.js server for infrastructure, auth, and local hosting.
 
-Space Agent is the browser-first runtime from Agent Zero. The browser app is the primary runtime; the Node.js side exists mainly for outbound fetch proxying, server-owned APIs, local development, and optional desktop hosting. The project is modular, layered, and designed for AI-driven development through `AGENTS.md` contracts and plain-text `SKILL.md` files.
+Constellation Agent is the browser-first runtime from Agent Zero. The browser app is the primary runtime; the Node.js side exists mainly for outbound fetch proxying, server-owned APIs, local development, and optional desktop hosting. The project is modular, layered, and designed for AI-driven development through `AGENTS.md` contracts and plain-text `SKILL.md` files.
 
 Use `llms-full.txt` for the longer project description. Use the README for quick starts and hosting instructions, and use the AGENTS docs when you need the architecture and ownership map that guides changes in this repository.
 
 ## Project
 
-- [Space Agent full context](https://space-agent.ai/llms-full.txt): Expanded project summary derived from the current README and runtime contracts.
+- [Constellation Agent full context](https://space-agent.ai/llms-full.txt): Expanded project summary derived from the current README and runtime contracts.
 - [GitHub README](https://raw.githubusercontent.com/agent0ai/space-agent/main/README.md): Product overview, quick starts, desktop app, self-hosting, and development entry points.
 - [Repo-wide AGENTS contract](https://raw.githubusercontent.com/agent0ai/space-agent/main/AGENTS.md): Documentation map, ownership rules, and top-level architecture.
 
 ## Public Entry Points
 
-- [Live site](https://space-agent.ai/): Public Space Agent URL used for sharing and the hosted demo entry point.
+- [Live site](https://space-agent.ai/): Public Constellation Agent URL used for sharing and the hosted demo entry point.
 - [Public login shell](https://space-agent.ai/login): Public shell for the hosted demo server.
 
 ## Downloads And Docs

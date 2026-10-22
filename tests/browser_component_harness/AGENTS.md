@@ -25,7 +25,7 @@ Those remain owned by `tests/AGENTS.md`.
 
 ### Local Contracts
 
-- this harness is intentionally narrower than the real desktop app; it should exercise the browser guest path directly and must not recreate the full Space Agent shell, router, or app stores
+- this harness is intentionally narrower than the real desktop app; it should exercise the browser guest path directly and must not recreate the full Constellation Agent shell, router, or app stores
 - the harness must keep a single browser instance with the public browser id `1` and the internal guest id `browser-1`
 - because that single browser id is always `1`, manual harness commands such as `detail 1`, `click 1`, `submit 1`, `scroll 1`, `type 1 ...`, and `type-submit 1 ...` must treat that trailing `1` as the reference id when no extra scoped browser id is present; browser-id stripping is only valid when additional scoped arguments remain
 - the standalone harness must reuse the real browser guest runtime from `app/L0/_all/mod/_core/web_browsing/` and the real Electron guest preload from `packaging/desktop/browser-webview-preload.js`; do not fork separate browser logic here unless the test surface truly needs harness-only glue

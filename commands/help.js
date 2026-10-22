@@ -18,7 +18,7 @@ function printCommandList(helpEntries) {
     0
   );
 
-  console.log("Space Agent CLI");
+  console.log("Constellation Agent CLI");
   console.log("");
   console.log("Usage:");
   console.log("  node space <command> [args]");

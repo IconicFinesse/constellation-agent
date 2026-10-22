@@ -100,7 +100,7 @@ test("page shells are served with no-store headers", async () => {
 
   const payload = await result;
   assert.equal(payload.statusCode, 200);
-  assert.ok(payload.body.includes("<title>Space Agent</title>"));
+  assert.ok(payload.body.includes("<title>Constellation Agent</title>"));
   assertNoStoreHeaders(payload.headers);
 });
 

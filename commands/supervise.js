@@ -333,7 +333,7 @@ async function resolveSupervisorSource(options, projectRoot) {
 
 export const help = {
   name: "supervise",
-  summary: "Run Space Agent behind a production-ready zero-downtime auto-update supervisor.",
+  summary: "Run Constellation Agent behind a production-ready zero-downtime auto-update supervisor.",
   usage: [
     "node space supervise CUSTOMWARE_PATH=/srv/space/customware",
     "node space supervise HOST=0.0.0.0 PORT=3000 CUSTOMWARE_PATH=/srv/space/customware",

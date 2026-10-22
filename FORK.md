@@ -1,13 +1,22 @@
 # SpaceAgentFork
 
-Fork of [agent0ai/space-agent](https://github.com/agent0ai/space-agent) under [IconicFinesse/space-agent](https://github.com/IconicFinesse/space-agent).
+Fork of [agent0ai/space-agent](https://github.com/agent0ai/space-agent) under [IconicFinesse/constellation-agent](https://github.com/IconicFinesse/constellation-agent).
 
 ## Thesis
 
-**_(placeholder — to be filled after the idea-crafting session)_**
+**The fork is a layer, not a hard fork.** Full decision record:
+[`../FORK-THESIS.md`](../FORK-THESIS.md).
 
-One sentence for what this fork is that upstream is not. Until decided: no
-structural divergence beyond tooling and docs; experiments happen in branches.
+One sentence: *fix upstream-shaped, build fork-shaped, and freeze contracts
+before content.*
+
+- **Register A** — every file that exists in `upstream/main`. Upstream-shaped,
+  minimal, PR-mergeable. The bug phase lives here.
+- **Register B** — a fork-owned tracked namespace at
+  `app/L0/_all/mod/spaceagentfork/<repo>/`. No upstream restraint applies
+  because it cannot appear in a PR diff. This is where fork features live.
+- Escalation to a hard fork is **trigger-gated**, never achieved by drift.
+  See FORK-THESIS.md §7 for the four triggers.
 
 ## Baseline
 
@@ -21,7 +30,7 @@ structural divergence beyond tooling and docs; experiments happen in branches.
 
 ## Remotes
 
-- `origin` — IconicFinesse/space-agent (ours; releases ship from here)
+- `origin` — IconicFinesse/constellation-agent (ours; releases ship from here)
 - `upstream` — agent0ai/space-agent (kept forever; fetch before any merge work)
 
 ## Divergence Policy

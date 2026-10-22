@@ -207,7 +207,7 @@ function addSourceStaleNames(context, record) {
 
 function buildCanonicalAssetName(releaseVersion, platform, arch, baseExtension) {
   if (platform === "macos" && baseExtension === "zip") {
-    return "Space-Agent-" + releaseVersion + "-" + platform + "-" + arch + "-update.zip";
+    return "Constellation-Agent-" + releaseVersion + "-" + platform + "-" + arch + "-update.zip";
   }
 
   const publicExtension = PUBLIC_EXTENSION_MAP[baseExtension];
@@ -217,7 +217,7 @@ function buildCanonicalAssetName(releaseVersion, platform, arch, baseExtension) 
     );
   }
 
-  return "Space-Agent-" + releaseVersion + "-" + platform + "-" + arch + "." + publicExtension;
+  return "Constellation-Agent-" + releaseVersion + "-" + platform + "-" + arch + "." + publicExtension;
 }
 
 function createCanonicalMetadataArtifact(record, releaseVersion, metadataEntry) {

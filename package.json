@@ -1,5 +1,5 @@
 {
-  "name": "space-agent",
+  "name": "constellation-agent",
   "version": "0.36.0",
   "private": true,
   "description": "Browser-first AI agent with a thin Node.js server.",
@@ -32,13 +32,13 @@
     "node": ">=20"
   },
   "build": {
-    "appId": "com.spaceagent.desktop",
-    "productName": "Space Agent",
+    "appId": "com.constellationagent.desktop",
+    "productName": "Constellation Agent",
     "npmRebuild": false,
     "publish": {
       "provider": "github",
       "owner": "agent0ai",
-      "repo": "space-agent",
+      "repo": "constellation-agent",
       "releaseType": "release"
     },
     "files": [
@@ -57,7 +57,7 @@
       "buildResources": "packaging/resources"
     },
     "mac": {
-      "icon": "packaging/resources/icons/source/space-agent-icon.png",
+      "icon": "packaging/resources/icons/source/constellation-agent-icon.png",
       "category": "public.app-category.developer-tools",
       "target": [
         "dmg",

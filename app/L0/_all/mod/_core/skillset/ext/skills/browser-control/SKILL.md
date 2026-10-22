@@ -94,7 +94,7 @@ Typing into the active search box now
 _____javascript
 const content = await space.browser.content(1)
 console.log(content.document)
-return await space.browser.typeSubmit(1, 79, "Space Agent")
+return await space.browser.typeSubmit(1, 79, "Constellation Agent")
 
 Running a last-resort page script now
 _____javascript

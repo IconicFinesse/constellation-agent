@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://space-agent.ai"><img src="./.github/readme-banner-thin.svg" alt="Space Agent banner" /></a>
+  <a href="https://space-agent.ai"><img src="./.github/readme-banner-thin.svg" alt="Constellation Agent banner" /></a>
 </p>
 
 <p align="center">
@@ -24,10 +24,10 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=CNRHxEZ8yqs"><img src="./.github/thumbnail.webp" alt="Watch Space Agent on YouTube" width="560" /></a>
+  <a href="https://www.youtube.com/watch?v=CNRHxEZ8yqs"><img src="./.github/thumbnail.webp" alt="Watch Constellation Agent on YouTube" width="560" /></a>
 </p>
 
-## Why Space Agent Is Different
+## Why Constellation Agent Is Different
 
 <table width="100%" border="0" cellpadding="0" cellspacing="0">
   <tr>
@@ -42,11 +42,11 @@
   </tr>
   <tr>
     <td align="center" valign="top" width="50%">
-      <img src="packaging/resources/icons/source/space-agent-icon-256.webp" alt="Space Agent app icon" width="120" />
+      <img src="packaging/resources/icons/source/constellation-agent-icon-256.webp" alt="Constellation Agent app icon" width="120" />
     </td>
     <td valign="top" width="50%">
       <strong>The agent lives in the frontend runtime</strong><br />
-      Space Agent runs in the browser layer itself, whether you open it in a tab or through the desktop app, so the agent can work directly with the same framework, modules, spaces, and UI it is reshaping.
+      Constellation Agent runs in the browser layer itself, whether you open it in a tab or through the desktop app, so the agent can work directly with the same framework, modules, spaces, and UI it is reshaping.
     </td>
   </tr>
   <tr>
@@ -62,16 +62,16 @@
   <tr>
     <td valign="top" width="50%">
       <strong>Puzzle-piece modularity</strong><br />
-      The core stays small. Most of Space Agent is made of modular pieces that can be added, removed, or swapped cleanly instead of being welded into one rigid app.
+      The core stays small. Most of Constellation Agent is made of modular pieces that can be added, removed, or swapped cleanly instead of being welded into one rigid app.
     </td>
     <td align="center" valign="top" width="50%">
-      <img src="app/L0/_all/mod/_core/visual/res/chat/admin/helmet_no_bg_256.webp" alt="Space Agent helmet" height="112" />
+      <img src="app/L0/_all/mod/_core/visual/res/chat/admin/helmet_no_bg_256.webp" alt="Constellation Agent helmet" height="112" />
     </td>
   </tr>
   <tr>
     <td valign="top" width="50%">
       <strong>Personal to hierarchical</strong><br />
-      Use Space Agent as a completely personal assistant, or organize it into a hierarchical system of users and groups as the scope grows.
+      Use Constellation Agent as a completely personal assistant, or organize it into a hierarchical system of users and groups as the scope grows.
     </td>
     <td valign="top" width="50%">
       <strong>Per-user work, group sharing</strong><br />
@@ -80,7 +80,7 @@
   </tr>
   <tr>
     <td align="center" valign="top" width="50%">
-      <img src="app/L0/_all/mod/_core/visual/res/engineer/astronaut_red_512h.webp" alt="Space Agent astronaut" height="148" />
+      <img src="app/L0/_all/mod/_core/visual/res/engineer/astronaut_red_512h.webp" alt="Constellation Agent astronaut" height="148" />
     </td>
     <td valign="top" width="50%">
       <strong>Persistent admin and time travel</strong><br />
@@ -107,7 +107,7 @@ Grab the latest build from [GitHub Releases](https://github.com/agent0ai/space-a
 
 ```bash
 git clone https://github.com/agent0ai/space-agent.git
-cd space-agent
+cd constellation-agent
 npm install
 
 # create yourself an admin
@@ -136,7 +136,7 @@ Run `node space help` to see the full command surface and built-in help for each
 
 ## AI-driven development and documentation
 
-Space Agent is developed by AI agents, including its documentation.
+Constellation Agent is developed by AI agents, including its documentation.
 
 The framework keeps a DOX `AGENTS.md` hierarchy, plus skills and focused docs, so agents can understand ownership, architecture, workflows, and local implementation rules while they build and maintain the system autonomously.
 

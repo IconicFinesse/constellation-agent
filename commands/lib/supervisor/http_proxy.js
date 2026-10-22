@@ -2,7 +2,7 @@ import http from "node:http";
 import net from "node:net";
 
 function sendNoActiveServer(res) {
-  const body = `${JSON.stringify({ error: "No active Space Agent server is ready." })}\n`;
+  const body = `${JSON.stringify({ error: "No active Constellation Agent server is ready." })}\n`;
 
   res.writeHead(503, {
     "Content-Length": Buffer.byteLength(body),
@@ -42,7 +42,7 @@ function proxyHttpRequest(req, res, activeChild) {
       return;
     }
 
-    const body = `${JSON.stringify({ error: "Active Space Agent server is unavailable." })}\n`;
+    const body = `${JSON.stringify({ error: "Active Constellation Agent server is unavailable." })}\n`;
     res.writeHead(502, {
       "Content-Length": Buffer.byteLength(body),
       "Content-Type": "application/json; charset=utf-8"

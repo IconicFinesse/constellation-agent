@@ -1290,12 +1290,12 @@ export async function createIsomorphicGitHistoryClient({ repoRoot }) {
         const hash = await git.commit({
           ...repoOptions,
           author: {
-            email: String(options.authorEmail || "space-agent@local"),
-            name: String(options.authorName || "Space Agent")
+            email: String(options.authorEmail || "constellation-agent@local"),
+            name: String(options.authorName || "Constellation Agent")
           },
           committer: {
-            email: String(options.authorEmail || "space-agent@local"),
-            name: String(options.authorName || "Space Agent")
+            email: String(options.authorEmail || "constellation-agent@local"),
+            name: String(options.authorName || "Constellation Agent")
           },
           message: String(options.message || "Update customware history")
         });
@@ -1622,12 +1622,12 @@ export async function createIsomorphicGitHistoryClient({ repoRoot }) {
         const nextHash = await git.commit({
           ...repoOptions,
           author: {
-            email: String(options.authorEmail || "space-agent@local"),
-            name: String(options.authorName || "Space Agent")
+            email: String(options.authorEmail || "constellation-agent@local"),
+            name: String(options.authorName || "Constellation Agent")
           },
           committer: {
-            email: String(options.authorEmail || "space-agent@local"),
-            name: String(options.authorName || "Space Agent")
+            email: String(options.authorEmail || "constellation-agent@local"),
+            name: String(options.authorName || "Constellation Agent")
           },
           message: summary ? `Revert "${summary}"` : "Revert " + shortenOid(hash)
         });

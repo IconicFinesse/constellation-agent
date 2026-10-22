@@ -8,7 +8,7 @@
 @import "./surfaces/cards.css";
 
 /*
- * Space Agent glass stays shadowless across authenticated app surfaces.
+ * Constellation Agent glass stays shadowless across authenticated app surfaces.
  * Depth comes from blur, borders, and background contrast rather than painted shadows.
  */
 body.app-page-router :where(*, *::before, *::after),

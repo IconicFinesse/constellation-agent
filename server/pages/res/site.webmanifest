@@ -1,6 +1,6 @@
 {
-  "name": "Space Agent",
-  "short_name": "Space Agent",
+  "name": "Constellation Agent",
+  "short_name": "Constellation Agent",
   "description": "Browser-first AI agent runtime.",
   "icons": [
     {

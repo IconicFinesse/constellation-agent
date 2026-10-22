@@ -68,7 +68,7 @@ await once(providerServer, "listening");
 
 const providerBaseUrl = `http://127.0.0.1:${providerServer.address().port}`;
 
-// Stand-in for the space-agent server: only `/api/proxy` is mounted, and it runs the
+// Stand-in for the constellation-agent server: only `/api/proxy` is mounted, and it runs the
 // real outbound transport so the test exercises the shipped proxy handler too.
 const { proxyExternalRequest } = await import("../server/router/proxy.js");
 

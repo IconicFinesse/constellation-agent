@@ -81,15 +81,15 @@ function buildDownloadsTable(currentTag) {
   const rows = [
     {
       architecture: "x86",
-      macos: { text: "Mac Intel", fileName: `Space-Agent-${releaseVersion}-macos-x64.dmg` },
-      linux: { text: "Linux x86", fileName: `Space-Agent-${releaseVersion}-linux-x64.AppImage` },
-      windows: { text: "Win x86", fileName: `Space-Agent-${releaseVersion}-windows-x64.exe` }
+      macos: { text: "Mac Intel", fileName: `Constellation-Agent-${releaseVersion}-macos-x64.dmg` },
+      linux: { text: "Linux x86", fileName: `Constellation-Agent-${releaseVersion}-linux-x64.AppImage` },
+      windows: { text: "Win x86", fileName: `Constellation-Agent-${releaseVersion}-windows-x64.exe` }
     },
     {
       architecture: "ARM",
-      macos: { text: "Mac ARM", fileName: `Space-Agent-${releaseVersion}-macos-arm64.dmg` },
-      linux: { text: "Linux ARM", fileName: `Space-Agent-${releaseVersion}-linux-arm64.AppImage` },
-      windows: { text: "Win ARM", fileName: `Space-Agent-${releaseVersion}-windows-arm64.exe` }
+      macos: { text: "Mac ARM", fileName: `Constellation-Agent-${releaseVersion}-macos-arm64.dmg` },
+      linux: { text: "Linux ARM", fileName: `Constellation-Agent-${releaseVersion}-linux-arm64.AppImage` },
+      windows: { text: "Win ARM", fileName: `Constellation-Agent-${releaseVersion}-windows-arm64.exe` }
     }
   ];
 
@@ -325,7 +325,7 @@ async function generateReleaseBodyWithOpenRouter(commits, options = {}) {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
       "HTTP-Referer": `https://github.com/${process.env.GITHUB_REPOSITORY || ""}`,
-      "X-OpenRouter-Title": "Space Agent Desktop Release Notes"
+      "X-OpenRouter-Title": "Constellation Agent Desktop Release Notes"
     },
     body: JSON.stringify(payload)
   });

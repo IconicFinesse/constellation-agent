@@ -76,7 +76,7 @@ Default section order:
 
 ## User Preferences
 
-- Space Agent is a browser-first AI agent runtime; keep as much agent logic in the browser as possible.
+- Constellation Agent is a browser-first AI agent runtime; keep as much agent logic in the browser as possible.
 - Prefer frontend changes over backend changes. Backend work is exceptional and belongs only to security, integrity, multi-user isolation, or runtime-stability needs that cannot be safely enforced in the browser.
 - If backend work is needed and the user did not explicitly ask for it, ask permission first and state the narrow backend change required.
 - Implement only what the user explicitly asked for; do not invent new features, cleanup behavior, policies, or product changes without asking.
@@ -86,7 +86,7 @@ Default section order:
 
 ## Child DOX Index
 
-- `/app/AGENTS.md` - app/ is the primary Space Agent runtime.
+- `/app/AGENTS.md` - app/ is the primary Constellation Agent runtime.
 - `/commands/AGENTS.md` - commands/ contains CLI command modules used by space.
 - `/packaging/AGENTS.md` - packaging/ contains native app hosts and the packaging surface around them.
 - `/server/AGENTS.md` - server/ is the thin local infrastructure runtime.

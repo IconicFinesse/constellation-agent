@@ -7,8 +7,8 @@ provider:
   timeout_ms: 90000
   retry_count: 2
   retry_backoff_ms: 1500
-  referer: "https://space-agent.local/tests/agent_llm_performance"
-  title: Space Agent Prompt Performance Tests
+  referer: "https://constellation-agent.local/tests/agent_llm_performance"
+  title: Constellation Agent Prompt Performance Tests
 paths:
   prompts_dir: ./prompts
   cases_dir: ./cases

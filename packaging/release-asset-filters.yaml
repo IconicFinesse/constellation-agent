@@ -1,4 +1,4 @@
-# Matched files are uploaded as Space-Agent-<release version>-<platform>-<arch>.<extension>.
+# Matched files are uploaded as Constellation-Agent-<release version>-<platform>-<arch>.<extension>.
 release_upload_filters:
   - description: macOS DMG installers
     pattern: release-assets/macos-*/*.dmg

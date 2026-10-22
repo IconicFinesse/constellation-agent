@@ -25,8 +25,8 @@ const EXTENDED_WAIT_DEBOUNCE_MS = 1_000;
 const LONG_WAIT_THRESHOLD_MS = 60_000;
 const EXTENDED_WAIT_THRESHOLD_MS = 5 * 60_000;
 const IMMEDIATE_WAIT_THRESHOLD_MS = 10 * 60_000;
-const DEFAULT_AUTHOR_NAME = "Space Agent";
-const DEFAULT_AUTHOR_EMAIL = "space-agent@local";
+const DEFAULT_AUTHOR_NAME = "Constellation Agent";
+const DEFAULT_AUTHOR_EMAIL = "constellation-agent@local";
 const USER_HISTORY_IGNORED_PATHS = [
   "meta/password.json",
   "meta/logins.json",

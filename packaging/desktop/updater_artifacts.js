@@ -3,7 +3,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const DESKTOP_UPDATER_CACHE_DIRNAMES = Object.freeze([
-  "space-agent-updater",
+  "constellation-agent-updater",
   "agent-one-updater"
 ]);
 const DESKTOP_UPDATER_INSTALL_MARKER_FILENAME = "desktop-updater-install.json";

@@ -5,7 +5,7 @@ export function get(context) {
 
   return {
     ok: true,
-    name: "space-agent-server",
+    name: "constellation-agent-server",
     browserAppUrl,
     user: context.user || null,
   };

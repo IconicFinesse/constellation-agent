@@ -41,7 +41,7 @@ Current share endpoints:
 
 Important behaviors:
 
-- hosted share uploads are anonymous so one Space Agent runtime can upload to a separate hosted receiver
+- hosted share uploads are anonymous so one Constellation Agent runtime can upload to a separate hosted receiver
 - `cloud_share_create` stores the raw ZIP under `CUSTOMWARE_PATH/share/spaces/<token>.zip` with matching JSON metadata, rejects payloads over `2 MB`, and intentionally does not unpack or deeply validate the archive at upload time
 - `cloud_share_create` is enabled only when `CLOUD_SHARE_ALLOWED=true`, guest users are enabled, and the receiver has a configured `CUSTOMWARE_PATH`
 - stored share metadata includes the token, create time, last-used time, payload size, and optional browser-side password-encryption parameters

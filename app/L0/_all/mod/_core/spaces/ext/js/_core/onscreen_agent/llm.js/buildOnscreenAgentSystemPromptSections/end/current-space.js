@@ -1,7 +1,7 @@
 import { setPromptItem } from "/mod/_core/agent_prompt/prompt-items.js";
 import { SPACES_ROUTE_PATH } from "/mod/_core/spaces/constants.js";
 
-const CURRENT_SPACE_SYSTEM_KEY = "current-space-agent-instructions";
+const CURRENT_SPACE_SYSTEM_KEY = "current-constellation-agent-instructions";
 const CURRENT_SPACE_SYSTEM_ORDER = 190;
 
 function buildCurrentSpaceAgentInstructionsPromptSection(currentSpace) {
@@ -14,7 +14,7 @@ function buildCurrentSpaceAgentInstructionsPromptSection(currentSpace) {
   }
 
   return [
-    "## Current Space Agent Instructions",
+    "## Current Constellation Agent Instructions",
     "",
     normalizedAgentInstructions
   ].join("\n");
