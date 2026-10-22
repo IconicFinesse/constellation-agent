@@ -7,7 +7,7 @@
   <a href="https://space-agent.ai"><img alt="Try Live Now!" src="./.github/readme-try-live-now.svg" /></a>
   <br />
   <br />
-  <a href="https://github.com/agent0ai/space-agent/releases/latest"><img alt="Run local App" height="50" src="https://img.shields.io/badge/Run%20local%20App-59F0A8?style=for-the-badge&labelColor=07111F&color=59F0A8" /></a>
+  <a href="https://github.com/IconicFinesse/constellation-agent/releases/latest"><img alt="Run local App" height="50" src="https://img.shields.io/badge/Run%20local%20App-59F0A8?style=for-the-badge&labelColor=07111F&color=59F0A8" /></a>
   <a href="#host"><img alt="Host yourself" height="50" src="https://img.shields.io/badge/Host%20yourself-FFFFFF?style=for-the-badge&labelColor=07111F&color=FFFFFF" /></a>
 </p>
 
@@ -99,14 +99,14 @@ Try our demo server with guest account.
 
 ### The desktop app
 
-Grab the latest build from [GitHub Releases](https://github.com/agent0ai/space-agent/releases/latest). It runs everything as one app. No terminal required.
+Grab the latest build from [GitHub Releases](https://github.com/IconicFinesse/constellation-agent/releases/latest). It runs everything as one app. No terminal required.
 
 ### A real server, for you or your team
 
 <a id="host"></a>
 
 ```bash
-git clone https://github.com/agent0ai/space-agent.git
+git clone https://github.com/IconicFinesse/constellation-agent.git
 cd constellation-agent
 npm install
 

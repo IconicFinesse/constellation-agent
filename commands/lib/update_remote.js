@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 
 const PARAM_ASSIGNMENT_PATTERN = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/u;
 const DEFAULT_REMOTE_NAME = "origin";
-const DEFAULT_UPDATE_REMOTE_URL = "https://github.com/agent0ai/space-agent.git";
+const DEFAULT_UPDATE_REMOTE_URL = "https://github.com/IconicFinesse/constellation-agent.git";
 
 function parseRuntimeAssignment(rawValue) {
   const match = String(rawValue || "").match(PARAM_ASSIGNMENT_PATTERN);
