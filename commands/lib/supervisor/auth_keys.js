@@ -126,6 +126,39 @@ async function migrateLegacySupervisorAuthKeys({ env, projectRoot, stateDir }) {
   return legacyFilePath;
 }
 
+async function detectInjectedKeyMismatch({ env, passwordSealKey, projectRoot }) {
+  const resolvedProjectRoot = String(projectRoot || "").trim();
+
+  if (!resolvedProjectRoot) {
+    return "";
+  }
+
+  const filePath = path.join(buildAuthDataDir(resolvedProjectRoot, env), AUTH_KEYS_FILENAME);
+  let payload;
+
+  try {
+    payload = await readJsonFile(filePath);
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return "";
+    }
+
+    throw error;
+  }
+
+  const storedSealKey = String(payload?.[PASSWORD_SEAL_KEY_NAME] || "").trim();
+
+  if (!storedSealKey) {
+    return "";
+  }
+
+  if (decodeBase64Url(storedSealKey).equals(decodeBase64Url(passwordSealKey))) {
+    return "";
+  }
+
+  return `Injected ${PASSWORD_SEAL_KEY_ENV_NAME} differs from the canonical auth-key store at ${filePath}. Users sealed by that store cannot log in until they are re-sealed with the injected keys.`;
+}
+
 async function loadSupervisorAuthEnv({ env = process.env, projectRoot, stateDir }) {
   const passwordSealKey = String(env[PASSWORD_SEAL_KEY_ENV_NAME] || "").trim();
   const sessionHmacKey = String(env[SESSION_HMAC_KEY_ENV_NAME] || "").trim();
@@ -145,7 +178,12 @@ async function loadSupervisorAuthEnv({ env = process.env, projectRoot, stateDir 
         [PASSWORD_SEAL_KEY_ENV_NAME]: passwordSealKey,
         [SESSION_HMAC_KEY_ENV_NAME]: sessionHmacKey
       },
-      source: "process.env"
+      source: "process.env",
+      warning: await detectInjectedKeyMismatch({
+        env,
+        passwordSealKey,
+        projectRoot
+      })
     };
   }
 

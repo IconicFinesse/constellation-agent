@@ -69,6 +69,7 @@ These endpoints are thin wrappers over shared helpers in `server/lib/customware/
 - Authenticated self-service password changes still stay backend-owned through `/api/password_change`; browser code may edit `L2/<username>/user.yaml` directly, but not the password verifier file.
 - User-owned modules live under `L2/<username>/mod/`.
 - Backend auth keys come from shared environment injection through `SPACE_AUTH_PASSWORD_SEAL_KEY` and `SPACE_AUTH_SESSION_HMAC_KEY` for multi-instance deployments, or from the local fallback `server/data/auth_keys.json` during single-instance development.
+- Sealing and opening a verifier must use the same key material: injected keys always win over the on-disk store, so CLI seal commands and `space supervise` warn about a detected mismatch, and the server logs a specific `[auth]` seal failure while still returning the generic `Invalid username or password` response. Re-seal affected users with `node space user password <username>` after aligning the key source.
 
 ## Why Frontend Developers Need This
 

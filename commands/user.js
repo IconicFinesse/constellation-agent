@@ -1,8 +1,78 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { createUser, setUserPassword } from "../server/lib/auth/user_manage.js";
+import {
+  AUTH_KEYS_FILENAME,
+  PASSWORD_SEAL_KEY_ENV_NAME,
+  SESSION_HMAC_KEY_ENV_NAME,
+  buildAuthDataDir
+} from "../server/lib/auth/keys_manage.js";
 import { addGroupEntry } from "../server/lib/customware/group_files.js";
 import { flushGitHistoryCommits } from "../server/lib/customware/git_history.js";
 import { normalizeEntityId } from "../server/lib/customware/layout.js";
 import { createRuntimeParams } from "../server/lib/utils/runtime_params.js";
+
+const PASSWORD_SEAL_KEY_NAME = "password_seal_key";
+
+function buildLegacySupervisorAuthKeysPath(projectRoot) {
+  return path.join(String(projectRoot || ""), "supervisor", "auth", AUTH_KEYS_FILENAME);
+}
+
+function readPasswordSealKeyText(filePath) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return String(parsed?.[PASSWORD_SEAL_KEY_NAME] || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function sameSecretKeyText(left, right) {
+  return Buffer.from(String(left || ""), "base64url").equals(
+    Buffer.from(String(right || ""), "base64url")
+  );
+}
+
+// Sealing and opening a verifier must use the same backend key material. A running
+// `space supervise` child only accepts verifiers sealed by the key source it was
+// started with, so surface the realistic mismatch setups before writing anything.
+// This helper is read-only on purpose: loadAuthKeys() would create a key store.
+function reportAuthKeySourceWarnings(projectRoot) {
+  const injectedSealKey = String(process.env[PASSWORD_SEAL_KEY_ENV_NAME] || "").trim();
+  const injectedSessionKey = String(process.env[SESSION_HMAC_KEY_ENV_NAME] || "").trim();
+
+  if (injectedSealKey || injectedSessionKey) {
+    console.warn(
+      `[user] Sealing this verifier with ${PASSWORD_SEAL_KEY_ENV_NAME}/${SESSION_HMAC_KEY_ENV_NAME} from the environment; every space serve or space supervise process must receive the same values or login fails with "Invalid username or password".`
+    );
+    return;
+  }
+
+  const legacyFilePath = buildLegacySupervisorAuthKeysPath(projectRoot);
+  const legacySealKey = readPasswordSealKeyText(legacyFilePath);
+
+  if (!legacySealKey) {
+    return;
+  }
+
+  const canonicalFilePath = path.join(
+    buildAuthDataDir(projectRoot, process.env),
+    AUTH_KEYS_FILENAME
+  );
+  const canonicalSealKey = readPasswordSealKeyText(canonicalFilePath);
+
+  if (canonicalSealKey && sameSecretKeyText(legacySealKey, canonicalSealKey)) {
+    return;
+  }
+
+  console.warn(
+    `[user] A different supervisor auth-key store exists at ${legacyFilePath}.`
+  );
+  console.warn(
+    "[user] space supervise migrates that store only when the canonical auth-key file is absent, so users sealed with it stay unreadable until they are re-sealed with the active key source."
+  );
+}
 
 function takeFlagValue(args, index, flagName) {
   const value = String(args[index + 1] || "");
@@ -162,6 +232,7 @@ export async function execute(context) {
 
   if (subcommand === "create") {
     const options = parseCreateArgs(subcommandArgs);
+    reportAuthKeySourceWarnings(context.projectRoot);
     const result = createUser(context.projectRoot, options.username, options.password, {
       force: options.force,
       fullName: options.fullName,
@@ -180,6 +251,7 @@ export async function execute(context) {
 
   if (subcommand === "password" || subcommand === "passwd") {
     const options = parsePasswordArgs(subcommandArgs);
+    reportAuthKeySourceWarnings(context.projectRoot);
     const result = setUserPassword(context.projectRoot, options.username, options.password, {
       runtimeParams
     });
@@ -192,3 +264,7 @@ export async function execute(context) {
     'Unknown user subcommand. Use "node space help user" for available subcommands.'
   );
 }
+
+export const __test = {
+  reportAuthKeySourceWarnings
+};

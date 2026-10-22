@@ -38,6 +38,8 @@ or the local fallback `server/data/auth_keys.json` when `SPACE_AUTH_DATA_DIR` is
 
 `node space supervise` injects those same canonical backend auth keys into child `serve` processes. Older `supervisor/auth/auth_keys.json` state is migrated only when the canonical auth-key file is absent, so CLI-created users and supervised runtime children share one verifier-sealing key source.
 
+Sealing and opening a verifier must use the same key material. Injected `SPACE_AUTH_PASSWORD_SEAL_KEY`/`SPACE_AUTH_SESSION_HMAC_KEY` values always win over the on-disk store, so `node space supervise` prints a `[supervise]` warning at startup when the injected seal key differs from the canonical store it would otherwise use. `node space user create` and `node space user password` print a matching `[user]` warning before sealing when the active key source is environment injection or when a different legacy supervisor store is being ignored. Re-seal affected users with `node space user password <username>` once CLI and runtime processes agree on one key source.
+
 Per-user `userCrypto` server shares are also backend-only and live under gitignored `server/data/user_crypto/<username>.json`, or under `SPACE_AUTH_DATA_DIR/user_crypto/<username>.json` when that override is set.
 
 ## Session Contract
