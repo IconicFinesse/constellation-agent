@@ -107,7 +107,7 @@
         createProblem(
           "modern-javascript",
           "Modern JavaScript syntax",
-          "Space Agent uses async functions, optional chaining, nullish coalescing, and other current JavaScript syntax in its public shells and app runtime."
+          "Constellation Agent uses async functions, optional chaining, nullish coalescing, and other current JavaScript syntax in its public shells and app runtime."
         )
       );
     }
@@ -217,7 +217,7 @@
         createProblem(
           "session-storage",
           "sessionStorage access",
-          "Space Agent uses sessionStorage for launcher access, login handoff, and per-session user crypto state."
+          "Constellation Agent uses sessionStorage for launcher access, login handoff, and per-session user crypto state."
         )
       );
     }
@@ -259,7 +259,7 @@
     if (missingCryptoParts.length > 0) {
       var cryptoDetail = passwordLoginNeedsCrypto
         ? "Password login and user crypto require " + missingCryptoParts.join(", ") + "."
-        : "Space Agent needs " + missingCryptoParts.join(", ") + ".";
+        : "Constellation Agent needs " + missingCryptoParts.join(", ") + ".";
 
       if (global.isSecureContext === false) {
         cryptoDetail += " This page is not running in a secure context.";
@@ -300,7 +300,7 @@
           createProblem(
             "dynamic-import",
             "Dynamic import()",
-            "Space Agent loads browser modules with dynamic import()."
+            "Constellation Agent loads browser modules with dynamic import()."
           )
         );
         return;
@@ -313,7 +313,7 @@
           createProblem(
             "dynamic-import",
             "Dynamic import()",
-            "Space Agent loads browser modules with dynamic import()."
+            "Constellation Agent loads browser modules with dynamic import()."
           )
         );
         return;
@@ -324,7 +324,7 @@
           createProblem(
             "dynamic-import",
             "Dynamic import()",
-            "Space Agent loads browser modules with dynamic import()."
+            "Constellation Agent loads browser modules with dynamic import()."
           )
         );
         return;
@@ -339,7 +339,7 @@
             createProblem(
               "dynamic-import",
               "Dynamic import()",
-              "Space Agent loads browser modules with dynamic import()."
+              "Constellation Agent loads browser modules with dynamic import()."
             )
           );
         }
@@ -409,7 +409,7 @@
     var html =
       '<p class="browser-compat-eyebrow">Browser compatibility check failed</p>' +
       '<h2 class="browser-compat-title">Browser Not Supported</h2>' +
-      '<p class="browser-compat-copy">Space Agent cannot run in this browser because it is missing:</p>' +
+      '<p class="browser-compat-copy">Constellation Agent cannot run in this browser because it is missing:</p>' +
       '<ul class="browser-compat-list">';
     var index;
     var item;
@@ -430,7 +430,7 @@
 
     if (passwordLoginUsesWebCrypto()) {
       note +=
-        " If Web Crypto is unavailable, open Space Agent over HTTPS or localhost, or run the server with SINGLE_USER_APP=true to skip password login.";
+        " If Web Crypto is unavailable, open Constellation Agent over HTTPS or localhost, or run the server with SINGLE_USER_APP=true to skip password login.";
     }
 
     html += '<p class="browser-compat-note">' + note + "</p>";
@@ -533,7 +533,7 @@
           createProblem(
             "module-loading",
             "Browser module loading",
-            "Space Agent could not verify JavaScript module support in this browser."
+            "Constellation Agent could not verify JavaScript module support in this browser."
           )
         );
 

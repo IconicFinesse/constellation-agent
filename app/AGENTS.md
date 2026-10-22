@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`app/` is the primary Space Agent runtime.
+`app/` is the primary Constellation Agent runtime.
 
 Keep agent orchestration, prompt construction, tool flow, state management, user interaction, and optimistic UX in the browser whenever possible. Server-backed work in this tree should be browser clients for explicit server APIs, not server-side orchestration leaking into the frontend.
 
@@ -221,7 +221,7 @@ Runtime guidance:
 
 ### Visual Direction
 
-Space Agent frontend work should look like one deliberate system rather than a mix of unrelated component-library defaults.
+Constellation Agent frontend work should look like one deliberate system rather than a mix of unrelated component-library defaults.
 
 - minimal first: solve hierarchy with spacing, alignment, type scale, and one strong surface before adding extra chrome
 - use the semantic color tokens from `app/L0/_all/mod/_core/framework/css/colors.css`
@@ -348,6 +348,6 @@ When a module later grows multiple independently owned sub-areas, create or upda
 - `/app/L0/_all/mod/_core/time_travel/AGENTS.md` - _core/time_travel/ owns the user-facing Time Travel page for writable-layer local history.
 - `/app/L0/_all/mod/_core/user/AGENTS.md` - _core/user/ owns the routed browser page for user account settings.
 - `/app/L0/_all/mod/_core/user_crypto/AGENTS.md` - _core/user_crypto/ owns session-scoped frontend decryption state for user-encrypted values.
-- `/app/L0/_all/mod/_core/visual/AGENTS.md` - _core/visual/ owns the shared Space Agent visual system.
+- `/app/L0/_all/mod/_core/visual/AGENTS.md` - _core/visual/ owns the shared Constellation Agent visual system.
 - `/app/L0/_all/mod/_core/web_browsing/AGENTS.md` - _core/web_browsing/ owns the browser overlay module and the generic <x-browser> browser surface element.
 - `/app/L0/_all/mod/_core/webllm/AGENTS.md` - _core/webllm/ owns the first-party browser inference test surface for WebLLM.

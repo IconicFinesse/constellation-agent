@@ -128,7 +128,7 @@
                       <span class="spaces-config-field-label">Agent Instructions</span>
                       <textarea
                         class="spaces-config-field-textarea"
-                        placeholder="Add space-specific instructions for the Space Agent."
+                        placeholder="Add space-specific instructions for the Constellation Agent."
                         x-model="$store.spacesPage.currentSpaceInstructionsDraft"
                         @input="$store.spacesPage.queueCurrentSpaceMetaSave()"
                         @blur="void $store.spacesPage.flushCurrentSpaceMetaSave({ suppressErrors: true })"

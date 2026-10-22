@@ -338,7 +338,7 @@
           "passed": true,
           "failures": [],
           "response_type": "thrust",
-          "response": "Fetching a reverse-geocode for your coordinates now...\n_____javascript\nconst lat = 49.71985822231634;\nconst lon = 17.221723412878973;\nconst data = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`, {\n  headers: { 'User-Agent': 'space-agent-ai/1.0' }\n}).then(r => r.json());\nreturn {\n  display_name: data.display_name,\n  address: data.address\n}",
+          "response": "Fetching a reverse-geocode for your coordinates now...\n_____javascript\nconst lat = 49.71985822231634;\nconst lon = 17.221723412878973;\nconst data = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`, {\n  headers: { 'User-Agent': 'constellation-agent-ai/1.0' }\n}).then(r => r.json());\nreturn {\n  display_name: data.display_name,\n  address: data.address\n}",
           "usage": {
             "prompt_tokens": 3726,
             "completion_tokens": 124,

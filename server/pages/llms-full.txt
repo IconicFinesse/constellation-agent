@@ -1,16 +1,16 @@
-# Space Agent
+# Constellation Agent
 
 > Browser-first AI agent runtime for building AI spaces, tools, widgets, and workflows directly in the browser, with a thin Node.js server for infrastructure, auth, and local hosting.
 
 ## Summary
 
-Space Agent is a browser-first AI agent runtime from Agent Zero. The core idea is that the agent works inside the same frontend runtime that the user sees, instead of being bolted onto a fixed application surface. Users can ask the agent to build pages, tools, widgets, workflows, and other capabilities directly into the running workspace.
+Constellation Agent is a browser-first AI agent runtime from Agent Zero. The core idea is that the agent works inside the same frontend runtime that the user sees, instead of being bolted onto a fixed application surface. Users can ask the agent to build pages, tools, widgets, workflows, and other capabilities directly into the running workspace.
 
 The browser app is the primary runtime. The Node.js side exists as narrow infrastructure around it: outbound fetch proxying when browser requests would hit CORS limits, server-owned APIs and auth/session boundaries, local development support, and optional desktop hosting.
 
 The public site at `space-agent.ai` is the live demo entry point. The same project can also run as a desktop app or as a self-hosted server.
 
-## What Makes Space Agent Different
+## What Makes Constellation Agent Different
 
 - The agent reshapes the interface instead of staying trapped inside a fixed product surface.
 - The runtime is modular and layered, so capabilities can be added, removed, or swapped without welding everything into one rigid app.
@@ -46,7 +46,7 @@ Quick start from the README:
 
 ```bash
 git clone https://github.com/agent0ai/space-agent.git
-cd space-agent
+cd constellation-agent
 npm install
 node space user create admin --password "change-me-now" --full-name "Admin" --groups _admin
 node space serve
@@ -69,7 +69,7 @@ node space supervise HOST=0.0.0.0 PORT=3000
 
 ## Documentation And Agent Development
 
-Space Agent is developed with AI agents in mind. The repository keeps a documentation hierarchy rooted in `AGENTS.md`, with deeper `AGENTS.md` files for app, server, commands, packaging, tests, and important subsystems. These files are treated as binding runtime and architecture contracts for agents, not optional notes.
+Constellation Agent is developed with AI agents in mind. The repository keeps a documentation hierarchy rooted in `AGENTS.md`, with deeper `AGENTS.md` files for app, server, commands, packaging, tests, and important subsystems. These files are treated as binding runtime and architecture contracts for agents, not optional notes.
 
 The project also uses plain-text `SKILL.md` files for agent capabilities and focused workflows. This keeps much of the extension surface readable and writable by both humans and agents without inventing heavyweight custom formats.
 

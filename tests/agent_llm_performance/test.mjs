@@ -122,8 +122,8 @@ async function loadConfig(configPath) {
       timeout_ms: toInteger(parsed.provider?.timeout_ms, 90000),
       retry_count: toInteger(parsed.provider?.retry_count, 2),
       retry_backoff_ms: toInteger(parsed.provider?.retry_backoff_ms, 1500),
-      referer: parsed.provider?.referer || "https://space-agent.local/tests/agent_llm_performance",
-      title: parsed.provider?.title || "Space Agent Prompt Performance Tests"
+      referer: parsed.provider?.referer || "https://constellation-agent.local/tests/agent_llm_performance",
+      title: parsed.provider?.title || "Constellation Agent Prompt Performance Tests"
     },
     paths: {
       prompts_dir: resolveRelative(configDir, parsed.paths?.prompts_dir || "./prompts"),

@@ -70,7 +70,7 @@ function resolveDesktopWindowsReleaseAssetFileName({
   version = "",
   arch = process.arch
 } = {}) {
-  return `Space-Agent-${normalizeDesktopReleaseAssetVersion(version)}-windows-${normalizeDesktopWindowsReleaseArch(arch)}.exe`;
+  return `Constellation-Agent-${normalizeDesktopReleaseAssetVersion(version)}-windows-${normalizeDesktopWindowsReleaseArch(arch)}.exe`;
 }
 
 function getDesktopWindowsReleaseFiles(updateInfo = {}) {

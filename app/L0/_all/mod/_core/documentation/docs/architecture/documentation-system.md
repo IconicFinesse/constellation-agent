@@ -7,7 +7,7 @@ This repo has three documentation surfaces on purpose.
 `README.md`:
 
 - is the public product source of truth
-- explains what Space Agent is, how to start it, and where to find community, releases, and DeepWiki
+- explains what Constellation Agent is, how to start it, and where to find community, releases, and DeepWiki
 - must link back to the binding implementation docs instead of replacing them
 
 DOX `AGENTS.md` files:

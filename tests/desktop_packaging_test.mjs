@@ -53,7 +53,7 @@ test("packaged desktop uses an OS temp directory outside the bundled server tree
       isPackaged: true,
       tempPath: "/run/user/1000"
     }),
-    path.join("/run/user/1000", "space-agent", "server-tmp")
+    path.join("/run/user/1000", "constellation-agent", "server-tmp")
   );
 });
 
@@ -63,14 +63,14 @@ test("packaged desktop temp directory falls back to the host temp root", () => {
       isPackaged: true,
       tempPath: ""
     }),
-    path.join(os.tmpdir(), "space-agent", "server-tmp")
+    path.join(os.tmpdir(), "constellation-agent", "server-tmp")
   );
 });
 
 test("packaged desktop keeps the current user-data root when it already owns runtime state", async (testContext) => {
   const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "space-desktop-user-data-"));
   const appDataPath = path.join(runtimeRoot, "Roaming");
-  const currentUserDataPath = path.join(appDataPath, "Space Agent");
+  const currentUserDataPath = path.join(appDataPath, "Constellation Agent");
   const legacyUserDataPath = path.join(appDataPath, "Agent One");
 
   testContext.after(async () => {
@@ -100,7 +100,7 @@ test("packaged desktop keeps the current user-data root when it already owns run
 test("packaged desktop reuses the legacy Agent One user-data root when it still owns runtime state", async (testContext) => {
   const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "space-desktop-legacy-user-data-"));
   const appDataPath = path.join(runtimeRoot, "Roaming");
-  const currentUserDataPath = path.join(appDataPath, "Space Agent");
+  const currentUserDataPath = path.join(appDataPath, "Constellation Agent");
   const legacyUserDataPath = path.join(appDataPath, "Agent One");
 
   testContext.after(async () => {
@@ -140,9 +140,9 @@ test("packaged desktop updater keeps a stable persistent log path under packaged
   assert.equal(
     resolveDesktopUpdaterLogPath({
       platform: "win32",
-      userDataPath: String.raw`C:\Users\alice\AppData\Roaming\Space Agent`
+      userDataPath: String.raw`C:\Users\alice\AppData\Roaming\Constellation Agent`
     }),
-    path.win32.join(String.raw`C:\Users\alice\AppData\Roaming\Space Agent`, DESKTOP_UPDATER_LOG_RELATIVE_PATH)
+    path.win32.join(String.raw`C:\Users\alice\AppData\Roaming\Constellation Agent`, DESKTOP_UPDATER_LOG_RELATIVE_PATH)
   );
 });
 
@@ -152,13 +152,13 @@ test("packaged desktop updater keeps the stock silent Windows NSIS installer arg
       autoRunAppAfterInstall: true,
       isForceRunAfter: true,
       isSilent: true,
-      packagePath: String.raw`C:\Users\alice\AppData\Local\space-agent-updater\package.7z`
+      packagePath: String.raw`C:\Users\alice\AppData\Local\constellation-agent-updater\package.7z`
     }),
     [
       "--updated",
       "/S",
       "--force-run",
-      String.raw`--package-file=C:\Users\alice\AppData\Local\space-agent-updater\package.7z`
+      String.raw`--package-file=C:\Users\alice\AppData\Local\constellation-agent-updater\package.7z`
     ]
   );
 });
@@ -213,14 +213,14 @@ test("packaged desktop updater keeps canonical Windows release asset naming stab
       version: "0.52.0",
       arch: "x64"
     }),
-    "Space-Agent-0.52-windows-x64.exe"
+    "Constellation-Agent-0.52-windows-x64.exe"
   );
   assert.equal(
     resolveDesktopWindowsReleaseAssetFileName({
       version: "0.52.0",
       arch: "arm64"
     }),
-    "Space-Agent-0.52-windows-arm64.exe"
+    "Constellation-Agent-0.52-windows-arm64.exe"
   );
 });
 
@@ -229,7 +229,7 @@ test("packaged desktop updater detects Windows metadata that is missing the curr
     version: "0.52.0",
     files: [
       {
-        url: "Space-Agent-0.52-windows-arm64.exe",
+        url: "Constellation-Agent-0.52-windows-arm64.exe",
         sha512: "abc123",
         size: "1"
       }
@@ -237,11 +237,11 @@ test("packaged desktop updater detects Windows metadata that is missing the curr
   };
 
   assert.equal(findDesktopWindowsReleaseFile(armOnlyInfo, "x64"), null);
-  assert.equal(findDesktopWindowsReleaseFile(armOnlyInfo, "arm64")?.url, "Space-Agent-0.52-windows-arm64.exe");
+  assert.equal(findDesktopWindowsReleaseFile(armOnlyInfo, "arm64")?.url, "Constellation-Agent-0.52-windows-arm64.exe");
   assert.deepEqual(resolveDesktopWindowsReleaseArchFallback(armOnlyInfo, "x64"), {
-    actualFiles: ["Space-Agent-0.52-windows-arm64.exe"],
+    actualFiles: ["Constellation-Agent-0.52-windows-arm64.exe"],
     expectedArch: "x64",
-    expectedFileName: "Space-Agent-0.52-windows-x64.exe"
+    expectedFileName: "Constellation-Agent-0.52-windows-x64.exe"
   });
   assert.equal(resolveDesktopWindowsReleaseArchFallback(armOnlyInfo, "arm64"), null);
   assert.equal(
@@ -250,12 +250,12 @@ test("packaged desktop updater detects Windows metadata that is missing the curr
         version: "0.52.0",
         files: [
           {
-            url: "Space-Agent-0.52-windows-arm64.exe",
+            url: "Constellation-Agent-0.52-windows-arm64.exe",
             sha512: "abc123",
             size: "1"
           },
           {
-            url: "Space-Agent-0.52-windows-x64.exe",
+            url: "Constellation-Agent-0.52-windows-x64.exe",
             sha512: "def456",
             size: "2"
           }
@@ -270,8 +270,8 @@ test("packaged desktop updater detects Windows metadata that is missing the curr
 test("packaged desktop debug reinstall stages same-version and downgrade releases against canonical GitHub assets", async () => {
   const publishConfig = {
     provider: "github",
-    owner: "agent0ai",
-    repo: "space-agent"
+    owner: "IconicFinesse",
+    repo: "constellation-agent"
   };
   const fetchCalls = [];
   const fetchText = async (url) => {
@@ -280,13 +280,13 @@ test("packaged desktop debug reinstall stages same-version and downgrade release
       ? [
           "version: 0.48.0",
           "files:",
-          "  - url: Space Agent 0.48 windows x64.exe",
+          "  - url: Constellation Agent 0.48 windows x64.exe",
           "    sha512: def456"
         ].join("\n")
       : [
           "version: 0.49.0",
           "files:",
-          "  - url: Space Agent 0.49 windows x64.exe",
+          "  - url: Constellation Agent 0.49 windows x64.exe",
           "    sha512: abc123"
         ].join("\n");
   };
@@ -316,13 +316,13 @@ test("packaged desktop debug reinstall stages same-version and downgrade release
   );
   assert.equal(
     sameVersionStage.provider.resolveFiles(sameVersionStage.info)[0].url.href,
-    "https://github.com/agent0ai/space-agent/releases/download/v0.49/Space-Agent-0.49-windows-x64.exe"
+    "https://github.com/IconicFinesse/constellation-agent/releases/download/v0.49/Constellation-Agent-0.49-windows-x64.exe"
   );
   assert.equal(downgradeStage.comparison, -1);
   assert.equal(downgradeStage.tag, "v0.48");
   assert.deepEqual(fetchCalls, [
-    "https://github.com/agent0ai/space-agent/releases/download/v0.49/metadata-latest-windows.yml",
-    "https://github.com/agent0ai/space-agent/releases/download/v0.48/metadata-latest-windows.yml"
+    "https://github.com/IconicFinesse/constellation-agent/releases/download/v0.49/metadata-latest-windows.yml",
+    "https://github.com/IconicFinesse/constellation-agent/releases/download/v0.48/metadata-latest-windows.yml"
   ]);
 });
 
@@ -333,7 +333,7 @@ test("packaged desktop updater cache roots cover current and legacy rebrand dire
       isPackaged: true
     }),
     [
-      path.join("/Users/alessandro/AppData/Local", "space-agent-updater"),
+      path.join("/Users/alessandro/AppData/Local", "constellation-agent-updater"),
       path.join("/Users/alessandro/AppData/Local", "agent-one-updater")
     ]
   );
@@ -342,7 +342,7 @@ test("packaged desktop updater cache roots cover current and legacy rebrand dire
 test("packaged desktop updater cleanup keeps cached blockmaps but removes stale pending payloads after an install handoff", async (testContext) => {
   const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "space-desktop-updater-cache-"));
   const localAppDataPath = path.join(runtimeRoot, "Local");
-  const userDataPath = path.join(runtimeRoot, "Space Agent");
+  const userDataPath = path.join(runtimeRoot, "Constellation Agent");
   const [currentCacheRoot, legacyCacheRoot] = resolveDesktopUpdaterCacheRoots({
     baseCachePath: localAppDataPath,
     isPackaged: true
@@ -366,7 +366,7 @@ test("packaged desktop updater cleanup keeps cached blockmaps but removes stale 
   await fs.mkdir(legacyPendingPath, {
     recursive: true
   });
-  await fs.writeFile(path.join(currentPendingPath, "Space-Agent-0.48-windows-x64.exe"), "installer\n", "utf8");
+  await fs.writeFile(path.join(currentPendingPath, "Constellation-Agent-0.48-windows-x64.exe"), "installer\n", "utf8");
   await fs.writeFile(path.join(currentCacheRoot, "current.blockmap"), "blockmap\n", "utf8");
   await fs.writeFile(path.join(legacyPendingPath, "Agent-One-0.41-windows-x64.exe"), "installer\n", "utf8");
 
@@ -402,7 +402,7 @@ test("packaged desktop updater cleanup keeps cached blockmaps but removes stale 
   assert.equal(await fs.stat(markerPath).then(() => true, () => false), false);
 });
 test("packaged desktop auth data moves to the user-data tree", () => {
-  const userDataPath = "/home/alessandro/.config/Space Agent";
+  const userDataPath = "/home/alessandro/.config/Constellation Agent";
 
   assert.equal(
     resolveDesktopAuthDataDir({
@@ -421,7 +421,7 @@ test("packaged desktop auth data moves to the user-data tree", () => {
 
 test("server bootstrap honors a packaged desktop tmpDir override", async (testContext) => {
   const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "space-desktop-bootstrap-"));
-  const tmpDir = path.join(runtimeRoot, "runtime", "space-agent", "server-tmp");
+  const tmpDir = path.join(runtimeRoot, "runtime", "constellation-agent", "server-tmp");
 
   testContext.after(async () => {
     await fs.rm(runtimeRoot, {

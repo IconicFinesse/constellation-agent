@@ -1451,10 +1451,10 @@ const model = {
     const statusText = typeof this.status === "string" ? this.status.trim() : "";
 
     if (!statusText || shouldHideComposerStatus(statusText)) {
-      return "Message Space Agent...";
+      return "Message Constellation Agent...";
     }
 
-    return statusText === "Ready." ? "Ready. Message Space Agent..." : statusText;
+    return statusText === "Ready." ? "Ready. Message Constellation Agent..." : statusText;
   },
 
   reportError(context, error, options = {}) {

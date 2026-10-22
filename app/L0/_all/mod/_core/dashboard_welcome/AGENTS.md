@@ -32,7 +32,7 @@ Current dashboard integration:
 - the dismiss control should stay a compact circular icon button aligned to the panel edge within the dashboard gutter, with local sizing rules strong enough to override shared `secondary-button` chrome
 - the welcome panel should render two compact stacked sections: `Resources` first and `Demo Spaces` second
 - both sections should use explicit responsive grids instead of wrap-based pill rows, so desktop layouts stay evenly aligned and narrower widths collapse in clean column counts rather than leaving one orphan button on a trailing row
-- the resources grid should expose one-line outbound buttons for the Space Agent GitHub repo, the repo DeepWiki URL, the Agent Zero site, Discord, YouTube, and X
+- the resources grid should expose one-line outbound buttons for the Constellation Agent GitHub repo, the repo DeepWiki URL, the Agent Zero site, Discord, YouTube, and X
 - demo buttons should stay compact one-line pills with a small inline icon chip, title text, and a trailing action glyph instead of large card bodies or background-motif icons
 - the panel itself should stay glass-like and avoid local gradient washes or decorative radial glow layers; the shared dashboard canvas already owns the richer background atmosphere
 - demo button title, icon, and icon color should load from each bundled example's own `space.yaml` so the dashboard preview matches the installed space metadata instead of relying on separate hardcoded presentation values

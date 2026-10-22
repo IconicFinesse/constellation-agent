@@ -4,7 +4,7 @@ This doc is the shortest map of the whole system.
 
 ## Core Idea
 
-Space Agent is browser-first:
+Constellation Agent is browser-first:
 
 - the browser app in `app/` is the primary runtime
 - the server in `server/` is thin infrastructure for page shells, auth, APIs, module delivery, app-file access, and outbound fetch proxying

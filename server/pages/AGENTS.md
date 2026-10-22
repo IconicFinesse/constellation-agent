@@ -50,8 +50,8 @@ Current public shell assets:
 - loads shared framework CSS and `/mod/_core/framework/js/initFw.js`
 - when the current request already has launcher access, receives a page-shell guard before `/mod/...` assets so a new browser-opened tab or window is redirected to `/enter?next=<current-url>` before customware loads; framework-created same-origin `_blank` opens may pre-grant the same tab-access marker before loading this shell
 - receives injected `meta[name="space-config"]` tags for any `frontend_exposed` runtime parameters
-- declares the shared product-level social-preview metadata for Open Graph and Twitter, using the production card title `Space Agent | Browser-First AI Agent Runtime`, the shared browser-first runtime description, and the local `server/pages/res/readme-banner.webp` asset published at `https://space-agent.ai/pages/res/readme-banner.webp`
-- declares the shared Space Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and app manifest metadata
+- declares the shared product-level social-preview metadata for Open Graph and Twitter, using the production card title `Constellation Agent | Browser-First AI Agent Runtime`, the shared browser-first runtime description, and the local `server/pages/res/readme-banner.webp` asset published at `https://space-agent.ai/pages/res/readme-banner.webp`
+- declares the shared Constellation Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and app manifest metadata
 - keeps the body minimal and exposes exactly the `body/start` extension anchor
 
 `admin.html`:
@@ -60,18 +60,18 @@ Current public shell assets:
 - when the current request already has launcher access, receives the same page-shell guard before `/mod/...` assets so a new browser-opened tab or window is redirected to `/enter?next=<current-url>` before admin shell assets load; framework-created same-origin `_blank` opens may pre-grant the same tab-access marker before loading this shell
 - declares `meta[name="space-max-layer"]` with content `0`
 - receives the same injected `meta[name="space-config"]` tags for `frontend_exposed` runtime parameters
-- declares that same shared product-level Open Graph and Twitter social-preview card so admin-route shares keep the same public Space Agent banner and description
-- declares the shared Space Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and the `Admin Mode | Space Agent` document title
+- declares that same shared product-level Open Graph and Twitter social-preview card so admin-route shares keep the same public Constellation Agent banner and description
+- declares the shared Constellation Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and the `Admin Mode | Constellation Agent` document title
 - keeps the body minimal and exposes exactly the `page/admin/body/start` extension anchor
 
 `login.html`:
 
 - is public and must not depend on authenticated `/mod/...` assets
 - owns the login flow, guest creation flow, login-disabled fallback copy, and pre-auth layout
-- declares the same shared product-level Open Graph and Twitter social-preview card as the other shells, so anonymous shares of `https://space-agent.ai/` still resolve to a Space Agent product preview after the server redirects crawlers to `/login`
+- declares the same shared product-level Open Graph and Twitter social-preview card as the other shells, so anonymous shares of `https://space-agent.ai/` still resolve to a Constellation Agent product preview after the server redirects crawlers to `/login`
 - renders a centered footer below the main shell content with white semi-transparent outbound icons for GitHub, Discord, X, and a slightly larger Agent Zero logo in the last slot, then places the injected `SPACE_PROJECT_VERSION` value beneath that icon row
 - reads injected `meta[name="space-config"]` tags directly so guest-login UI and the password form can follow backend runtime parameters such as `ALLOW_GUEST_USERS` and `LOGIN_ALLOWED` without authenticated module imports
-- declares the shared Space Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and the `Login | Space Agent` document title
+- declares the shared Constellation Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and the `Login | Constellation Agent` document title
 - runs the shared public-shell browser compatibility gate from `server/pages/res/browser-compat.js` before login logic starts, and renders a visible blocking message when the browser is missing required runtime features such as modern JavaScript syntax, module loading, fetch, storage, or text codecs; that gate reads the injected `SINGLE_USER_APP` meta tag, always requires `crypto.getRandomValues`, and requires the full `crypto.subtle` contract only while password login is actually active, because single-user runtime bypasses both the password SCRAM proof and the per-user `userCrypto` record, and its blocked copy names `SINGLE_USER_APP=true` as the plain-HTTP escape hatch for self-hosters who cannot use HTTPS or localhost
 - uses the public `server/pages/res/state-version.js` helper on its background auth requests so successful sign-in can carry the latest replicated-state floor through the final same-tab redirect without a visible URL param
 - runs the per-user `userCrypto` provisioning or unlock step inside the same `/api/login_challenge` plus `/api/login` transaction using the public helper in `server/pages/res/user-crypto.js`; the helper must stay public because `/login` cannot depend on authenticated `/mod/...` assets, and its base64url handling must stay browser-safe even when a partial `Buffer` polyfill exists without Node's newer `base64url` codec alias
@@ -86,7 +86,7 @@ Current public shell assets:
 - keeps the self-host call-to-action visually separated from the sign-in form even when guest account creation is disabled and the guest-only block is hidden
 - opens the self-host call-to-action as a two-panel login-styled modal: `Native App` and `Own Server` panels split left-right on desktop and stack top-bottom on mobile, with a privacy/security subtitle, one short explanatory line per panel, a large inline Material icon, and a local inline-icon action button
 - keeps the modal's outbound URLs as navigation only: the native app button links to the `agent0ai/space-agent` latest-release redirect, and the server-hosting button links to the README `#host` section
-- keeps the footer social links as navigation-only outbound targets to the Space Agent repository, Discord community, Agent Zero website, and X account
+- keeps the footer social links as navigation-only outbound targets to the Constellation Agent repository, Discord community, Agent Zero website, and X account
 - keeps the mobile shell scrollable when the viewport is shorter than the content, and reserves extra small-screen side spacing for the intro column rather than inflating the login card
 - keeps the mirrored canvas gradient and star or glow backdrop pinned to fixed viewport layers while the login shell content scrolls
 - keeps the public-shell glass shadowless: no painted box-shadow, text-shadow, or drop-shadow treatments on first-party shell chrome, astronaut art, or footer icons
@@ -98,7 +98,7 @@ Current public shell assets:
 - must not depend on authenticated `/mod/...` assets
 - reuses the mirrored public backdrop assets from `server/pages/res/space-backdrop.*`
 - should use the same `space-theme-canvas` backdrop contract as `/login` and `/enter` so the shared gradient and starfield background stay visually consistent across public shells
-- declares the `Shared Space | Space Agent` document title plus the shared favicon family
+- declares the `Shared Space | Constellation Agent` document title plus the shared favicon family
 - reads the share token from the multi-segment `/share/space/<token>` route, checks whether the stored share metadata declares browser-side password protection, downloads the hosted ZIP, decrypts that ZIP in the browser through `server/pages/res/share-crypto.js` when needed, previews the shared space title plus optional thumbnail plus widget-name pills from inside the archive, and only then posts the clear ZIP bytes to `/api/cloud_share_clone`
 - should keep the preview explicit and user-readable instead of auto-cloning blindly, using the shared-space title when present and falling back gracefully when preview fields are missing
 - should keep the copy explicit and short: shared spaces open in a sandboxed guest environment instead of the visitor's own account
@@ -113,13 +113,13 @@ Current public shell assets:
 - must not depend on authenticated `/mod/...` assets
 - is served for launcher-eligible sessions; in multi-user mode, unauthenticated requests are redirected to `/login` before this shell loads
 - owns the firmware-backed launcher UI that links to `/` and `/admin`, labeled as Enter Space and Admin Mode, and when the Electron preload bridge reports a packaged desktop runtime with updater support it also runs a fresh background update check on each shell load unless an install is already downloading or ready to restart, reveals an update button below `Admin Mode` only after a newer bundle is available or ready to install, keeps all normal update status inside that button label with no second text line or subtitle underneath, uses the downloaded-state label `Restart and update`, opens a login-styled confirmation modal before restart-to-install with `Okay, restart` and `Back` actions plus copy explaining that the bundled app will quit and update in the background, fades the launcher shell to black only after the user confirms that modal, stays visually quiet when the bundled app is already current, and only replaces the button with a `Could not check updates` disclosure when the update check or download fails, rendering the update button version with a `v` prefix while still collapsing redundant updater versions such as `0.44.0` to the two-segment display form `v0.44`
-- declares that same shared product-level Open Graph and Twitter social-preview card so launcher-route shares use the same public Space Agent banner and description
-- declares the shared Space Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and the `Enter Space | Space Agent` document title
+- declares that same shared product-level Open Graph and Twitter social-preview card so launcher-route shares use the same public Constellation Agent banner and description
+- declares the shared Constellation Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and the `Enter Space | Constellation Agent` document title
 - runs the shared public-shell browser compatibility gate from `server/pages/res/browser-compat.js` before launcher logic starts, and renders the same blocking message contract as `/login` when the browser is missing required runtime features for the later app shell; because `/enter` is the mandatory launcher in single-user runtime, that gate must let plain-HTTP single-user sessions through without `crypto.subtle`
 - renders the same centered footer treatment as `/login`: white semi-transparent outbound icons for GitHub, Discord, X, and a slightly larger Agent Zero logo in the last slot, followed by the injected `SPACE_PROJECT_VERSION` value beneath that icon row
 - accepts an optional `next` query param, grants per-tab launcher access through `sessionStorage`, and routes the Enter or Admin buttons back to the original target when appropriate
 - mirrors the login-shell intro layout, floating astronaut, and public backdrop while replacing the right-side form card with direct launcher actions
-- keeps the footer social links as navigation-only outbound targets to the Space Agent repository, Discord community, Agent Zero website, and X account
+- keeps the footer social links as navigation-only outbound targets to the Constellation Agent repository, Discord community, Agent Zero website, and X account
 - keeps extra small-screen side spacing around the launcher shell and a generous top and inter-button gap when the launcher actions collapse below the intro copy
 - should reuse the mirrored public backdrop assets instead of introducing a second standalone visual system
 - `/login` and `/enter` launcher actions plus public footer links must keep a stable clickable hitbox on hover and focus; use opacity, border, background, or outline changes instead of translate-based lift

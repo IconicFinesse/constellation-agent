@@ -1,6 +1,6 @@
 ---
 name: Development
-description: Build new browser modules in the layered Space Agent runtime and use the extension, component, and Alpine store patterns correctly.
+description: Build new browser modules in the layered Constellation Agent runtime and use the extension, component, and Alpine store patterns correctly.
 metadata:
   when:
     tags:

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`_core/visual/` owns the shared Space Agent visual system.
+`_core/visual/` owns the shared Constellation Agent visual system.
 
 It provides the reusable canvas, chrome, buttons, dialogs, cards, conversation rendering primitives, and shared authenticated-app visual assets that feature modules compose on top of. It should own shared presentation logic and reusable artwork, not feature-specific state or workflows.
 

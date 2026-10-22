@@ -658,9 +658,9 @@ export async function createNativeGitHistoryClient({ repoRoot }) {
 
         await runGitAsync(resolvedRepoRoot, [
           "-c",
-          `user.name=${String(options.authorName || "Space Agent")}`,
+          `user.name=${String(options.authorName || "Constellation Agent")}`,
           "-c",
-          `user.email=${String(options.authorEmail || "space-agent@local")}`,
+          `user.email=${String(options.authorEmail || "constellation-agent@local")}`,
           "commit",
           "--no-gpg-sign",
           "-m",
@@ -882,9 +882,9 @@ export async function createNativeGitHistoryClient({ repoRoot }) {
           resolvedRepoRoot,
           [
             "-c",
-            `user.name=${String(options.authorName || "Space Agent")}`,
+            `user.name=${String(options.authorName || "Constellation Agent")}`,
             "-c",
-            `user.email=${String(options.authorEmail || "space-agent@local")}`,
+            `user.email=${String(options.authorEmail || "constellation-agent@local")}`,
             "revert",
             "--no-edit",
             "--no-gpg-sign",

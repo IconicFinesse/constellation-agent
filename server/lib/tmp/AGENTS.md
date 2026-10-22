@@ -22,7 +22,7 @@ This subtree owns:
 
 Current rules:
 
-- the runtime temp root is resolved through `ensureServerTmpDir(tmpDir)`; it defaults to `server/tmp/` and packaged desktop builds override it to a writable OS temp location such as `<temp>/space-agent/server-tmp`
+- the runtime temp root is resolved through `ensureServerTmpDir(tmpDir)`; it defaults to `server/tmp/` and packaged desktop builds override it to a writable OS temp location such as `<temp>/constellation-agent/server-tmp`
 - the resolved temp root is for transitory files and folders only
 - every temp artifact should be created as its own top-level entry inside the resolved temp root
 - the janitor removes top-level entries whose `mtime` is older than `25 minutes`

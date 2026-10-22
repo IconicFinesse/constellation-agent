@@ -82,7 +82,7 @@ test("importCurrentSpaceModule loads a versioned current-space module URL", asyn
       calls.push({ kind: "import", moduleUrl });
       return importedNamespace;
     },
-    locationOrigin: "https://space-agent.local",
+    locationOrigin: "https://constellation-agent.local",
     resolveAppUrl: resolveTestAppUrl,
     spaceRootPath: "~/spaces/space-7/"
   });
@@ -94,7 +94,7 @@ test("importCurrentSpaceModule loads a versioned current-space module URL", asyn
   });
 
   const importedUrl = new URL(calls[1].moduleUrl);
-  assert.equal(importedUrl.origin, "https://space-agent.local");
+  assert.equal(importedUrl.origin, "https://constellation-agent.local");
   assert.equal(importedUrl.pathname, "/~/spaces/space-7/scripts/utils.js");
   assert.equal(importedUrl.searchParams.get("v"), "2026-04-18T20:10:00.000Z:128");
 });
@@ -108,7 +108,7 @@ test("createCurrentSpaceModuleImporter reuses the configured current-space root"
       size: 64
     }),
     importModule: async (moduleUrl) => ({ moduleUrl }),
-    locationOrigin: "https://space-agent.local",
+    locationOrigin: "https://constellation-agent.local",
     resolveAppUrl: resolveTestAppUrl,
     spaceRootPath: "~/spaces/space-9/"
   });
