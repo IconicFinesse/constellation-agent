@@ -1,5 +1,6 @@
 const DASHBOARD_CONFIG_PATH = "~/conf/dashboard.yaml";
 const DASHBOARD_WELCOME_HIDDEN_CHANGE_EVENT = "dashboard_welcome:hidden_change";
+let dashboardConfigKnownMissing = false;
 
 function getRuntime() {
   const runtime = globalThis.space;
@@ -92,11 +93,17 @@ export function subscribeDashboardWelcomeHiddenChange(callback) {
 export async function loadDashboardPrefs() {
   const runtime = getRuntime();
 
+  if (dashboardConfigKnownMissing) {
+    return normalizeDashboardPrefs({});
+  }
+
   try {
     const result = await runtime.api.fileRead(DASHBOARD_CONFIG_PATH);
+    dashboardConfigKnownMissing = false;
     return normalizeDashboardPrefs(runtime.utils.yaml.parse(String(result?.content || "")));
   } catch (error) {
     if (isMissingFileError(error)) {
+      dashboardConfigKnownMissing = true;
       return normalizeDashboardPrefs({});
     }
 
@@ -111,6 +118,7 @@ async function saveDashboardPrefs(nextPrefs) {
 
   try {
     await runtime.api.fileWrite(DASHBOARD_CONFIG_PATH, `${content}\n`);
+    dashboardConfigKnownMissing = false;
     const result = await runtime.api.fileRead(DASHBOARD_CONFIG_PATH);
     const savedPrefs = normalizeDashboardPrefs(runtime.utils.yaml.parse(String(result?.content || "")));
 
