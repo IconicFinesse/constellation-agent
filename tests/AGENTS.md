@@ -42,6 +42,7 @@ This scope owns:
 - `user_folder_quota_test.mjs`: focused server-side harness for `USER_FOLDER_SIZE_LIMIT_BYTES`, indexed current-size and subtree-size reads, cached per-user `L2` size accounting, write growth rejection, size-reducing writes, deletes, batch aggregation, and copy checks
 - standalone repo-level verification scripts such as `yaml_lite_test.mjs`
 - `project_version_test.mjs`: focused helper coverage for package-version display tags and project-version fallback behavior used by the CLI and page shells
+- `mod_specifier_loader.mjs`: shared Node module-resolve hook that maps browser-style `/mod/...` import specifiers onto `app/L0/_all/mod/...`; frontend-module suites must call `register()` on it before dynamically importing product modules, because ESM links static imports before any suite body runs
 - `prompt_items_test.mjs`: focused shared prompt-item helper coverage for blank-line array value joins, cached prompt-item token metadata, plus the live `space.chat` long-message access runtime that hides full prompt text from the public metadata list
 - `prompt_budget_trim_test.mjs`: focused shared prompt-budget coverage for the `250`-token minimum contributor trim plan, one-shot outlier trimming, and `system` section-body fallback when contributor-level trims are too small
 - `promptinclude_test.mjs`: focused prompt-include coverage for alphabetical include discovery plus keyed system or transient prompt-item output, ordering, and fenced transient rendering
@@ -90,6 +91,7 @@ This scope owns:
 ### Local Work Rules
 
 - keep fixtures hand-authored and readable
+- suites that exercise browser frontend modules must register `tests/mod_specifier_loader.mjs` with `node:module` and load those modules through dynamic `import()` after registration so the real module graph resolves and assertions run instead of failing with `ERR_MODULE_NOT_FOUND`
 - keep fixtures independent and side-effect-free so harnesses can parallelize them safely
 - keep harness outputs easy to diff and resume next session
 - prune stale result commentary and keep only durable signal in the always-read summaries; full history can live in dedicated archive outputs
