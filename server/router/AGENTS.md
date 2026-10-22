@@ -40,6 +40,7 @@ Rules:
 - keep this order explicit and centralized in `router.js`
 - do not hide route precedence in scattered conditionals across unrelated files
 - all non-public API, module, and app-fetch routes require an authenticated request context before dispatch
+- API dispatch forwards the runtime-resolved `tmpDir` into every endpoint context so transient-artifact endpoints such as `folder_download` stage work under the configured temp root instead of a bundled path
 
 ### State Version Contract
 

@@ -22,8 +22,9 @@ This subtree owns:
 
 Current rules:
 
-- `server/tmp/` is for transitory files and folders only
-- every temp artifact should be created as its own top-level entry inside `server/tmp/`
+- the runtime temp root is resolved through `ensureServerTmpDir(tmpDir)`; it defaults to `server/tmp/` and packaged desktop builds override it to a writable OS temp location such as `<temp>/space-agent/server-tmp`
+- the resolved temp root is for transitory files and folders only
+- every temp artifact should be created as its own top-level entry inside the resolved temp root
 - the janitor removes top-level entries whose `mtime` is older than `25 minutes`
 - the janitor runs on startup and then on a fixed low-memory interval instead of per-file timers
 - repo-owned anchor files such as `server/tmp/.gitignore` are preserved
@@ -32,9 +33,10 @@ Current rules:
 
 Current folder-download behavior:
 
-- folder archives are created inside `server/tmp/`
+- folder archives are created inside the resolved runtime temp root
+- callers that stage archives must forward the runtime `tmpDir` from their request context; `createDirectoryZipArchive(...)` honors `options.tmpDir` and falls back to the module default only when no override exists, so packaged read-only install layouts never try to write inside the bundled app tree
 - archive filenames on disk are unique and sanitized to avoid collisions
-- the archive builder uses the in-process Node `archiver` ZIP implementation with fast compression and symbolic-link preservation, writing the archive to disk in `server/tmp/` before the response stream opens
+- the archive builder uses the in-process Node `archiver` ZIP implementation with fast compression and symbolic-link preservation, writing the archive to disk in the resolved temp root before the response stream opens
 - streamed archive files are unlinked after the response stream closes; the janitor is the fallback cleanup path if any request exits early or misses manual cleanup
 
 ## Work Guidance
@@ -43,7 +45,7 @@ Current folder-download behavior:
 
 - keep temp storage disk-backed and streaming-oriented; avoid blob buffering for large artifacts
 - do not create feature-local cleanup timers when the janitor already owns stale-entry cleanup
-- if temp retention, archive creation behavior, or the `server/tmp/` ownership contract changes, update this file and `/server/AGENTS.md`
+- if temp retention, archive creation behavior, or the resolved runtime temp-root contract changes, update this file and `/server/AGENTS.md`
 
 ## Verification
 

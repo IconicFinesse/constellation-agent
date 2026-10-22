@@ -180,7 +180,7 @@ It is the right tool for catalog discovery, not for raw filesystem walking.
 - supports `HEAD` for permission-only validation
 - supports `GET` and `POST` for the actual ZIP download
 - resolves readable folders through the shared permission model
-- creates the archive in `server/tmp/` with the backend Node ZIP helper instead of a host `zip` binary
+- creates the archive in the resolved runtime temp directory with the backend Node ZIP helper instead of a host `zip` binary; that directory defaults to `server/tmp/` and packaged desktop builds point it at a writable OS temp location, so downloads keep working when the bundled app tree is read-only
 - streams the attachment instead of buffering the ZIP into browser memory
 
 Frontend code that wants an attachment-style download should prefer:
