@@ -109,6 +109,7 @@ Current rules:
 - `cloud_share_download` returns the raw stored ZIP bytes for a hosted share without unpacking it in the API handler
 - `cloud_share_clone` accepts a ZIP payload that may already have been decrypted in the browser, validates and extracts it into a unique `server/tmp/` directory, creates a fresh guest account, installs the imported space as `imported-N`, updates the share metadata `lastUsedAt`, and returns the guest credentials plus redirect URL that the public share shell uses to finish the normal `/api/login_challenge` plus `/api/login` background login flow
 - `space_import` is authenticated, accepts a raw ZIP request body, validates the archive through the shared hosted-share helper, and either replaces the current target space or installs a new `imported-N` destination when the caller keeps the current space instead of overwriting it
+- `space_import` returns `400` with a short user-safe archive message when the uploaded bytes are not a readable space archive, so corrupt or truncated uploads never reach the browser as a redacted `500`; unexpected install failures still surface as `5xx`
 - both `cloud_share_clone` and `space_import` must reuse `server/lib/share/service.js` for archive validation, extracted-folder checks, destination naming, and install logic instead of adding endpoint-local ZIP handling
 
 Module endpoints:

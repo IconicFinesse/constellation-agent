@@ -49,6 +49,7 @@ Important behaviors:
 - `cloud_share_download` returns the stored ZIP bytes so the browser can decrypt password-protected shares before clone
 - `cloud_share_clone` validates the clear ZIP in a unique `server/tmp/` extraction directory, creates a fresh guest account, installs the result as `imported-N`, updates the share `lastUsedAt`, and returns the guest credentials plus redirect URL that the public share shell uses to finish the normal background login flow
 - authenticated `space_import` uses the same archive-validation path for local ZIP imports from the spaces modal, replacing the current space only when the caller explicitly chooses overwrite; otherwise the imported space is renamed to the next `imported-N` destination
+- share/import archive validation runs in-process with Node `zlib` instead of shelling out to a host `unzip`, verifies each entry's declared uncompressed size and CRC32 while streaming it to disk, and reports corrupt, truncated, byte-damaged, password-protected, or otherwise unreadable archives as an explicit `400` with a short user-safe message instead of a redacted `500`
 
 ## Module Endpoints
 Current module endpoints:

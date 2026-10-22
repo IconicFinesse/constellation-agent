@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import zlib from "node:zlib";
 
 import {
   parseSimpleYaml,
@@ -25,7 +27,17 @@ const SHARE_TOKEN_LENGTH = 8;
 const SHARE_TOKEN_PATTERN = /^[A-Za-z0-9]{8}$/u;
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/u;
 const IMPORTED_SPACE_PREFIX = "imported-";
-const MAX_ARCHIVE_TOOL_STDIO_BYTES = 8192;
+const ZIP_LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
+const ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
+const ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
+const ZIP_METHOD_STORED = 0;
+const ZIP_METHOD_DEFLATE = 8;
+const ZIP_UTF8_FLAG = 0x0800;
+const ZIP_ENCRYPTED_FLAG = 0x0001;
+const ZIP_MAX_COMMENT_BYTES = 65535;
+const ZIP_UNIX_MODE_MASK = 0o170000;
+const ZIP_UNIX_DIRECTORY_MODE = 0o040000;
+const ZIP_UNIX_SYMLINK_MODE = 0o120000;
 
 function createShareError(message, statusCode = 500) {
   const error = new Error(message);
@@ -341,65 +353,159 @@ function removePathQuietly(targetPath) {
   fs.rm(targetPath, { force: true, recursive: true }, () => {});
 }
 
-function runArchiveTool(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd || undefined,
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    let stdoutText = "";
-    let stderrText = "";
+const ZIP_CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
 
-    child.stdout.on("data", (chunk) => {
-      if (stdoutText.length < MAX_ARCHIVE_TOOL_STDIO_BYTES) {
-        stdoutText += String(chunk);
-      }
-    });
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
 
-    child.stderr.on("data", (chunk) => {
-      if (stderrText.length < MAX_ARCHIVE_TOOL_STDIO_BYTES) {
-        stderrText += String(chunk);
-      }
-    });
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = (value & 1) !== 0 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
 
-    child.once("error", (error) => {
-      reject(createShareError((options.missingCommandMessage || "Archive tool is unavailable.") + " " + error.message, 500));
-    });
+    table[index] = value >>> 0;
+  }
 
-    child.once("close", (code, signal) => {
-      if (code === 0) {
-        resolve({
-          stderrText: stderrText.trim(),
-          stdoutText: stdoutText.trim()
-        });
-        return;
-      }
+  return table;
+})();
 
-      const detail = stderrText.trim() || stdoutText.trim();
-      reject(
-        createShareError(
-          (options.failurePrefix || "Archive tool failed.") + (detail ? " " + detail : signal ? " Interrupted by " + signal + "." : " Exit code " + String(code) + "."),
-          400
-        )
-      );
-    });
-  });
+function updateZipCrc32(crc, bytes) {
+  let nextCrc = crc;
+
+  for (let index = 0; index < bytes.length; index += 1) {
+    nextCrc = ZIP_CRC32_TABLE[(nextCrc ^ bytes[index]) & 0xff] ^ (nextCrc >>> 8);
+  }
+
+  return nextCrc;
 }
 
-async function listArchiveEntries(archivePath) {
-  const result = await runArchiveTool(
-    "unzip",
-    ["-Z1", archivePath],
-    {
-      failurePrefix: "Share archive inspection failed.",
-      missingCommandMessage: "The unzip tool is unavailable on this host."
-    }
-  );
+function readZipEndOfCentralDirectoryOffset(payloadBuffer) {
+  const minimumOffset = Math.max(0, payloadBuffer.length - (ZIP_MAX_COMMENT_BYTES + 22));
 
-  return result.stdoutText
-    .split(/\r?\n/gu)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  for (let offset = payloadBuffer.length - 22; offset >= minimumOffset; offset -= 1) {
+    if (payloadBuffer.readUInt32LE(offset) === ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE) {
+      return offset;
+    }
+  }
+
+  throw createInvalidZipError();
+}
+
+function createInvalidZipError() {
+  return createShareError(
+    "Share archive inspection failed. The uploaded file is not a valid ZIP archive.",
+    400
+  );
+}
+
+function readZipArchiveEntries(payloadBuffer) {
+  if (!Buffer.isBuffer(payloadBuffer) || payloadBuffer.length === 0) {
+    throw createShareError("Shared space archives must not be empty.", 400);
+  }
+
+  if (payloadBuffer.length < 22) {
+    throw createInvalidZipError();
+  }
+
+  const eocdOffset = readZipEndOfCentralDirectoryOffset(payloadBuffer);
+  const entryCount = payloadBuffer.readUInt16LE(eocdOffset + 10);
+  const centralDirectorySize = payloadBuffer.readUInt32LE(eocdOffset + 12);
+  const centralDirectoryOffset = payloadBuffer.readUInt32LE(eocdOffset + 16);
+
+  if (
+    entryCount === 0xffff ||
+    centralDirectorySize === 0xffffffff ||
+    centralDirectoryOffset === 0xffffffff
+  ) {
+    throw createShareError(
+      "Share archive inspection failed. ZIP64 archives are not supported.",
+      400
+    );
+  }
+
+  if (centralDirectoryOffset + centralDirectorySize > payloadBuffer.length) {
+    throw createInvalidZipError();
+  }
+
+  const entries = [];
+  let offset = centralDirectoryOffset;
+
+  for (let index = 0; index < entryCount; index += 1) {
+    if (
+      offset + 46 > payloadBuffer.length ||
+      payloadBuffer.readUInt32LE(offset) !== ZIP_CENTRAL_DIRECTORY_SIGNATURE
+    ) {
+      throw createInvalidZipError();
+    }
+
+    const flags = payloadBuffer.readUInt16LE(offset + 8);
+    const compressionMethod = payloadBuffer.readUInt16LE(offset + 10);
+    const crc32 = payloadBuffer.readUInt32LE(offset + 16);
+
+    if ((flags & ZIP_ENCRYPTED_FLAG) !== 0) {
+      throw createShareError(
+        "Share archive extraction failed. Password-protected ZIP entries are not supported.",
+        400
+      );
+    }
+
+    const compressedSize = payloadBuffer.readUInt32LE(offset + 20);
+    const uncompressedSize = payloadBuffer.readUInt32LE(offset + 24);
+    const nameLength = payloadBuffer.readUInt16LE(offset + 28);
+    const extraLength = payloadBuffer.readUInt16LE(offset + 30);
+    const commentLength = payloadBuffer.readUInt16LE(offset + 32);
+    const externalAttributes = payloadBuffer.readUInt32LE(offset + 38);
+    const localHeaderOffset = payloadBuffer.readUInt32LE(offset + 42);
+    const nameStart = offset + 46;
+
+    if (nameStart + nameLength > payloadBuffer.length) {
+      throw createInvalidZipError();
+    }
+
+    const name = payloadBuffer
+      .subarray(nameStart, nameStart + nameLength)
+      .toString((flags & ZIP_UTF8_FLAG) !== 0 ? "utf8" : "latin1")
+      .replace(/\\/gu, "/");
+    const unixMode = (externalAttributes >>> 16) & ZIP_UNIX_MODE_MASK;
+
+    if (unixMode === ZIP_UNIX_SYMLINK_MODE) {
+      throw createShareError("Shared space archives must not contain symbolic links.", 400);
+    }
+
+    entries.push({
+      compressedSize,
+      compressionMethod,
+      crc32,
+      isDirectory: name.endsWith("/") || unixMode === ZIP_UNIX_DIRECTORY_MODE,
+      localHeaderOffset,
+      name,
+      uncompressedSize
+    });
+
+    offset = nameStart + nameLength + extraLength + commentLength;
+  }
+
+  return entries;
+}
+
+function normalizeArchiveEntryName(value) {
+  const normalizedEntry = String(value || "").replace(/\\/gu, "/").trim();
+
+  if (!normalizedEntry) {
+    throw createShareError("Shared space archive contains an invalid entry.", 400);
+  }
+
+  if (normalizedEntry.startsWith("/") || /^[A-Za-z]:/u.test(normalizedEntry)) {
+    throw createShareError("Shared space archive contains an absolute path.", 400);
+  }
+
+  const segments = normalizedEntry.replace(/\/+$/u, "").split("/").filter(Boolean);
+
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    throw createShareError("Shared space archive contains an unsafe path.", 400);
+  }
+
+  return normalizedEntry;
 }
 
 function validateArchiveEntries(entries) {
@@ -407,36 +513,142 @@ function validateArchiveEntries(entries) {
     throw createShareError("Shared space archives must not be empty.", 400);
   }
 
-  return entries.map((entry) => {
-    const normalizedEntry = String(entry || "").replace(/\\/gu, "/").trim();
+  return entries.map((entry) => ({
+    ...entry,
+    name: normalizeArchiveEntryName(entry.name)
+  }));
+}
 
-    if (!normalizedEntry) {
-      throw createShareError("Shared space archive contains an invalid entry.", 400);
+function readArchiveEntryRange(payloadBuffer, entry) {
+  const localHeaderOffset = Number(entry.localHeaderOffset);
+
+  if (
+    !Number.isInteger(localHeaderOffset) ||
+    localHeaderOffset < 0 ||
+    localHeaderOffset + 30 > payloadBuffer.length ||
+    payloadBuffer.readUInt32LE(localHeaderOffset) !== ZIP_LOCAL_FILE_HEADER_SIGNATURE
+  ) {
+    throw createShareError(
+      "Share archive extraction failed. The uploaded archive entry data is invalid.",
+      400
+    );
+  }
+
+  const nameLength = payloadBuffer.readUInt16LE(localHeaderOffset + 26);
+  const extraLength = payloadBuffer.readUInt16LE(localHeaderOffset + 28);
+  const dataStart = localHeaderOffset + 30 + nameLength + extraLength;
+  const dataEnd = dataStart + Number(entry.compressedSize || 0);
+
+  if (dataStart < 0 || dataEnd > payloadBuffer.length) {
+    throw createShareError(
+      "Share archive extraction failed. The uploaded archive is truncated.",
+      400
+    );
+  }
+
+  return payloadBuffer.subarray(dataStart, dataEnd);
+}
+
+function createArchiveEntryVerifier(entry) {
+  const expectedSize =
+    Number.isInteger(entry.uncompressedSize) && entry.uncompressedSize > 0
+      ? entry.uncompressedSize
+      : 0;
+  const expectedCrc =
+    Number.isInteger(entry.crc32) && entry.crc32 >= 0 ? entry.crc32 : null;
+  let crc = 0xffffffff;
+  let writtenBytes = 0;
+
+  return {
+    push(chunk) {
+      writtenBytes += chunk.length;
+
+      if (expectedSize > 0 && writtenBytes > expectedSize) {
+        throw createShareError(
+          "Share archive extraction failed. The uploaded archive data is corrupt.",
+          400
+        );
+      }
+
+      crc = updateZipCrc32(crc, chunk);
+      return chunk;
+    },
+    verify() {
+      if (expectedSize > 0 && writtenBytes !== expectedSize) {
+        throw createShareError(
+          "Share archive extraction failed. The uploaded archive data is corrupt.",
+          400
+        );
+      }
+
+      if (expectedCrc !== null && ((crc ^ 0xffffffff) >>> 0) !== expectedCrc) {
+        throw createShareError(
+          "Share archive extraction failed. The uploaded archive data is corrupt.",
+          400
+        );
+      }
+    }
+  };
+}
+
+async function writeArchiveEntryToFile(payloadBuffer, entry, targetPath) {
+  const compressedBytes = readArchiveEntryRange(payloadBuffer, entry);
+  const verifier = createArchiveEntryVerifier(entry);
+  const source = Readable.from([compressedBytes]);
+  const verifyStream = new Transform({
+    transform(chunk, encoding, callback) {
+      try {
+        callback(null, verifier.push(chunk));
+      } catch (error) {
+        callback(error);
+      }
+    }
+  });
+  const stages = [source];
+
+  if (entry.compressionMethod === ZIP_METHOD_DEFLATE) {
+    stages.push(zlib.createInflateRaw());
+  } else if (entry.compressionMethod !== ZIP_METHOD_STORED) {
+    throw createShareError(
+      "Share archive extraction failed. The uploaded archive uses an unsupported compression method.",
+      400
+    );
+  }
+
+  stages.push(verifyStream, fs.createWriteStream(targetPath));
+
+  try {
+    await pipeline(...stages);
+  } catch (error) {
+    if (error && error.statusCode) {
+      throw error;
     }
 
-    if (normalizedEntry.startsWith("/") || /^[A-Za-z]:/u.test(normalizedEntry)) {
-      throw createShareError("Shared space archive contains an absolute path.", 400);
-    }
+    throw createShareError(
+      "Share archive extraction failed. The uploaded archive data is corrupt.",
+      400
+    );
+  }
 
-    const segments = normalizedEntry.replace(/\/+$/u, "").split("/").filter(Boolean);
+  verifier.verify();
+}
 
-    if (segments.some((segment) => segment === "." || segment === "..")) {
+async function extractArchiveToDirectory(payloadBuffer, entries, targetDir) {
+  for (const entry of entries) {
+    const entryPath = path.resolve(targetDir, entry.name.replace(/\/+$/u, ""));
+
+    if (entryPath !== targetDir && !entryPath.startsWith(targetDir + path.sep)) {
       throw createShareError("Shared space archive contains an unsafe path.", 400);
     }
 
-    return normalizedEntry;
-  });
-}
-
-async function extractArchiveToDirectory(archivePath, targetDir) {
-  await runArchiveTool(
-    "unzip",
-    ["-q", archivePath, "-d", targetDir],
-    {
-      failurePrefix: "Share archive extraction failed.",
-      missingCommandMessage: "The unzip tool is unavailable on this host."
+    if (entry.isDirectory) {
+      await fsp.mkdir(entryPath, { recursive: true });
+      continue;
     }
-  );
+
+    await fsp.mkdir(path.dirname(entryPath), { recursive: true });
+    await writeArchiveEntryToFile(payloadBuffer, entry, entryPath);
+  }
 }
 
 async function resolveExtractedSpaceRoot(extractionDir) {
@@ -546,20 +758,33 @@ async function validateExtractedSpaceRoot(spaceRoot) {
 }
 
 async function extractValidatedSpaceArchive(payloadBuffer, options = {}) {
+  if (!Buffer.isBuffer(payloadBuffer)) {
+    throw createShareError(
+      "Shared space imports require the raw ZIP archive bytes.",
+      400
+    );
+  }
+
+  const entries = validateArchiveEntries(readZipArchiveEntries(payloadBuffer));
   const archiveDir = createUniqueTempDir(options.tempPrefix || "share-archive");
-  const archivePath = path.join(archiveDir, "space.zip");
   const extractionDir = path.join(archiveDir, "extracted");
-  await fsp.mkdir(extractionDir, { recursive: true });
-  await fsp.writeFile(archivePath, payloadBuffer);
 
   try {
-    const entries = validateArchiveEntries(await listArchiveEntries(archivePath));
+    await fsp.mkdir(extractionDir, { recursive: true });
 
-    if (!entries.length) {
-      throw createShareError("Shared space archives must not be empty.", 400);
+    try {
+      await extractArchiveToDirectory(payloadBuffer, entries, extractionDir);
+    } catch (error) {
+      if (error && error.statusCode) {
+        throw error;
+      }
+
+      throw createShareError(
+        "Share archive extraction failed. The uploaded archive could not be extracted.",
+        400
+      );
     }
 
-    await extractArchiveToDirectory(archivePath, extractionDir);
     const spaceRoot = await resolveExtractedSpaceRoot(extractionDir);
     const manifest = await validateExtractedSpaceRoot(spaceRoot);
 
