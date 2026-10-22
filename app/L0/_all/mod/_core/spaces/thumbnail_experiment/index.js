@@ -18,9 +18,21 @@ const THUMBNAIL_FILE_NAMES = Object.freeze([
   SPACE_THUMBNAIL_JPEG_FILE
 ]);
 const queuedCaptures = new Map();
+const absentSpaceThumbnailFiles = new Map();
 
 function normalizeSpaceThumbnailId(value) {
   return String(value || "").trim().replace(/^\/+|\/+$/gu, "");
+}
+
+function buildSpaceThumbnailCacheKey(spaceId, fileName) {
+  const normalizedSpaceId = normalizeSpaceThumbnailId(spaceId);
+  const normalizedFileName = String(fileName || "").trim();
+
+  if (!normalizedSpaceId || !normalizedFileName) {
+    return "";
+  }
+
+  return `${normalizedSpaceId}/${normalizedFileName}`;
 }
 
 function isNotFoundError(error) {
@@ -276,13 +288,79 @@ async function blobToBase64(blob) {
   });
 }
 
-async function deleteThumbnailPathIfExists(path) {
+function parseSpaceThumbnailPath(path) {
+  const normalizedPath = String(path || "").trim().replace(/^\/+|\/+$/gu, "");
+
+  if (!normalizedPath) {
+    return null;
+  }
+
+  for (const fileName of THUMBNAIL_FILE_NAMES) {
+    const suffix = `/${fileName}`;
+
+    if (!normalizedPath.endsWith(suffix)) {
+      continue;
+    }
+
+    const parentPath = normalizedPath.slice(0, -suffix.length);
+    const lastSeparatorIndex = parentPath.lastIndexOf("/");
+    const spaceId = normalizeSpaceThumbnailId(parentPath.slice(lastSeparatorIndex + 1));
+
+    return spaceId ? { fileName, spaceId } : null;
+  }
+
+  return null;
+}
+
+function isKnownAbsentThumbnailFile(cacheKey, updatedAt = "") {
+  const entry = absentSpaceThumbnailFiles.get(cacheKey);
+
+  if (!entry) {
+    return false;
+  }
+
+  const nextVersion = String(updatedAt || "").trim();
+
+  return !entry.updatedAt || !nextVersion || entry.updatedAt === nextVersion;
+}
+
+function markThumbnailFileAbsent(cacheKey, updatedAt = "") {
+  if (!cacheKey) {
+    return;
+  }
+
+  absentSpaceThumbnailFiles.set(cacheKey, {
+    updatedAt: String(updatedAt || "").trim()
+  });
+}
+
+function markThumbnailFilePresent(cacheKey) {
+  if (!cacheKey) {
+    return;
+  }
+
+  absentSpaceThumbnailFiles.delete(cacheKey);
+}
+
+async function deleteThumbnailPathIfExists(path, updatedAt = "") {
+  const normalizedPath = String(path || "").trim();
+  const thumbnailTarget = parseSpaceThumbnailPath(normalizedPath);
+  const cacheKey = thumbnailTarget
+    ? buildSpaceThumbnailCacheKey(thumbnailTarget.spaceId, thumbnailTarget.fileName)
+    : "";
+
+  if (cacheKey && isKnownAbsentThumbnailFile(cacheKey, updatedAt)) {
+    return;
+  }
+
   const runtime = ensureThumbnailRuntime();
 
   try {
-    await runtime.api.fileDelete(path);
+    await runtime.api.fileDelete(normalizedPath);
+    markThumbnailFileAbsent(cacheKey, updatedAt);
   } catch (error) {
     if (isNotFoundError(error)) {
+      markThumbnailFileAbsent(cacheKey, updatedAt);
       return;
     }
 
@@ -328,6 +406,7 @@ export function resolveListedSpaceThumbnailPath(spaceId, listedPaths = []) {
     const matchedPath = normalizedListedPaths.find((path) => pathPattern.test(path));
 
     if (matchedPath) {
+      markThumbnailFilePresent(buildSpaceThumbnailCacheKey(normalizedSpaceId, fileName));
       return matchedPath;
     }
   }
@@ -342,6 +421,18 @@ export function buildSpaceThumbnailUrlFromPath(path, updatedAt = "") {
     return "";
   }
 
+  const thumbnailTarget = parseSpaceThumbnailPath(normalizedPath);
+
+  if (
+    thumbnailTarget &&
+    isKnownAbsentThumbnailFile(
+      buildSpaceThumbnailCacheKey(thumbnailTarget.spaceId, thumbnailTarget.fileName),
+      updatedAt
+    )
+  ) {
+    return "";
+  }
+
   const publicPath = normalizedPath.startsWith("/")
     ? normalizedPath
     : normalizedPath.startsWith("~/")
@@ -352,8 +443,11 @@ export function buildSpaceThumbnailUrlFromPath(path, updatedAt = "") {
   return version ? `${publicPath}?v=${encodeURIComponent(version)}` : publicPath;
 }
 
-export async function clearSpaceThumbnailFiles(spaceId) {
+export async function clearSpaceThumbnailFiles(spaceId, options = {}) {
   const normalizedSpaceId = normalizeSpaceThumbnailId(spaceId);
+  const updatedAt = String(
+    typeof options === "string" ? options : (options?.updatedAt ?? "")
+  ).trim();
 
   if (!normalizedSpaceId) {
     return {
@@ -363,7 +457,9 @@ export async function clearSpaceThumbnailFiles(spaceId) {
     };
   }
 
-  await Promise.all(listSpaceThumbnailPaths(normalizedSpaceId).map((path) => deleteThumbnailPathIfExists(path)));
+  await Promise.all(
+    listSpaceThumbnailPaths(normalizedSpaceId).map((path) => deleteThumbnailPathIfExists(path, updatedAt))
+  );
 
   return {
     deleted: true,
@@ -428,7 +524,9 @@ export async function captureSpaceThumbnailNow(options = {}) {
       };
     }
 
-    return clearSpaceThumbnailFiles(normalizedSpaceId);
+    return clearSpaceThumbnailFiles(normalizedSpaceId, {
+      updatedAt: options.updatedAt
+    });
   }
 
   const sourceCanvas = await renderScreenshotCanvas({
@@ -446,16 +544,20 @@ export async function captureSpaceThumbnailNow(options = {}) {
   const content = await blobToBase64(blob);
   const runtime = ensureThumbnailRuntime();
 
+  const updatedAt = String(options.updatedAt || "").trim();
+
   await runtime.api.fileWrite({
     content,
     encoding: "base64",
     path
   });
 
+  markThumbnailFilePresent(buildSpaceThumbnailCacheKey(normalizedSpaceId, fileName));
+
   await Promise.all(
     listSpaceThumbnailPaths(normalizedSpaceId)
       .filter((candidatePath) => candidatePath !== path)
-      .map((candidatePath) => deleteThumbnailPathIfExists(candidatePath))
+      .map((candidatePath) => deleteThumbnailPathIfExists(candidatePath, updatedAt))
   );
 
   return {
