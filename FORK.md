@@ -5,7 +5,7 @@ Fork of [agent0ai/space-agent](https://github.com/agent0ai/space-agent) under [I
 ## Thesis
 
 **Constellation Agent is its own project.** Full decision record:
-[`../PROJECT-THESIS.md`](../PROJECT-THESIS.md).
+[`PROJECT-THESIS.md`](PROJECT-THESIS.md).
 
 One sentence: *build Constellation as its own product — add in
 `constellation/`, extend before editing, and freeze contracts before content.*
