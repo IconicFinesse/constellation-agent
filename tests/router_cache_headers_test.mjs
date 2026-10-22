@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import path from "node:path";
+import { Writable } from "node:stream";
 import test from "node:test";
 
 import { FILE_INDEX_AREA } from "../server/runtime/state_areas.js";
@@ -15,25 +16,30 @@ function createMockResponse() {
   const result = new Promise((resolve) => {
     resolveResult = resolve;
   });
+  const chunks = [];
 
-  const response = {
-    finished: false,
-    headers: null,
-    statusCode: null,
-    writableEnded: false,
-    writeHead(statusCode, headers = {}) {
-      this.statusCode = statusCode;
-      this.headers = { ...headers };
-    },
-    end(body = "") {
-      this.writableEnded = true;
-      resolveResult({
-        body: Buffer.isBuffer(body) ? body.toString("utf8") : String(body || ""),
-        headers: this.headers || {},
-        statusCode: this.statusCode
-      });
+  const response = new Writable({
+    write(chunk, _encoding, callback) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      callback();
     }
+  });
+
+  response.headers = null;
+  response.headersSent = false;
+  response.statusCode = null;
+  response.writeHead = function writeHead(statusCode, headers = {}) {
+    this.statusCode = statusCode;
+    this.headers = { ...headers };
+    this.headersSent = true;
   };
+  response.once("finish", () => {
+    resolveResult({
+      body: Buffer.concat(chunks).toString("utf8"),
+      headers: response.headers || {},
+      statusCode: response.statusCode
+    });
+  });
 
   return { response, result };
 }
