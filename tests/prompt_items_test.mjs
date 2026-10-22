@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
+import { register } from "node:module";
 import test from "node:test";
 
-import {
+register(new URL("./mod_specifier_loader.mjs", import.meta.url), import.meta.url);
+
+const {
   installPromptItemAccess,
   normalizePromptItemDefinition,
   stringifyPromptItemValue
-} from "../app/L0/_all/mod/_core/agent_prompt/prompt-items.js";
-import { countTextTokens } from "../app/L0/_all/mod/_core/framework/js/token-count.js";
+} = await import("../app/L0/_all/mod/_core/agent_prompt/prompt-items.js");
+const { countTextTokens } = await import("../app/L0/_all/mod/_core/framework/js/token-count.js");
 
 test("stringifyPromptItemValue joins array entries with blank lines", () => {
   assert.equal(

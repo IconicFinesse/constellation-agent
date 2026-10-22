@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { register } from "node:module";
 import test from "node:test";
 
-import {
+register(new URL("./mod_specifier_loader.mjs", import.meta.url), import.meta.url);
+
+const {
   buildPromptIncludeSystemPromptItems,
   buildPromptIncludeSystemPromptSection,
   buildPromptIncludeSystemPromptSections,
@@ -10,7 +13,7 @@ import {
   listPromptIncludePaths,
   SYSTEM_PROMPT_INCLUDE_FILE_PATTERN,
   TRANSIENT_PROMPT_INCLUDE_FILE_PATTERN
-} from "../app/L0/_all/mod/_core/promptinclude/promptinclude.js";
+} = await import("../app/L0/_all/mod/_core/promptinclude/promptinclude.js");
 
 function withStubbedSpace(testContext, spaceRuntime) {
   const previousSpace = globalThis.space;

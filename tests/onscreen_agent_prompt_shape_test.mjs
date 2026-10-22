@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { register } from "node:module";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import {
+register(new URL("./mod_specifier_loader.mjs", import.meta.url), import.meta.url);
+
+const {
   buildMessagePromptParts,
   MESSAGE_PROMPT_PART_BLOCK
-} from "../app/L0/_all/mod/_core/onscreen_agent/attachments.js";
+} = await import("../app/L0/_all/mod/_core/onscreen_agent/attachments.js");
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(SCRIPT_DIR, "..");
