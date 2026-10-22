@@ -21,6 +21,7 @@ This module owns:
 - `store.js`: floating-shell state, send loop, persistence, avatar drag behavior, edge-hide peeking state, history resize behavior, display mode, overlay menus, lazy prompt bootstrapping, the derived example-prompt status getters exposed on the global Alpine `onscreenAgent` store for launchers such as spaces onboarding, and the assistant-message evaluation seam `_core/onscreen_agent/store.js/evaluateOnscreenAssistantMessage`
 - `view.js`: shared-thread-view wiring plus the overlay assistant avatar path sourced from shared `_core/visual/res/chat/overlay/`
 - `turn-boundary.js`: pure send-loop boundary helpers that keep queued follow-up submissions from preempting pending assistant execution output
+- `history-persistence.js`: pure mid-turn checkpoint helpers that gate throttled history writes and build the settled, interrupted-flagged snapshot written while a reply is still streaming
 - `skills.js`: onscreen skill discovery wrappers around shared `/mod/_core/skillset/skills.js`, skill frontmatter metadata flags, `space.skills.load(...)`, and skill-related JS extension seams
 - `llm.js`, `api.js`, `execution.js`, `attachments.js`, and `llm-params.js`: local runtime helpers
 - `llm.js` owns LLM-facing system-prompt file loading, optional example-message construction, auto-loaded and runtime-loaded skill injection into system or transient prompt context, runtime system-prompt assembly, the surface-specific prepared-prompt builders layered on top of shared `_core/agent_prompt/prompt-runtime.js`, separate transient-message construction, final request assembly, history-compaction prompt loading, and the model-facing JS extension seams
@@ -40,6 +41,13 @@ Current persistence paths:
 - config: `~/conf/onscreen-agent.yaml`
 - browser UI state: `sessionStorage["space.onscreenAgent.uiState"]` with `localStorage["space.onscreenAgent.uiState"]` as fallback
 - history: `~/hist/onscreen-agent.json`
+
+History write timing:
+
+- the send loop owns the agent run entirely in the browser, so any full-page navigation such as the same-tab `/admin` handoff tears a live turn down and aborts its in-flight request
+- the loop therefore writes `~/hist/onscreen-agent.json` at prompt start, before waiting for the model response, so the submitted user turn survives a teardown that happens before the reply settles
+- while a reply streams, `history-persistence.js` gates throttled checkpoints (`ONSCREEN_AGENT_HISTORY_CHECKPOINT_INTERVAL_MS`) and builds the on-disk snapshot from the pending turn plus the partial assistant text, flagged settled and suffixed with `ONSCREEN_AGENT_HISTORY_INTERRUPTED_SUFFIX` so a reload shows readable history instead of a stuck streaming bubble
+- checkpoints never mutate live `history` or assistant message state; turn-boundary writes still persist the final settled history as the authoritative record
 
 Current config fields include:
 

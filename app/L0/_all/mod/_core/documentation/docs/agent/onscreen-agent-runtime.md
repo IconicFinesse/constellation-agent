@@ -37,6 +37,8 @@ Current persisted files:
 - browser UI state: `sessionStorage["space.onscreenAgent.uiState"]` with `localStorage["space.onscreenAgent.uiState"]` as fallback
 - history: `~/hist/onscreen-agent.json`
 
+The loop runs entirely in the browser, so a full-page navigation (the same-tab `/admin` handoff, a reload, a closed tab) tears down the live turn and aborts its request. History writes are therefore not turn-boundary-only: the loop persists the submitted user turn at prompt start, then `history-persistence.js` gates throttled mid-stream checkpoints that write the pending turn plus the partial reply as a settled, interrupted-flagged snapshot. A reload during a long prompt restores readable history instead of nothing; the settled turn-boundary write still replaces the checkpoint with the authoritative record. Checkpoints never mutate live history or the streaming assistant message.
+
 The stored overlay config keeps `api_key` encrypted at rest when `space.utils.userCrypto` is unlocked for the current browser session. Encrypted values are stored as `userCrypto:`-prefixed strings in `~/conf/onscreen-agent.yaml`, decrypted automatically on load, and fail soft to a blank locked field when the current session cannot decrypt them. In `SINGLE_USER_APP=true`, `space.utils.userCrypto` bypasses encryption entirely, so new `api_key` values stay plaintext and no `userCrypto:` wrapper is added, but any legacy wrapped value from an older non-single-user build still loads as a blank locked field until the user replaces or clears it.
 
 Important config fields:
