@@ -87,7 +87,7 @@ That namespace is the stable external entry point for:
 - triggering prompt submission from outside the module
 - handling guarded preset-button prompt submission for spaces and similar launchers without queueing over an already busy send loop
 
-The active chat surface also publishes the current prompt/history snapshot on `space.chat`. That runtime surface now includes the live `promptItems` metadata list for the current prepared turn plus `readLongMessage({ id, from, to })`, which returns slices from the untrimmed text behind any placeholder-expanded prompt contributor for the current turn only.
+The active chat surface also publishes the current prompt/history snapshot on `space.chat`. That runtime surface now includes the live `promptItems` metadata list for the current prepared turn plus `readLongMessage({ id, from, to })`, which returns slices from the untrimmed text behind any placeholder-expanded prompt contributor for the current turn only. A trimmed contributor's placeholder names the range that was actually removed, so following its own `readLongMessage(...)` instruction returns the cut middle instead of re-reading the head the model already sees; an omitted `to` returns a 10000-character window starting at `from`, so repeated reads can step through the full text on small-context local models.
 
 Boot timing is intentionally lazy now. Overlay init restores config, browser UI state, and saved history first, but it does not eagerly fetch the default firmware prompt, install onscreen skills, or assemble prompt input on plain page reload. Those prompt dependencies are loaded only on the first prompt-dependent action such as send, prompt-history open, or another explicit prompt rebuild.
 

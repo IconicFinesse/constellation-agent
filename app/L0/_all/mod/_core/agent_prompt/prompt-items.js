@@ -533,7 +533,7 @@ export function buildPromptOverflowTrimPlan(contributors = [], overflowTokens, o
   };
 }
 
-export function buildPromptLongMessagePlaceholder({ id, removedChars } = {}) {
+export function buildPromptLongMessagePlaceholder({ id, removedChars, removedFrom } = {}) {
   const normalizedId = Number.isFinite(Number(id)) ? Math.max(1, Math.round(Number(id))) : 0;
   const normalizedRemovedChars = Number.isFinite(Number(removedChars))
     ? Math.max(0, Math.round(Number(removedChars)))
@@ -543,7 +543,18 @@ export function buildPromptLongMessagePlaceholder({ id, removedChars } = {}) {
     return "";
   }
 
-  return `<<${normalizedRemovedChars} characters removed to optimize context, read with space.chat.readLongMessage({id: ${normalizedId}, from: 0, to:${LONG_MESSAGE_DEFAULT_TO}})>>`;
+  // Without a known cut offset the placeholder keeps its legacy fixed-window
+  // instruction so existing callers and assertions stay byte-identical.
+  if (!Number.isFinite(Number(removedFrom))) {
+    return `<<${normalizedRemovedChars} characters removed to optimize context, read with space.chat.readLongMessage({id: ${normalizedId}, from: 0, to:${LONG_MESSAGE_DEFAULT_TO}})>>`;
+  }
+
+  const normalizedRemovedFrom = Math.max(0, Math.round(Number(removedFrom)));
+
+  // Point the documented recovery call at the removed span itself, not at the
+  // head of the text the model can already read, so a trimmed source stays
+  // recoverable in place.
+  return `<<${normalizedRemovedChars} characters removed to optimize context, read with space.chat.readLongMessage({id: ${normalizedId}, from: ${normalizedRemovedFrom}, to:${normalizedRemovedFrom + normalizedRemovedChars}})>>`;
 }
 
 export function trimPromptLongMessage(text, options = {}) {
@@ -583,10 +594,6 @@ export function trimPromptLongMessage(text, options = {}) {
     };
   }
 
-  const placeholder = buildPromptLongMessagePlaceholder({
-    id: options.id,
-    removedChars
-  });
   const visibleChars = Math.max(0, normalizedText.length - removedChars);
   let prefixChars = Math.floor(visibleChars / 2);
   let suffixChars = visibleChars - prefixChars;
@@ -604,6 +611,12 @@ export function trimPromptLongMessage(text, options = {}) {
       prefixChars -= overflowChars - suffixOverflow;
     }
   }
+
+  const placeholder = buildPromptLongMessagePlaceholder({
+    id: options.id,
+    removedChars,
+    removedFrom: prefixChars
+  });
 
   return {
     placeholder,
@@ -680,9 +693,12 @@ export function installPromptItemAccess(target = {}) {
 
     const fullText = typeof entry.fullText === "string" ? entry.fullText : "";
     const from = Number.isFinite(Number(options.from)) ? Math.max(0, Math.floor(Number(options.from))) : 0;
+    // An omitted `to` is a sliding window that starts at `from` instead of an
+    // absolute offset from the beginning of the text, so a step forward past
+    // the first window keeps returning readable content on small contexts.
     const to = Number.isFinite(Number(options.to))
       ? Math.max(from, Math.floor(Number(options.to)))
-      : LONG_MESSAGE_DEFAULT_TO;
+      : Math.min(fullText.length, from + LONG_MESSAGE_DEFAULT_TO);
 
     return fullText.slice(from, to);
   }
