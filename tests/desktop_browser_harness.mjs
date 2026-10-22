@@ -117,6 +117,7 @@ export async function runDesktopBrowserHarnessTest({
   const child = spawn(electronBinary, [
     "--no-sandbox",
     "--disable-gpu",
+    "--disable-dev-shm-usage",
     HARNESS_ENTRY_PATH
   ], {
     cwd: PROJECT_ROOT,
