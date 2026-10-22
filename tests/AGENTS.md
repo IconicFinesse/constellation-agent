@@ -45,6 +45,7 @@ This scope owns:
 - `prompt_items_test.mjs`: focused shared prompt-item helper coverage for blank-line array value joins, cached prompt-item token metadata, plus the live `space.chat` long-message access runtime that hides full prompt text from the public metadata list
 - `prompt_budget_trim_test.mjs`: focused shared prompt-budget coverage for the `250`-token minimum contributor trim plan, one-shot outlier trimming, and `system` section-body fallback when contributor-level trims are too small
 - `promptinclude_test.mjs`: focused prompt-include coverage for alphabetical include discovery plus keyed system or transient prompt-item output, ordering, and fenced transient rendering
+- `agent_thread_bubble_width_test.mjs`: focused shared-thread regression coverage for the shrinkable `minmax(0, 1fr)` message-bubble grid track and wrapping of long markdown code lines so one wide assistant response cannot widen the bubble or the chat scroller
 - `onscreen_agent_prompt_shape_test.mjs`: focused overlay-agent prompt-shaping coverage for attachment block splitting and the example-to-live-history reset boundary
 - `onscreen_agent_turn_boundary_test.mjs`: focused overlay send-loop coverage for queued follow-up boundary handling around pending assistant `_____javascript` execution
 - `huggingface_prompt_shape_test.mjs`: focused local-LLM prompt-shaping coverage for the Hugging Face API-style fallback prompt format and the onscreen local-client folded-transport message contract
