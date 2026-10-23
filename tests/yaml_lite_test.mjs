@@ -9,9 +9,9 @@ import {
   parseSimpleYaml,
   parseYamlScalar,
   serializeSimpleYaml
-} from "../app/L0/_all/mod/_core/framework/js/yaml-lite.js";
-import { parseAdminAgentParamsText } from "../app/L0/_all/mod/_core/admin/views/agent/llm-params.js";
-import { parseOnscreenAgentParamsText } from "../app/L0/_all/mod/_core/onscreen_agent/llm-params.js";
+} from "../app/L0/_all/modules/_core/framework/js/yaml-lite.js";
+import { parseAdminAgentParamsText } from "../app/L0/_all/modules/_core/admin/views/agent/llm-params.js";
+import { parseOnscreenAgentParamsText } from "../app/L0/_all/modules/_core/onscreen_agent/llm-params.js";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(SCRIPT_DIR, "..");

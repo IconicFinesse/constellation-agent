@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { normalizeSkillTags } from "../app/L0/_all/mod/_core/skillset/skills.js";
+import { normalizeSkillTags } from "../app/L0/_all/modules/_core/skillset/skills.js";
 import {
   getAttributeValues,
   getContents,
@@ -10,7 +10,7 @@ import {
   RUNTIME_CONTEXT,
   resolveRuntimeContext,
   syncRuntimeContext
-} from "../app/L0/_all/mod/_core/framework/js/context.js";
+} from "../app/L0/_all/modules/_core/framework/js/context.js";
 
 class FakeElement {
   constructor(tagName, ownerDocument) {

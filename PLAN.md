@@ -239,7 +239,7 @@ since `v0.66-fork.7`* above.
 ## Batch history
 
 - **Batch 3** — G4 share-tmp fix + G1/G2 suite repairs. Released in `fork.3`.
-- **Batch 4** — G3 `/mod/` harness + #61 truncation half. Released in `fork.3`.
+- **Batch 4** — G3 `/modules/` harness + #61 truncation half. Released in `fork.3`.
 - **Batch 5** — #15 404 half (fixed, `fork.5`); #28 + #83 ruled non-defects and
   answered in `fixes/self-host-guidance.md`.
 - **Batch 6** — #83 dependency audit + container browser harness (fixed,
@@ -353,9 +353,9 @@ a surface. The new `constellation-agent-icon*` files already sit beside their
 
 - `server/pages/res/astronaut_no_bg.png`, `astronaut_no_bg.webp`,
   `astronaut_green_bg.png`
-- `app/L0/_all/mod/_core/visual/res/chat/overlay/astronaut_no_bg.webp`
-- `app/L0/_all/mod/_core/visual/res/chat/admin/astronaut_no_bg.png` and `.webp`
-- `app/L0/_all/mod/_core/visual/res/engineer/astronaut_red_no_bg.png` and
+- `app/L0/_all/modules/_core/visual/res/chat/overlay/astronaut_no_bg.webp`
+- `app/L0/_all/modules/_core/visual/res/chat/admin/astronaut_no_bg.png` and `.webp`
+- `app/L0/_all/modules/_core/visual/res/engineer/astronaut_red_no_bg.png` and
   `astronaut_red_512h.webp`
 
 **Unreferenced GitHub assets** (safe to drop whenever the artwork pass runs):

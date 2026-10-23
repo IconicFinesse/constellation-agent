@@ -8,8 +8,8 @@ const {
   installPromptItemAccess,
   normalizePromptItemDefinition,
   stringifyPromptItemValue
-} = await import("../app/L0/_all/mod/_core/agent_prompt/prompt-items.js");
-const { countTextTokens } = await import("../app/L0/_all/mod/_core/framework/js/token-count.js");
+} = await import("../app/L0/_all/modules/_core/agent_prompt/prompt-items.js");
+const { countTextTokens } = await import("../app/L0/_all/modules/_core/framework/js/token-count.js");
 
 test("stringifyPromptItemValue joins array entries with blank lines", () => {
   assert.equal(

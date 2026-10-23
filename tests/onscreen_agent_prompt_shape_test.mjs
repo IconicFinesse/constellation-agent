@@ -10,7 +10,7 @@ register(new URL("./mod_specifier_loader.mjs", import.meta.url), import.meta.url
 const {
   buildMessagePromptParts,
   MESSAGE_PROMPT_PART_BLOCK
-} = await import("../app/L0/_all/mod/_core/onscreen_agent/attachments.js");
+} = await import("../app/L0/_all/modules/_core/onscreen_agent/attachments.js");
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(SCRIPT_DIR, "..");
@@ -44,7 +44,7 @@ test("onscreen agent keeps attachment metadata in the user block and runtime gui
 });
 
 test("onscreen prompt source keeps an explicit example reset boundary", async () => {
-  const llmPath = path.join(ROOT_DIR, "app/L0/_all/mod/_core/onscreen_agent/llm.js");
+  const llmPath = path.join(ROOT_DIR, "app/L0/_all/modules/_core/onscreen_agent/llm.js");
   const llmSource = await fs.readFile(llmPath, "utf8");
 
   assert.match(llmSource, /start of new conversation - don't refer to previous contents/u);

@@ -1,9 +1,9 @@
-type SpaceExtend = typeof import("./L0/_all/mod/_core/framework/js/extensions.js").extend;
-type SpaceCreateStore = typeof import("./L0/_all/mod/_core/framework/js/AlpineStore.js").createStore;
-type SpaceYamlParse = typeof import("./L0/_all/mod/_core/framework/js/yaml-lite.js").parseSimpleYaml;
-type SpaceYamlStringify = typeof import("./L0/_all/mod/_core/framework/js/yaml-lite.js").serializeSimpleYaml;
-type SpaceMarkdownParseDocument = typeof import("./L0/_all/mod/_core/framework/js/markdown-frontmatter.js").parseMarkdownDocument;
-type SpaceMarkdownRender = typeof import("./L0/_all/mod/_core/framework/js/markdown-frontmatter.js").renderMarkdown;
+type SpaceExtend = typeof import("./L0/_all/modules/_core/framework/js/extensions.js").extend;
+type SpaceCreateStore = typeof import("./L0/_all/modules/_core/framework/js/AlpineStore.js").createStore;
+type SpaceYamlParse = typeof import("./L0/_all/modules/_core/framework/js/yaml-lite.js").parseSimpleYaml;
+type SpaceYamlStringify = typeof import("./L0/_all/modules/_core/framework/js/yaml-lite.js").serializeSimpleYaml;
+type SpaceMarkdownParseDocument = typeof import("./L0/_all/modules/_core/framework/js/markdown-frontmatter.js").parseMarkdownDocument;
+type SpaceMarkdownRender = typeof import("./L0/_all/modules/_core/framework/js/markdown-frontmatter.js").renderMarkdown;
 
 type SpaceApiQueryValue =
   | string

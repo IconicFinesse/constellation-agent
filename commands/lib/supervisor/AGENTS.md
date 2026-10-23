@@ -76,7 +76,7 @@ Supervisor logs use `[supervise]`, `[serve:<label>]`, `[supervise:git]`, and `[s
 - keep the proxy stream-aware so long-running responses and upgrades are not cut during normal promotion
 - keep crash recovery independent from update polling; a failed update must not prevent restart of the currently active target
 - keep `--auto-update` command-owned; do not add it to `commands/params.yaml` unless the server runtime itself starts consuming it
-- if the supervisor adds new public flags, update `commands/supervise.js`, `/commands/AGENTS.md`, and `app/L0/_all/mod/_core/documentation/docs/cli/commands-and-runtime-params.md` in the same session
+- if the supervisor adds new public flags, update `commands/supervise.js`, `/commands/AGENTS.md`, and `app/L0/_all/modules/_core/documentation/docs/cli/commands-and-runtime-params.md` in the same session
 
 ## Verification
 

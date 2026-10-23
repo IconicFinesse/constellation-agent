@@ -8,7 +8,7 @@ Keep this file scoped to command-module behavior and help metadata. Repo-wide CL
 
 This is a top-level DOX child doc. It owns the command-tree contract for `commands/`. If command-specific helper subtrees later grow their own `AGENTS.md` files, those local docs should own the implementation detail while this file stays focused on the command surface and conventions.
 
-Documentation is top priority for this area. After any change to command discovery, command behavior, command help, or the command tree under `commands/`, update this file and the matching supplemental docs under `app/L0/_all/mod/_core/documentation/docs/` in the same session before finishing.
+Documentation is top priority for this area. After any change to command discovery, command behavior, command help, or the command tree under `commands/`, update this file and the matching supplemental docs under `app/L0/_all/modules/_core/documentation/docs/` in the same session before finishing.
 
 ## Ownership
 
@@ -110,7 +110,7 @@ The preferred shape is a small number of readable top-level commands with explic
 Purpose:
 
 - start the local Node server
-- serve browser page shells and `/mod/...` assets
+- serve browser page shells and `/modules/...` assets
 - expose `/api/...` endpoints
 - keep local infrastructure available for browser-first flows
 
@@ -331,7 +331,7 @@ Current behavior:
 - `create` writes metadata to `L2/<username>/user.yaml`
 - `create` writes the backend-sealed password verifier envelope to `L2/<username>/metadata/password.json`
 - `create` initializes signed session storage in `L2/<username>/metadata/logins.json`
-- `create` ensures a `mod/` folder exists for the user
+- `create` ensures a `modules/` folder exists for the user
 - `create --groups <group[,group...]>` adds the created user to one or more writable `L1` groups after user creation
 - group ids passed through `--groups` are comma-separated, normalized, de-duplicated, and sorted before membership writes
 - missing target groups in `--groups` are created automatically in the writable `L1` layer through the shared group helper
@@ -378,7 +378,7 @@ Current usage:
 Current behavior:
 
 - `create` creates the logical `L1/<group-id>/` root and initializes `group.yaml`
-- `create` ensures a `mod/` folder exists for the group
+- `create` ensures a `modules/` folder exists for the group
 - `add` and `remove` work with both user membership and group inclusion
 - `add` creates the target writable `L1` group if it does not already exist, which allows predefined runtime groups such as `_admin` to gain their first writable membership file without a separate `group create`
 - `--manager` switches the target list from included members to managing members

@@ -1,0 +1,328 @@
+<html>
+  <head>
+    <link rel="stylesheet" href="/modules/_core/spaces/spaces.css" />
+    <link rel="stylesheet" href="/modules/_core/spaces/onboarding/empty-canvas.css" />
+    <link rel="stylesheet" href="/modules/_core/spaces/widget-content.css" />
+    <script type="module" src="/modules/_core/spaces/store.js"></script>
+  </head>
+  <body>
+    <div x-data class="spaces-view-root">
+      <x-context :data-tags="$store.spacesPage?.currentSpaceContextTags || ''"></x-context>
+      <template x-if="$store.spacesPage?.hasCurrentSpace">
+        <template x-inject='[id="_core/onscreen_menu/bar_start"]'>
+          <div
+            x-cloak
+            data-order="100"
+            class="spaces-header-controls"
+            :class="{ 'is-open': $store.spacesPage.isConfigPanelOpen }"
+          >
+            <button
+              type="button"
+              class="space-topbar-button space-topbar-button--icon spaces-config-back"
+              aria-label="Go back"
+              title="Go back"
+              @click="void $store.spacesPage.goBackToDashboard()"
+            >
+              <x-icon>chevron_left</x-icon>
+            </button>
+
+            <div class="spaces-config-menu">
+              <button
+                type="button"
+                class="space-topbar-button spaces-config-toggle"
+                :class="{ 'is-active': $store.spacesPage.isConfigPanelOpen }"
+                :aria-label="$store.spacesPage.currentSpaceMetaToggleLabel"
+                :title="$store.spacesPage.currentSpaceMetaToggleLabel"
+                aria-controls="spaces-config-popover"
+                :aria-expanded="String($store.spacesPage.isConfigPanelOpen)"
+                @click="$store.spacesPage.toggleConfigPanel($event.currentTarget)"
+              >
+                <span class="spaces-config-toggle-copy">
+                  <span class="spaces-config-toggle-title" x-text="$store.spacesPage.currentSpaceDisplayTitle"></span>
+                </span>
+                <x-icon class="spaces-config-toggle-icon">expand_more</x-icon>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              class="space-topbar-button space-topbar-button--icon spaces-config-action"
+              aria-label="Share space"
+              title="Share space"
+              @click="void $store.spacesPage.openCurrentSpaceShareModal()"
+            >
+              <x-icon>share</x-icon>
+            </button>
+
+            <button
+              x-cloak
+              x-show="$store.spacesPage.currentSpace?.widgetIds?.length"
+              type="button"
+              class="space-topbar-button space-topbar-button--icon spaces-config-action"
+              aria-label="Rearrange space"
+              title="Rearrange space"
+              @click="void $store.spacesPage.rearrangeCurrentSpace()"
+            >
+              <x-icon>dashboard_customize</x-icon>
+            </button>
+
+            <button
+              x-cloak
+              x-show="$store.spacesPage.currentSpace?.widgetIds?.length"
+              type="button"
+              class="space-topbar-button spaces-config-action"
+              :class="{ 'space-topbar-button--icon': !$store.spacesPage.currentSpaceHasOnlyExampleWidgets }"
+              :aria-label="$store.spacesPage.currentSpaceClearAllWidgetsLabel"
+              :title="$store.spacesPage.currentSpaceClearAllWidgetsLabel"
+              @click="void $store.spacesPage.clearCurrentSpaceWidgets()"
+            >
+              <span
+                x-show="$store.spacesPage.currentSpaceHasOnlyExampleWidgets"
+                class="spaces-config-action-label"
+                x-text="$store.spacesPage.currentSpaceClearAllWidgetsLabel"
+              ></span>
+              <x-icon x-text="$store.spacesPage.currentSpaceClearAllWidgetsIcon"></x-icon>
+            </button>
+
+            <template x-teleport="body">
+              <div
+                class="space-popover-layer spaces-config-popover-layer"
+                x-show="$store.spacesPage.isConfigPanelOpen"
+                x-cloak
+              >
+                <section
+                  id="spaces-config-popover"
+                  class="space-popover-panel spaces-config-popover"
+                  x-show="$store.spacesPage.isConfigPanelOpen"
+                  :style="$store.spacesPage.currentSpaceConfigPopoverStyle"
+                  @click.outside="$store.spacesPage.closeConfigPanel()"
+                  @keydown.escape.window="$store.spacesPage.closeConfigPanel()"
+                >
+                  <div class="spaces-config-drawer-content">
+                    <label class="spaces-config-field">
+                      <span class="spaces-config-field-label">Space Name</span>
+                      <div class="spaces-config-name-row">
+                        <input
+                          type="text"
+                          class="spaces-config-field-input"
+                          placeholder="Untitled"
+                          x-model="$store.spacesPage.currentSpaceTitleDraft"
+                          @keydown.enter.prevent="if (!$event.isComposing) { $event.target.blur() }"
+                          @blur="void $store.spacesPage.flushCurrentSpaceMetaSave({ suppressErrors: true })"
+                        />
+
+                        <button
+                          type="button"
+                          class="spaces-config-icon-trigger"
+                          :aria-label="$store.spacesPage.currentSpaceIconPickerLabel"
+                          :title="$store.spacesPage.currentSpaceIconPickerLabel"
+                          :style="{ '--spaces-config-icon-color': $store.spacesPage.currentSpaceDisplayIconColor }"
+                          @click="void $store.spacesPage.openCurrentSpaceIconSelector()"
+                        >
+                          <x-icon x-text="$store.spacesPage.currentSpaceDisplayIcon"></x-icon>
+                        </button>
+                      </div>
+                    </label>
+
+                    <label class="spaces-config-field spaces-config-field--grow">
+                      <span class="spaces-config-field-label">Agent Instructions</span>
+                      <textarea
+                        class="spaces-config-field-textarea"
+                        placeholder="Add space-specific instructions for the Constellation Agent."
+                        x-model="$store.spacesPage.currentSpaceInstructionsDraft"
+                        @input="$store.spacesPage.queueCurrentSpaceMetaSave()"
+                        @blur="void $store.spacesPage.flushCurrentSpaceMetaSave({ suppressErrors: true })"
+                      ></textarea>
+                    </label>
+                  </div>
+                </section>
+              </div>
+            </template>
+
+            <template x-teleport="body">
+              <div class="space-dialog-layer">
+                <dialog
+                  class="chat-dialog"
+                  x-ref="shareDialog"
+                  x-init="$store.spacesShareModal.mount({ shareDialog: $el })"
+                  x-destroy="$store.spacesShareModal.unmount()"
+                  @cancel.prevent="$store.spacesShareModal.closeShareDialog()"
+                >
+                  <div class="dialog-card dialog-card-shell spaces-share-dialog">
+                    <header class="dialog-header">
+                      <div>
+                        <p class="page-eyebrow">Current Space</p>
+                        <h2 x-text="$store.spacesShareModal.spaceTitle"></h2>
+                      </div>
+                    </header>
+
+                    <div class="dialog-scroll-body">
+                      <div class="spaces-share-stack">
+                        <p class="field-note">Create a hosted share link, or move the current space around as a ZIP.</p>
+
+                        <section class="space-card spaces-share-panel" x-show="$store.spacesShareModal.canShareToCloud" x-cloak>
+                          <div class="spaces-share-copy-block">
+                            <p class="page-eyebrow">Hosted Share</p>
+                            <h3>Share via <span x-text="$store.spacesShareModal.cloudShareHostLabel"></span></h3>
+                            <p class="field-note">Create a public guest-share link. Add a password to encrypt the ZIP in the browser before upload.</p>
+                          </div>
+
+                          <label class="field">
+                            <span>Optional password</span>
+                            <input
+                              type="password"
+                              placeholder="Leave blank for an open share"
+                              autocomplete="new-password"
+                              x-model="$store.spacesShareModal.cloudSharePassword"
+                            />
+                          </label>
+
+                          <div class="dialog-actions spaces-share-actions">
+                            <button
+                              type="button"
+                              class="primary-button"
+                              :disabled="$store.spacesShareModal.isBusy"
+                              @click="void $store.spacesShareModal.shareToCloud()"
+                            >
+                              Create Share Link
+                            </button>
+                          </div>
+
+                          <template x-if="$store.spacesShareModal.hasShareUrl">
+                            <div class="spaces-share-result">
+                              <label class="field">
+                                <span>Share link</span>
+                                <div class="spaces-share-link-field">
+                                  <input
+                                    x-ref="shareUrl"
+                                    type="text"
+                                    readonly
+                                    :value="$store.spacesShareModal.shareUrl"
+                                    @focus="$event.target.select()"
+                                  />
+                                  <button
+                                    type="button"
+                                    class="secondary-button dialog-icon-button"
+                                    :disabled="!$store.spacesShareModal.hasShareUrl || $store.spacesShareModal.isBusy"
+                                    title="Copy share link"
+                                    aria-label="Copy share link"
+                                    @click="void $store.spacesShareModal.copyShareUrl($refs.shareUrl)"
+                                  >
+                                    <x-icon>content_copy</x-icon>
+                                  </button>
+                                </div>
+                              </label>
+
+                              <div class="dialog-actions spaces-share-actions">
+                                <button
+                                  type="button"
+                                  class="secondary-button"
+                                  :disabled="!$store.spacesShareModal.hasShareUrl || $store.spacesShareModal.isBusy"
+                                  @click="$store.spacesShareModal.openShareUrl()"
+                                >
+                                  <x-icon>open_in_new</x-icon>
+                                  <span>Open link</span>
+                                </button>
+                              </div>
+                            </div>
+                          </template>
+
+                          <p
+                            x-cloak
+                            x-show="$store.spacesShareModal.cloudStatusText"
+                            class="dialog-note spaces-share-note"
+                            x-text="$store.spacesShareModal.cloudStatusText"
+                          ></p>
+                          <p
+                            x-cloak
+                            x-show="$store.spacesShareModal.cloudErrorText"
+                            class="dialog-note spaces-share-note is-error"
+                            x-text="$store.spacesShareModal.cloudErrorText"
+                          ></p>
+                        </section>
+
+                        <section class="space-card spaces-share-panel">
+                          <div class="spaces-share-copy-block">
+                            <p class="page-eyebrow">ZIP Transfer</p>
+                            <h3>Download or upload ZIP</h3>
+                            <p class="field-note">Download the current space as a ZIP, or import a ZIP into this space. Imports can replace the current space or land as a new <code>imported-N</code> space.</p>
+                          </div>
+
+                          <div class="space-action-grid">
+                            <button
+                              type="button"
+                              class="space-action-card"
+                              :disabled="$store.spacesShareModal.isBusy"
+                              @click="void $store.spacesShareModal.downloadZip()"
+                            >
+                              <x-icon>download</x-icon>
+                              <span class="space-action-card-copy">
+                                <strong>Download ZIP</strong>
+                                <span>Save the full current space folder as a ZIP archive.</span>
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              class="space-action-card"
+                              :disabled="$store.spacesShareModal.isBusy"
+                              @click="$store.spacesShareModal.chooseImportFile($refs.upload)"
+                            >
+                              <x-icon>upload_file</x-icon>
+                              <span class="space-action-card-copy">
+                                <strong>Upload ZIP</strong>
+                                <span>Import a ZIP and decide whether to replace this space or keep both.</span>
+                              </span>
+                            </button>
+                          </div>
+
+                          <input
+                            x-ref="upload"
+                            hidden
+                            type="file"
+                            accept=".zip,application/zip"
+                            @change="void $store.spacesShareModal.handleImportFileChange($event)"
+                          />
+
+                          <p
+                            x-cloak
+                            x-show="$store.spacesShareModal.archiveStatusText"
+                            class="dialog-note spaces-share-note"
+                            x-text="$store.spacesShareModal.archiveStatusText"
+                          ></p>
+                          <p
+                            x-cloak
+                            x-show="$store.spacesShareModal.archiveErrorText"
+                            class="dialog-note spaces-share-note is-error"
+                            x-text="$store.spacesShareModal.archiveErrorText"
+                          ></p>
+                        </section>
+                      </div>
+                    </div>
+
+                    <div class="dialog-actions">
+                      <button type="button" class="secondary-button" :disabled="$store.spacesShareModal.isBusy" @click="void $store.spacesShareModal.closeShareDialog()">
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </dialog>
+              </div>
+            </template>
+          </div>
+        </template>
+      </template>
+      <template x-if="$store.spacesPage">
+        <section
+          class="spaces-canvas"
+          x-cloak
+          x-init="$nextTick(() => $store.spacesPage.mount({ canvas: $refs.canvas, grid: $refs.grid }))"
+          x-destroy="$store.spacesPage.unmount()"
+          x-ref="canvas"
+        >
+          <div class="spaces-widget-grid" x-ref="grid" :aria-busy="String($store.spacesPage.loadingSpace)"></div>
+        </section>
+      </template>
+    </div>
+  </body>
+</html>

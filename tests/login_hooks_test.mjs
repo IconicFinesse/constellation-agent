@@ -8,7 +8,7 @@ import {
   buildLoginHooksStateContent,
   executeLoginHooksBootstrap,
   isLoginNavigation
-} from "../app/L0/_all/mod/_core/login_hooks/login-hooks.js";
+} from "../app/L0/_all/modules/_core/login_hooks/login-hooks.js";
 
 test("buildLoginHooksStateContent returns a stable marker payload", () => {
   assert.equal(

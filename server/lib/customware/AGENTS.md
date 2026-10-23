@@ -20,7 +20,7 @@ Current files:
 - `group_files.js`: normalized `L1/<group>/group.yaml` read and write helpers used by CLI-managed group editing; membership adds ensure the target writable group directory exists first
 - `group_index.js`: derived group membership and management graph from `group.yaml`
 - `overrides.js`: inheritance ranking, accessible module collection, and override selection
-- `module_inheritance.js`: `/mod/...` file resolution through layered overrides
+- `module_inheritance.js`: `/modules/...` file resolution through layered overrides
 - `extension_overrides.js`: extension request-path resolution and ordered grouped extension lookup results keyed by requested pattern groups rather than synthetic ids
 - `file_access.js`: canonical app-file permission model, file operations, and readable-folder download resolution
 - `module_manage.js`: module list, info, install, remove, and Git metadata helpers
@@ -35,7 +35,7 @@ Path rules:
 - logical `/app/L0/...` always resolve under repo `app/L0/...`
 - logical `/app/L1/...` and `/app/L2/...` resolve under `CUSTOMWARE_PATH/L1/...` and `CUSTOMWARE_PATH/L2/...` when `CUSTOMWARE_PATH` is configured, otherwise under repo `app/L1/...` and `app/L2/...`
 - writable user-relative shorthand `~` and `~/...` are expanded by `file_access.js`
-- module request paths normalize under `/mod/...`
+- module request paths normalize under `/modules/...`
 - group and user ids are normalized through `normalizeEntityId(...)`
 
 Permission rules:
@@ -84,7 +84,7 @@ Important rules:
 - modules may also resolve other extension-owned assets through the same ranked `ext/...` override model when the frontend calls `extensions_load` directly; the current first-party example is `ext/panels/*.yaml`, and grouped lookups preserve request order while returning each request's normalized `patterns` with its resolved `extensions`
 - exact same override keys replace lower-ranked entries
 - different extension filenames under the same extension point compose together
-- `module_inheritance.js` and `extension_overrides.js` are the only supported paths for `/mod/...` and extension resolution
+- `module_inheritance.js` and `extension_overrides.js` are the only supported paths for `/modules/...` and extension resolution
 
 ### File And Module Management Contract
 
@@ -173,8 +173,8 @@ Admin-only access is required for aggregated or cross-user user-layer listings.
 - do not add ad hoc filesystem walks or permission checks to endpoints when this subtree already owns the rule
 - keep changes to path semantics, inheritance, or permissions centralized here
 - publish logical app-path mutations through the shared mutation-capture path after mutations that affect indexed module, group, user, or file state
-- if path, layer, module-resolution, or permission rules change, also update `app/L0/_all/mod/_core/skillset/ext/skills/development/` because the shared development skill mirrors this contract
-- if path, layer, module-resolution, or permission rules change, also update the matching docs under `app/L0/_all/mod/_core/documentation/docs/server/`
+- if path, layer, module-resolution, or permission rules change, also update `app/L0/_all/modules/_core/skillset/ext/skills/development/` because the shared development skill mirrors this contract
+- if path, layer, module-resolution, or permission rules change, also update the matching docs under `app/L0/_all/modules/_core/documentation/docs/server/`
 - if you change path normalization, group semantics, `maxLayer`, file access, or module-management rules, update this file and the relevant server or API docs in the same session
 
 ## Verification

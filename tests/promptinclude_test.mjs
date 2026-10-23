@@ -13,7 +13,7 @@ const {
   listPromptIncludePaths,
   SYSTEM_PROMPT_INCLUDE_FILE_PATTERN,
   TRANSIENT_PROMPT_INCLUDE_FILE_PATTERN
-} = await import("../app/L0/_all/mod/_core/promptinclude/promptinclude.js");
+} = await import("../app/L0/_all/modules/_core/promptinclude/promptinclude.js");
 
 function withStubbedSpace(testContext, spaceRuntime) {
   const previousSpace = globalThis.space;

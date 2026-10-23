@@ -72,12 +72,12 @@ function createModuleStateSystem(projectPath) {
 test("module assets are served with no-store headers", async () => {
   const { response, result } = createMockResponse();
 
-  handleModuleRequest(response, "/mod/_core/framework/js/initFw.js", {
+  handleModuleRequest(response, "/modules/_core/framework/js/initFw.js", {
     headers: {},
     projectRoot: PROJECT_ROOT,
-    requestUrl: new URL("http://localhost:3000/mod/_core/framework/js/initFw.js"),
+    requestUrl: new URL("http://localhost:3000/modules/_core/framework/js/initFw.js"),
     runtimeParams: null,
-    stateSystem: createModuleStateSystem("/app/L0/_all/mod/_core/framework/js/initFw.js"),
+    stateSystem: createModuleStateSystem("/app/L0/_all/modules/_core/framework/js/initFw.js"),
     username: "user"
   });
 

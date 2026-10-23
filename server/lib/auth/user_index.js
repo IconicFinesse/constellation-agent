@@ -6,7 +6,7 @@ import {
   parseProjectUserPasswordPath,
   resolveProjectAbsolutePath
 } from "../customware/layout.js";
-import { parseSimpleYaml } from "../../../app/L0/_all/mod/_core/framework/js/yaml-lite.js";
+import { parseSimpleYaml } from "../../../app/L0/_all/modules/_core/framework/js/yaml-lite.js";
 import { inspectPasswordRecord } from "./passwords.js";
 
 function createEmptyUserRecord(username) {

@@ -3,7 +3,7 @@ Disallow: /admin
 Disallow: /enter
 Disallow: /logout
 Disallow: /api/
-Disallow: /mod/
+Disallow: /modules/
 Disallow: /L0/
 Disallow: /L1/
 Disallow: /L2/

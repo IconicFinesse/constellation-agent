@@ -5,7 +5,7 @@ import {
   createCurrentSpaceModuleImporter,
   importCurrentSpaceModule,
   resolveCurrentSpaceModulePath
-} from "../app/L0/_all/mod/_core/spaces/widget-import.js";
+} from "../app/L0/_all/modules/_core/spaces/widget-import.js";
 
 function resolveTestAppUrl(path) {
   if (path.startsWith("~/")) {
@@ -48,8 +48,8 @@ test("resolveCurrentSpaceModulePath keeps explicit app-rooted paths", () => {
     "~/spaces/space-7/scripts/utils.js"
   );
   assert.equal(
-    resolveCurrentSpaceModulePath("L0/_all/mod/demo.js", { spaceRootPath: "~/spaces/space-7/" }),
-    "L0/_all/mod/demo.js"
+    resolveCurrentSpaceModulePath("L0/_all/modules/demo.js", { spaceRootPath: "~/spaces/space-7/" }),
+    "L0/_all/modules/demo.js"
   );
 });
 

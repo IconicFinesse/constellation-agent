@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   parseSimpleYaml,
   serializeSimpleYaml
-} from "../app/L0/_all/mod/_core/framework/js/yaml-lite.js";
+} from "../app/L0/_all/modules/_core/framework/js/yaml-lite.js";
 
 const yaml = {
   parse: (source) => parseSimpleYaml(String(source || "")),
@@ -26,7 +26,7 @@ const yaml = {
  * here.
  */
 
-const PREFS_MODULE_PATH = "../app/L0/_all/mod/_core/dashboard_welcome/dashboard-prefs.js";
+const PREFS_MODULE_PATH = "../app/L0/_all/modules/_core/dashboard_welcome/dashboard-prefs.js";
 let moduleLoadCounter = 0;
 
 function loadFreshPrefsModule() {

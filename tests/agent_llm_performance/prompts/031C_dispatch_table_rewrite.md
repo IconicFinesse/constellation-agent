@@ -78,7 +78,7 @@ tool table
 
 path notes
 - ~ or ~/... means current user's L2/<username>/...
-- use app-rooted logical paths, not /mod/... cascade paths
+- use app-rooted logical paths, not /modules/... cascade paths
 
 good
 Loading the widget source now...

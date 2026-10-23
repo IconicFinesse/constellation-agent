@@ -192,7 +192,7 @@ export const help = {
   options: [
     {
       flag: "create",
-      description: "Create a user directory with user.yaml, metadata/password.json, metadata/logins.json, and mod/."
+      description: "Create a user directory with user.yaml, metadata/password.json, metadata/logins.json, and modules/."
     },
     {
       flag: "password",

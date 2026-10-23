@@ -9,7 +9,7 @@ import zlib from "node:zlib";
 import {
   parseSimpleYaml,
   serializeSimpleYaml
-} from "../../../app/L0/_all/mod/_core/framework/js/yaml-lite.js";
+} from "../../../app/L0/_all/modules/_core/framework/js/yaml-lite.js";
 import { SERVER_TMP_DIR } from "../../config.js";
 import { recordAppPathMutations } from "../customware/git_history.js";
 import { normalizeEntityId } from "../customware/layout.js";

@@ -6,19 +6,19 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(SCRIPT_DIR, "..");
-const MOD_ROOT_URL = pathToFileURL(path.join(ROOT_DIR, "app/L0/_all/mod")).href;
+const MOD_ROOT_URL = pathToFileURL(path.join(ROOT_DIR, "app/L0/_all/modules")).href;
 
-// The shared prompt runtime imports browser modules through absolute `/mod/...`
+// The shared prompt runtime imports browser modules through absolute `/modules/...`
 // specifiers. Plain `node --test` cannot resolve those, and this regression must
 // stay self-contained so it neither depends on nor collides with any shared
-// specifier loader: resolve `/mod/...` to the repo's L0 module root here only.
+// specifier loader: resolve `/modules/...` to the repo's L0 module root here only.
 register(
   "data:text/javascript," +
     encodeURIComponent(
       [
         "export async function resolve(specifier, context, next) {",
-        "  if (specifier.startsWith('/mod/')) {",
-        `    return next(${JSON.stringify(MOD_ROOT_URL)} + specifier.slice(4), context);`,
+        "  if (specifier.startsWith('/modules/')) {",
+        `    return next(${JSON.stringify(MOD_ROOT_URL)} + specifier.slice("/modules".length), context);`,
         "  }",
         "  return next(specifier, context);",
         "}"
@@ -28,7 +28,7 @@ register(
 
 const promiseModulePath = path.join(
   ROOT_DIR,
-  "app/L0/_all/mod/_core/agent_prompt/prompt-items.js"
+  "app/L0/_all/modules/_core/agent_prompt/prompt-items.js"
 );
 const promptItems = await import(pathToFileURL(promiseModulePath).href);
 

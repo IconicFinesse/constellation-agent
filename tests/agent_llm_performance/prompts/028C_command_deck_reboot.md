@@ -84,7 +84,7 @@ tools
 paths
 - use app rooted paths like L2/alice/user.yaml or /app/L2/alice/user.yaml
 - ~ or ~/... means current user's L2/<username>/...
-- not /mod/... cascade paths
+- not /modules/... cascade paths
 - userSelfInfo returns { username, fullName, groups, managedGroups }
 - infer writable roots as L2/<username>/ plus L1/<group>/ for each managed group
 - if groups includes _admin, any L1/* and L2/* path is writable

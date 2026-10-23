@@ -24,18 +24,18 @@ const DEFAULT_MODE = "mixed";
 const DEFAULT_CONNECTION_MODE = "close";
 
 const MOD_FETCH_TARGETS = [
-  "/mod/_core/framework/js/initFw.js",
-  "/mod/_core/framework/js/moduleResolution.js",
-  "/mod/_core/framework/css/index.css",
-  "/mod/_core/onscreen_agent/store.js",
-  "/mod/_core/skillset/skills.js"
+  "/modules/_core/framework/js/initFw.js",
+  "/modules/_core/framework/js/moduleResolution.js",
+  "/modules/_core/framework/css/index.css",
+  "/modules/_core/onscreen_agent/store.js",
+  "/modules/_core/skillset/skills.js"
 ];
 
 const FILE_PATH_PATTERNS = [
-  "mod/*/*/ext/panels/*.yaml",
-  "mod/*/*/ext/skills/*/SKILL.md",
-  "mod/*/*/**/*.js",
-  "mod/*/*/**/*.css"
+  "modules/*/*/ext/panels/*.yaml",
+  "modules/*/*/ext/skills/*/SKILL.md",
+  "modules/*/*/**/*.js",
+  "modules/*/*/**/*.css"
 ];
 
 function parseArgs(argv) {
@@ -218,7 +218,7 @@ async function seedBenchmarkFiles(
   for (const username of usernames) {
     const userRoot = path.join(customwarePath, "L2", username);
     const seedRoot = path.join(userRoot, "seed");
-    const moduleRoot = path.join(userRoot, "mod", "readbench", username);
+    const moduleRoot = path.join(userRoot, "modules", "readbench", username);
 
     writes.push(
       fs.mkdir(userRoot, { recursive: true }).then(() =>
@@ -318,7 +318,7 @@ async function startRuntimeWithMetrics(runtimeOverrides = {}) {
 function createReadRequests(mode, requestCount, moduleFilesPerUser) {
   const userModuleTargets =
     moduleFilesPerUser > 1
-      ? ["/mod/readbench/user/main.js"]
+      ? ["/modules/readbench/user/main.js"]
       : [];
   const modTargets = [...MOD_FETCH_TARGETS, ...userModuleTargets];
 

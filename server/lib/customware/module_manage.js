@@ -65,7 +65,7 @@ function createAbsolutePath(projectRoot, projectPath, runtimeParams) {
 
 function createModulePathError(value) {
   return createHttpError(
-    `Expected a module root path under L1/<group>/mod/<author>/<repo>/ or L2/<user>/mod/<author>/<repo>/: ${String(value || "")}`,
+    `Expected a module root path under L1/<group>/modules/<author>/<repo>/ or L2/<user>/modules/<author>/<repo>/: ${String(value || "")}`,
     400
   );
 }

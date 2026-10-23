@@ -3,15 +3,15 @@ import fs from "node:fs";
 import test from "node:test";
 
 const browserManagerSkill = fs.readFileSync(
-  "app/L0/_all/mod/_core/skillset/ext/skills/browser-manager/SKILL.md",
+  "app/L0/_all/modules/_core/skillset/ext/skills/browser-manager/SKILL.md",
   "utf8"
 );
 const browserControlSkill = fs.readFileSync(
-  "app/L0/_all/mod/_core/skillset/ext/skills/browser-control/SKILL.md",
+  "app/L0/_all/modules/_core/skillset/ext/skills/browser-control/SKILL.md",
   "utf8"
 );
 const browserWindowHtml = fs.readFileSync(
-  "app/L0/_all/mod/_core/web_browsing/window.html",
+  "app/L0/_all/modules/_core/web_browsing/window.html",
   "utf8"
 );
 

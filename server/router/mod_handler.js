@@ -9,7 +9,7 @@ import { createNoStoreHeaders, sendFile, sendNotFound } from "./responses.js";
 function resolveModuleFilePath(projectRoot, requestPath, username, stateSystem, options = {}) {
   const normalizedPath = path.posix.normalize(requestPath);
 
-  if (!normalizedPath.startsWith("/mod/")) {
+  if (!normalizedPath.startsWith("/modules/")) {
     return "";
   }
 

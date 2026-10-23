@@ -70,7 +70,7 @@ Current guest-clone rules:
 - keep hosted-share storage outside the logical app tree and outside the resolved runtime temp root; that root is only for request-scoped extraction work
 - reuse this helper from endpoints and public share flows instead of duplicating token generation, ZIP validation, or destination naming elsewhere
 - keep browser-side password protection limited to opaque ZIP encryption metadata; the backend should treat encrypted uploads as opaque bytes until the browser submits the decrypted archive for clone or import
-- if hosted-share storage, archive validation, or install semantics change, update this file plus the matching docs in `server/api/AGENTS.md`, `server/pages/AGENTS.md`, and `app/L0/_all/mod/_core/documentation/docs/server/`
+- if hosted-share storage, archive validation, or install semantics change, update this file plus the matching docs in `server/api/AGENTS.md`, `server/pages/AGENTS.md`, and `app/L0/_all/modules/_core/documentation/docs/server/`
 
 ## Verification
 

@@ -50,7 +50,7 @@ minting new upstream PRs.
   re-released on origin; gate **138/138 across 35 suites** (first seal:
   `integration-gate3-2026-10-22.log`; re-gate after the amend:
   `integration-gate3b-2026-10-22.log`). Adds #23 checkpoints (PR #89), #61
-  recovery door, G3 `/mod/` loader, G1+G2 suite repairs, G4 share tmp-dir.
+  recovery door, G3 `/modules/` loader, G1+G2 suite repairs, G4 share tmp-dir.
   Integrity audit: **zero suite regressions** vs upstream baseline; doc
   regression found + fixed same session — `fixes/integrity-audit-v3.md` +
   post-audit addendum.
@@ -179,10 +179,10 @@ not found). Families recur; our fixes address the live instances.
    fails on pristine main. **Fixed (Batch 3, 2026-10-22)** on
    `fix/test-suite-repairs` (`a0a79c2`) — test-side stub defect (product
    `res` is a real `http.ServerResponse`); Writable-backed mock; 3/3 green.
-3. `/mod/` ERR_MODULE_NOT_FOUND test class (`onscreen_agent_prompt_shape_test`
+3. `/modules/` ERR_MODULE_NOT_FOUND test class (`onscreen_agent_prompt_shape_test`
    and 3 siblings) — **Fixed (Batch 4, 2026-10-22)** on `fix/mod-import-harness`
    (loader `53e6638`, docs `a8ac6d5`): tests-side `node:module` resolve hook maps
-   `/mod/...` onto `app/L0/_all/mod/...`; register + dynamic import in the 4
+   `/modules/...` onto `app/L0/_all/modules/...`; register + dynamic import in the 4
    suites. Pristine 4× exit 1 (ERR_MODULE_NOT_FOUND) → fixed 14/14 green;
    standalone port, zero #58 leakage. **DONE — merged + released (v0.66-fork.3); owner PR body ready.** (`prs/mod-import-harness.md`).
 4. `server/lib/share/service.js:338-339` — share/import temp work still stages
@@ -309,7 +309,7 @@ from `upstream/main`, park anything that sprawls. Live lane statuses live in
    (pristine 4/5 failing) + 7 adjacent suites green. PRs #69/#70 ruled
    adjacent, different mechanism, neither ported. Log `fixes/issue-61.md`;
    body `prs/issue-61.md`. **DONE — merged + released (v0.66-fork.3); owner PR body ready.**
-4. **G3 `/mod/` import harness** — ease ★★★ / impact ★★★★. **DONE (Batch
+4. **G3 `/modules/` import harness** — ease ★★★ / impact ★★★★. **DONE (Batch
    4)** — `fix/mod-import-harness` (`53e6638` + docs `a8ac6d5`); 4 suites
    ERR_MODULE_NOT_FOUND → 14/14 green; log `fixes/mod-import-harness.md`;
    body `prs/mod-import-harness.md`. **DONE — merged + released (v0.66-fork.3); owner PR body ready.**

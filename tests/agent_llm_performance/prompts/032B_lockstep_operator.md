@@ -112,7 +112,7 @@ tool map
 
 path rules
 - ~ or ~/... means current user's L2/<username>/...
-- use app-rooted logical paths, not /mod/... cascade paths
+- use app-rooted logical paths, not /modules/... cascade paths
 
 examples
 correct

@@ -6,7 +6,7 @@ import {
   ONSCREEN_AGENT_HISTORY_CHECKPOINT_INTERVAL_MS,
   ONSCREEN_AGENT_HISTORY_INTERRUPTED_SUFFIX,
   shouldCheckpointOnscreenAgentHistory
-} from "../app/L0/_all/mod/_core/onscreen_agent/history-persistence.js";
+} from "../app/L0/_all/modules/_core/onscreen_agent/history-persistence.js";
 
 test("history checkpoint gate waits for the throttle interval", () => {
   assert.equal(ONSCREEN_AGENT_HISTORY_CHECKPOINT_INTERVAL_MS, 1000);

@@ -240,7 +240,7 @@ function normalizeAppProjectPath(value, options = {}) {
 function normalizeModuleRequestPath(value) {
   const normalized = normalizePathSegment(value);
 
-  if (!normalized.startsWith("mod/")) {
+  if (!normalized.startsWith("modules/")) {
     return "";
   }
 
@@ -249,7 +249,7 @@ function normalizeModuleRequestPath(value) {
 
 function parseModuleDirectoryRequestPath(value) {
   const normalizedPath = normalizeModuleRequestPath(value);
-  const match = normalizedPath.match(/^\/mod\/([^/]+)\/([^/]+)\/?$/u);
+  const match = normalizedPath.match(/^\/modules\/([^/]+)\/([^/]+)\/?$/u);
 
   if (!match) {
     return null;
@@ -265,12 +265,12 @@ function parseModuleDirectoryRequestPath(value) {
   return {
     authorId,
     repositoryId,
-    requestPath: `/mod/${authorId}/${repositoryId}`
+    requestPath: `/modules/${authorId}/${repositoryId}`
   };
 }
 
 function parseModuleExtensionRequestPath(requestPath) {
-  const match = String(requestPath || "").match(/^\/mod\/([^/]+)\/([^/]+)\/ext\/(.+)$/u);
+  const match = String(requestPath || "").match(/^\/modules\/([^/]+)\/([^/]+)\/ext\/(.+)$/u);
 
   if (!match) {
     return null;
@@ -287,14 +287,14 @@ function parseModuleExtensionRequestPath(requestPath) {
   return {
     authorId,
     extensionPath,
-    moduleRequestPath: `/mod/${authorId}/${repositoryId}`,
+    moduleRequestPath: `/modules/${authorId}/${repositoryId}`,
     repositoryId,
-    requestPath: `/mod/${authorId}/${repositoryId}/ext/${extensionPath}`
+    requestPath: `/modules/${authorId}/${repositoryId}/ext/${extensionPath}`
   };
 }
 
 function parseProjectModuleDirectoryPath(projectPath) {
-  let match = String(projectPath || "").match(/^\/app\/L0\/([^/]+)\/(mod\/[^/]+\/[^/]+)\/$/u);
+  let match = String(projectPath || "").match(/^\/app\/L0\/([^/]+)\/(modules\/[^/]+\/[^/]+)\/$/u);
 
   if (match) {
     const ownerId = normalizeEntityId(match[1]);
@@ -313,7 +313,7 @@ function parseProjectModuleDirectoryPath(projectPath) {
     };
   }
 
-  match = String(projectPath || "").match(/^\/app\/L1\/([^/]+)\/(mod\/[^/]+\/[^/]+)\/$/u);
+  match = String(projectPath || "").match(/^\/app\/L1\/([^/]+)\/(modules\/[^/]+\/[^/]+)\/$/u);
 
   if (match) {
     const ownerId = normalizeEntityId(match[1]);
@@ -332,7 +332,7 @@ function parseProjectModuleDirectoryPath(projectPath) {
     };
   }
 
-  match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/(mod\/[^/]+\/[^/]+)\/$/u);
+  match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/(modules\/[^/]+\/[^/]+)\/$/u);
 
   if (!match) {
     return null;
@@ -355,7 +355,7 @@ function parseProjectModuleDirectoryPath(projectPath) {
 }
 
 function parseProjectModuleFilePath(projectPath) {
-  let match = String(projectPath || "").match(/^\/app\/L0\/([^/]+)\/(mod\/.+)$/u);
+  let match = String(projectPath || "").match(/^\/app\/L0\/([^/]+)\/(modules\/.+)$/u);
 
   if (match) {
     const ownerId = normalizeEntityId(match[1]);
@@ -373,7 +373,7 @@ function parseProjectModuleFilePath(projectPath) {
     };
   }
 
-  match = String(projectPath || "").match(/^\/app\/L1\/([^/]+)\/(mod\/.+)$/u);
+  match = String(projectPath || "").match(/^\/app\/L1\/([^/]+)\/(modules\/.+)$/u);
 
   if (match) {
     const ownerId = normalizeEntityId(match[1]);
@@ -391,7 +391,7 @@ function parseProjectModuleFilePath(projectPath) {
     };
   }
 
-  match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/(mod\/.+)$/u);
+  match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/(modules\/.+)$/u);
 
   if (match) {
     const ownerId = normalizeEntityId(match[1]);

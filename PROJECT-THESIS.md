@@ -103,7 +103,7 @@ Under that model there are exactly two structural rules. They are equally bindin
 
 ### 3.1 The namespace rule
 
-> **New capabilities live in `app/L0/_all/mod/constellation/<repo>/` — additive, tracked, never inside `_core`.**
+> **New capabilities live in `app/L0/_all/modules/constellation/<repo>/` — additive, tracked, never inside `_core`.**
 
 Not because a reviewer is watching. Because additive namespaces are simply better engineering.
 
@@ -115,7 +115,7 @@ Not because a reviewer is watching. Because additive namespaces are simply bette
 2. **Blame.** Our edits scattered through inherited code makes "is this bug ours or inherited?" needlessly expensive.
 3. **Upgrades.** A module can be replaced wholesale without touching the firmware beneath it. That is the difference between an upgradeable product and a fork that decays.
 
-A namespace also keeps provenance legible: `mod/constellation/...` is obviously ours, `mod/_core/...` is obviously inherited. Someone reading the tree in two years can tell instantly which work is which.
+A namespace also keeps provenance legible: `modules/constellation/...` is obviously ours, `modules/_core/...` is obviously inherited. Someone reading the tree in two years can tell instantly which work is which.
 
 ### 3.2 The modularity rule
 

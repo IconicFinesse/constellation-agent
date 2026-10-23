@@ -113,7 +113,7 @@ async function withExtensionsTestEnvironment(run) {
   try {
     const nonce = String(Date.now()) + "-" + String(Math.random());
     const extensions = await import(
-      "../app/L0/_all/mod/_core/framework/js/extensions.js?test=" + nonce
+      "../app/L0/_all/modules/_core/framework/js/extensions.js?test=" + nonce
     );
     extensions.clearCache();
     await run({ extensions, requests });

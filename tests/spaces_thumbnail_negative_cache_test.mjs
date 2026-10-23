@@ -14,7 +14,7 @@ import test from "node:test";
  * file is not probed again while the space record version is unchanged.
  */
 
-const appModRootUrl = new URL("../app/L0/_all/mod/", import.meta.url).href;
+const appModRootUrl = new URL("../app/L0/_all/modules/", import.meta.url).href;
 const screenshotsStubUrl =
   "data:text/javascript," +
   encodeURIComponent("export const renderScreenshotCanvas = async () => ({ height: 300, width: 400 });\n");
@@ -25,9 +25,9 @@ module.registerHooks({
       return { url: screenshotsStubUrl, shortCircuit: true };
     }
 
-    if (specifier.startsWith("/mod/")) {
+    if (specifier.startsWith("/modules/")) {
       return {
-        url: `${appModRootUrl}${specifier.slice("/mod/".length)}`,
+        url: `${appModRootUrl}${specifier.slice("/modules/".length)}`,
         shortCircuit: true
       };
     }
@@ -136,7 +136,7 @@ function createThumbnailEnv() {
   };
 }
 
-const thumbnailModule = await import("../app/L0/_all/mod/_core/spaces/thumbnail_experiment/index.js");
+const thumbnailModule = await import("../app/L0/_all/modules/_core/spaces/thumbnail_experiment/index.js");
 
 const {
   buildSpaceThumbnailUrlFromPath,

@@ -10,8 +10,8 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "paths": {
-      "/mod/*": [
-        "app/L0/_all/mod/*"
+      "/modules/*": [
+        "app/L0/_all/modules/*"
       ]
     },
     "target": "ES2022"

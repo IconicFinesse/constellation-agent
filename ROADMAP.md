@@ -109,7 +109,7 @@ point, not a detail to erase.
   so trimmed source can be reconstructed (#61, truncation half).
 - Self-found: forward the resolved runtime temp root through the share service
   (read-only host `EACCES`), repair two suites broken on a clean checkout, and wake
-  four dead frontend suites with a `/mod/` specifier loader.
+  four dead frontend suites with a `/modules/` specifier loader.
 
 ### `v0.66-fork.2`
 
@@ -134,7 +134,7 @@ point, not a detail to erase.
 ## Selected
 
 Owner-approved for the features phase. The two thesis features are additive
-modules under `app/L0/_all/mod/constellation/`, self-contained under the
+modules under `app/L0/_all/modules/constellation/`, self-contained under the
 modularity rule; the connected-mode lane is desktop-packaging work under
 `packaging/desktop/`. None of the three requires new server authority. Full
 descriptions in `PROJECT-THESIS.md` §1.3, §8.4 and §8.5.

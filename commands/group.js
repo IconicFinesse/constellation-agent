@@ -130,7 +130,7 @@ export const help = {
   arguments: [
     {
       name: "<group-id>",
-      description: "Target group id. The command writes the logical L1/<group-id>/group.yaml and L1/<group-id>/mod/ paths."
+      description: "Target group id. The command writes the logical L1/<group-id>/group.yaml and L1/<group-id>/modules/ paths."
     },
     {
       name: "<user|group>",
@@ -144,7 +144,7 @@ export const help = {
   options: [
     {
       flag: "create",
-      description: "Create the logical L1/<group-id>/ root with mod/ and group.yaml."
+      description: "Create the logical L1/<group-id>/ root with modules/ and group.yaml."
     },
     {
       flag: "add",

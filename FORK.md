@@ -10,7 +10,7 @@ Fork of [agent0ai/space-agent](https://github.com/agent0ai/space-agent) under [I
 One sentence: *build Constellation as its own product — add in
 `constellation/`, extend before editing, and freeze contracts before content.*
 
-- New capabilities live in `app/L0/_all/mod/constellation/<repo>/`: additive,
+- New capabilities live in `app/L0/_all/modules/constellation/<repo>/`: additive,
   tracked, shippable. Not in the gitignored `L1`/`L2` runtime layers.
 - Prefer extending the framework over editing inherited `_core` code. Direct
   `_core` work is allowed when a seam cannot carry it — leave a comment why.
@@ -35,7 +35,7 @@ One sentence: *build Constellation as its own product — add in
 ## Divergence Policy
 
 - Primary development home: new features as modules under
-  `app/L0/_all/mod/constellation/<repo>/`. Inherited firmware (`_core`),
+  `app/L0/_all/modules/constellation/<repo>/`. Inherited firmware (`_core`),
   `server/`, `commands/`, `packaging/`, and `tests/` are worked on directly
   when a feature genuinely belongs there.
 - Runtime data (`L1/`, `L2/`, `server/data/`) is user state: never hand-patched,

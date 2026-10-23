@@ -179,8 +179,8 @@ Throw errors with a `statusCode` when the route should return a non-500 error. T
 - keep endpoints narrow and explicit
 - keep auth, permission, inheritance, and filesystem policy in shared helpers
 - do not add endpoint-local filesystem walks when `file_index` shards or shared helpers already answer the question
-- if frontend-facing API or extension-resolution semantics change, also update `app/L0/_all/mod/_core/skillset/ext/skills/development/` because the shared development skill mirrors this contract
-- if endpoint-family semantics change, also update the matching docs under `app/L0/_all/mod/_core/documentation/docs/server/api/`
+- if frontend-facing API or extension-resolution semantics change, also update `app/L0/_all/modules/_core/skillset/ext/skills/development/` because the shared development skill mirrors this contract
+- if endpoint-family semantics change, also update the matching docs under `app/L0/_all/modules/_core/documentation/docs/server/api/`
 - if you add or remove endpoints, or change endpoint-family semantics, update this file and `/server/AGENTS.md`
 
 ## Verification

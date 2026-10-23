@@ -4,7 +4,7 @@ import test from "node:test";
 
 const agentThreadCssPath =
   process.env.AGENT_THREAD_CSS_PATH ||
-  "app/L0/_all/mod/_core/visual/conversation/agent-thread.css";
+  "app/L0/_all/modules/_core/visual/conversation/agent-thread.css";
 const agentThreadCss = fs.readFileSync(agentThreadCssPath, "utf8");
 
 function getRuleBody(selector) {

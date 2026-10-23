@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { buildHuggingFaceFallbackPrompt } from "../app/L0/_all/mod/_core/huggingface/helpers.js";
+import { buildHuggingFaceFallbackPrompt } from "../app/L0/_all/modules/_core/huggingface/helpers.js";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(SCRIPT_DIR, "..");
@@ -45,7 +45,7 @@ test("huggingface fallback prompt uses api-style system and conversation section
 });
 
 test("huggingface worker prefers the model processor chat template before fallback formatting", async () => {
-  const workerPath = path.join(ROOT_DIR, "app/L0/_all/mod/_core/huggingface/huggingface-worker.js");
+  const workerPath = path.join(ROOT_DIR, "app/L0/_all/modules/_core/huggingface/huggingface-worker.js");
   const workerSource = await fs.readFile(workerPath, "utf8");
 
   assert.ok(workerSource.includes("let processor = null;"));
@@ -72,9 +72,9 @@ test("huggingface worker prefers the model processor chat template before fallba
 });
 
 test("huggingface worker loader versions bootstrap and runtime module urls", async () => {
-  const protocolPath = path.join(ROOT_DIR, "app/L0/_all/mod/_core/huggingface/protocol.js");
-  const managerPath = path.join(ROOT_DIR, "app/L0/_all/mod/_core/huggingface/manager.js");
-  const bootstrapPath = path.join(ROOT_DIR, "app/L0/_all/mod/_core/huggingface/huggingface-worker-bootstrap.js");
+  const protocolPath = path.join(ROOT_DIR, "app/L0/_all/modules/_core/huggingface/protocol.js");
+  const managerPath = path.join(ROOT_DIR, "app/L0/_all/modules/_core/huggingface/manager.js");
+  const bootstrapPath = path.join(ROOT_DIR, "app/L0/_all/modules/_core/huggingface/huggingface-worker-bootstrap.js");
   const [protocolSource, managerSource, bootstrapSource] = await Promise.all([
     fs.readFile(protocolPath, "utf8"),
     fs.readFile(managerPath, "utf8"),
@@ -87,7 +87,7 @@ test("huggingface worker loader versions bootstrap and runtime module urls", asy
 });
 
 test("onscreen local client prefers the api-style folded transport payload", async () => {
-  const apiPath = path.join(ROOT_DIR, "app/L0/_all/mod/_core/onscreen_agent/api.js");
+  const apiPath = path.join(ROOT_DIR, "app/L0/_all/modules/_core/onscreen_agent/api.js");
   const apiSource = await fs.readFile(apiPath, "utf8");
 
   assert.ok(apiSource.includes("const requestBodyMessages = Array.isArray(preparedRequest?.requestBody?.messages)"));

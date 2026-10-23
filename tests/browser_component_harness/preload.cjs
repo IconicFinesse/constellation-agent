@@ -9,7 +9,7 @@ const PROGRESS_CHANNEL = "space-browser-component-harness:progress";
 const SCENARIO_ENV = "SPACE_BROWSER_COMPONENT_HARNESS_SCENARIO";
 
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const WEB_BROWSING_ROOT = path.join(PROJECT_ROOT, "app", "L0", "_all", "mod", "_core", "web_browsing");
+const WEB_BROWSING_ROOT = path.join(PROJECT_ROOT, "app", "L0", "_all", "modules", "_core", "web_browsing");
 const GUEST_RUNTIME_PATHS = Object.freeze({
   bootstrap: path.join(WEB_BROWSING_ROOT, "browser-frame-inject.js"),
   content: path.join(WEB_BROWSING_ROOT, "browser-page-content.js"),
@@ -51,7 +51,7 @@ contextBridge.exposeInMainWorld("browserHarnessHost", {
 
     return {
       browserId: normalizedBrowserId,
-      injectPath: "/mod/_core/web_browsing/browser-frame-inject.js",
+      injectPath: "/modules/_core/web_browsing/browser-frame-inject.js",
       scriptUrl,
       source: [
         guestRuntimeSources.bootstrap,

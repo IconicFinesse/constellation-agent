@@ -30,7 +30,7 @@ Current user storage layout:
 - password verifier envelope: logical `L2/<username>/metadata/password.json`
 - active session verifiers: logical `L2/<username>/metadata/logins.json`
 - wrapped browser-encryption record: logical `L2/<username>/metadata/user_crypto.json`
-- user-owned modules: logical `L2/<username>/mod/`
+- user-owned modules: logical `L2/<username>/modules/`
 - on disk those files live under `CUSTOMWARE_PATH/L2/...` when `CUSTOMWARE_PATH` is configured, otherwise under repo `app/L2/...`
 - backend-only auth keys live outside the logical app tree and come from either shared process env injection via `SPACE_AUTH_PASSWORD_SEAL_KEY` and `SPACE_AUTH_SESSION_HMAC_KEY`, or the gitignored local fallback `server/data/auth_keys.json`, unless `SPACE_AUTH_DATA_DIR` relocates that fallback root
 - backend-only per-user `userCrypto` server shares may be cached outside the logical app tree under gitignored `server/data/user_crypto/<username>.json` or the matching `SPACE_AUTH_DATA_DIR/user_crypto/<username>.json` override path
@@ -91,7 +91,7 @@ Current user-index rules:
 
 Rules:
 
-- user creation initializes the user directory, `metadata/`, and `mod/`
+- user creation initializes the user directory, `metadata/`, and `modules/`
 - user creation must publish the concrete auth files it creates, not only the user directory root, so incremental user-index rebuilds see new accounts immediately
 - CLI-owned group assignment for `node space user create --groups ...` belongs in `commands/user.js` and `server/lib/customware/group_files.js`, not in `user_manage.js`; `user_manage.js` should stay focused on user storage and auth files
 - password resets rewrite the sealed verifier and clear active sessions; authenticated self-service password changes should validate the current password in `service.js`, then rewrite `metadata/user_crypto.json` in the same mutation when the account still has a ready browser-encryption record
@@ -108,8 +108,8 @@ Rules:
 - do not add direct cookie or session-file manipulation elsewhere when the auth service already owns the flow
 - do not hand-roll `password.json` contents outside backend helpers; use `password_generate`, `user_manage.js`, or auth-service helpers so the backend seal key is applied correctly
 - treat the current local file-backed auth model as a constrained infrastructure contract, not as a place to casually grow unrelated policy
-- if user storage, session semantics, or login flow change, also update `app/L0/_all/mod/_core/skillset/ext/skills/development/` because the shared development skill mirrors this contract
-- if user storage, session semantics, or login flow change, also update the matching docs under `app/L0/_all/mod/_core/documentation/docs/server/`
+- if user storage, session semantics, or login flow change, also update `app/L0/_all/modules/_core/skillset/ext/skills/development/` because the shared development skill mirrors this contract
+- if user storage, session semantics, or login flow change, also update the matching docs under `app/L0/_all/modules/_core/documentation/docs/server/`
 - if user storage, session semantics, or login flow change, update this file and the relevant router or API docs in the same session
 
 ## Verification

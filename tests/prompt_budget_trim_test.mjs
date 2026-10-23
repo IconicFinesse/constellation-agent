@@ -9,8 +9,8 @@ const {
   buildPromptOverflowTrimPlan,
   estimatePromptCharsForTokenRemoval,
   trimPromptLongMessage
-} = await import("../app/L0/_all/mod/_core/agent_prompt/prompt-items.js");
-const { countTextTokens } = await import("../app/L0/_all/mod/_core/framework/js/token-count.js");
+} = await import("../app/L0/_all/modules/_core/agent_prompt/prompt-items.js");
+const { countTextTokens } = await import("../app/L0/_all/modules/_core/framework/js/token-count.js");
 
 let llmModulePromise = null;
 
@@ -103,7 +103,7 @@ function applyRuntimeTrim(candidate, removeTokens) {
 async function loadLlmModule() {
   if (!llmModulePromise) {
     globalThis.space = { extend: (_meta, fn) => fn };
-    llmModulePromise = import("../app/L0/_all/mod/_core/onscreen_agent/llm.js");
+    llmModulePromise = import("../app/L0/_all/modules/_core/onscreen_agent/llm.js");
   }
 
   return llmModulePromise;

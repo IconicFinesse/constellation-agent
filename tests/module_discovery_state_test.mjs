@@ -55,63 +55,63 @@ function seedDiscoveryState() {
   });
 
   stateSystem.setEntry(FILE_INDEX_AREA, "L0", {
-    "/app/L0/_all/mod/_core/framework/css/colors.css": {
+    "/app/L0/_all/modules/_core/framework/css/colors.css": {
       isDirectory: false,
       mtimeMs: 1,
       sizeBytes: 1
     },
-    "/app/L0/_all/mod/acme/demo/index.js": {
+    "/app/L0/_all/modules/acme/demo/index.js": {
       isDirectory: false,
       mtimeMs: 1,
       sizeBytes: 1
     },
-    "/app/L0/_all/mod/acme/demo/ext/panels/default.yaml": {
+    "/app/L0/_all/modules/acme/demo/ext/panels/default.yaml": {
       isDirectory: false,
       mtimeMs: 1,
       sizeBytes: 1
     }
   });
   stateSystem.setEntry(FILE_INDEX_AREA, "L1/team", {
-    "/app/L1/team/mod/acme/demo/": {
+    "/app/L1/team/modules/acme/demo/": {
       isDirectory: true,
       mtimeMs: 1,
       sizeBytes: 0
     },
-    "/app/L1/team/mod/acme/demo/index.js": {
+    "/app/L1/team/modules/acme/demo/index.js": {
       isDirectory: false,
       mtimeMs: 1,
       sizeBytes: 1
     },
-    "/app/L1/team/mod/acme/demo/ext/panels/team.yaml": {
+    "/app/L1/team/modules/acme/demo/ext/panels/team.yaml": {
       isDirectory: false,
       mtimeMs: 1,
       sizeBytes: 1
     }
   });
   stateSystem.setEntry(FILE_INDEX_AREA, "L2/alice", {
-    "/app/L2/alice/mod/acme/demo/": {
+    "/app/L2/alice/modules/acme/demo/": {
       isDirectory: true,
       mtimeMs: 1,
       sizeBytes: 0
     },
-    "/app/L2/alice/mod/acme/demo/index.js": {
+    "/app/L2/alice/modules/acme/demo/index.js": {
       isDirectory: false,
       mtimeMs: 1,
       sizeBytes: 1
     },
-    "/app/L2/alice/mod/acme/demo/ext/panels/user.yaml": {
+    "/app/L2/alice/modules/acme/demo/ext/panels/user.yaml": {
       isDirectory: false,
       mtimeMs: 1,
       sizeBytes: 1
     }
   });
   stateSystem.setEntry(FILE_INDEX_AREA, "L2/bob", {
-    "/app/L2/bob/mod/acme/solo/": {
+    "/app/L2/bob/modules/acme/solo/": {
       isDirectory: true,
       mtimeMs: 1,
       sizeBytes: 0
     },
-    "/app/L2/bob/mod/acme/solo/index.js": {
+    "/app/L2/bob/modules/acme/solo/index.js": {
       isDirectory: false,
       mtimeMs: 1,
       sizeBytes: 1
@@ -128,42 +128,42 @@ test("state-backed module discovery resolves L0, L1, and L2 per user visibility"
   const firmware = resolveInheritedModuleProjectPath({
     maxLayer: 2,
     projectRoot: "/workspace/agent-one",
-    requestPath: "/mod/_core/framework/css/colors.css",
+    requestPath: "/modules/_core/framework/css/colors.css",
     runtimeParams,
     stateSystem,
     username: "alice"
   });
-  assert.equal(firmware?.projectPath, "/app/L0/_all/mod/_core/framework/css/colors.css");
+  assert.equal(firmware?.projectPath, "/app/L0/_all/modules/_core/framework/css/colors.css");
 
   const aliceModule = resolveInheritedModuleProjectPath({
     maxLayer: 2,
     projectRoot: "/workspace/agent-one",
-    requestPath: "/mod/acme/demo/index.js",
+    requestPath: "/modules/acme/demo/index.js",
     runtimeParams,
     stateSystem,
     username: "alice"
   });
-  assert.equal(aliceModule?.projectPath, "/app/L2/alice/mod/acme/demo/index.js");
+  assert.equal(aliceModule?.projectPath, "/app/L2/alice/modules/acme/demo/index.js");
 
   const bobModule = resolveInheritedModuleProjectPath({
     maxLayer: 2,
     projectRoot: "/workspace/agent-one",
-    requestPath: "/mod/acme/demo/index.js",
+    requestPath: "/modules/acme/demo/index.js",
     runtimeParams,
     stateSystem,
     username: "bob"
   });
-  assert.equal(bobModule?.projectPath, "/app/L0/_all/mod/acme/demo/index.js");
+  assert.equal(bobModule?.projectPath, "/app/L0/_all/modules/acme/demo/index.js");
 
   const noL2Module = resolveInheritedModuleProjectPath({
     maxLayer: 1,
     projectRoot: "/workspace/agent-one",
-    requestPath: "/mod/acme/demo/index.js",
+    requestPath: "/modules/acme/demo/index.js",
     runtimeParams,
     stateSystem,
     username: "alice"
   });
-  assert.equal(noL2Module?.projectPath, "/app/L1/team/mod/acme/demo/index.js");
+  assert.equal(noL2Module?.projectPath, "/app/L1/team/modules/acme/demo/index.js");
 });
 
 test("state-backed extension discovery respects layered overrides and caller visibility", () => {
@@ -178,9 +178,9 @@ test("state-backed extension discovery respects layered overrides and caller vis
     username: "alice"
   });
   assert.deepEqual(aliceExtensions, [
-    "/mod/acme/demo/ext/panels/default.yaml",
-    "/mod/acme/demo/ext/panels/team.yaml",
-    "/mod/acme/demo/ext/panels/user.yaml"
+    "/modules/acme/demo/ext/panels/default.yaml",
+    "/modules/acme/demo/ext/panels/team.yaml",
+    "/modules/acme/demo/ext/panels/user.yaml"
   ]);
 
   const bobExtensions = listResolvedExtensionRequestPaths({
@@ -190,7 +190,7 @@ test("state-backed extension discovery respects layered overrides and caller vis
     stateSystem,
     username: "bob"
   });
-  assert.deepEqual(bobExtensions, ["/mod/acme/demo/ext/panels/default.yaml"]);
+  assert.deepEqual(bobExtensions, ["/modules/acme/demo/ext/panels/default.yaml"]);
 
   const grouped = listResolvedExtensionRequests({
     maxLayer: 2,
@@ -205,14 +205,14 @@ test("state-backed extension discovery respects layered overrides and caller vis
   assert.deepEqual(grouped, [
     {
       extensions: [
-        "/mod/acme/demo/ext/panels/default.yaml",
-        "/mod/acme/demo/ext/panels/team.yaml",
-        "/mod/acme/demo/ext/panels/user.yaml"
+        "/modules/acme/demo/ext/panels/default.yaml",
+        "/modules/acme/demo/ext/panels/team.yaml",
+        "/modules/acme/demo/ext/panels/user.yaml"
       ],
       patterns: ["panels/*.yaml"]
     },
     {
-      extensions: ["/mod/acme/demo/ext/panels/team.yaml"],
+      extensions: ["/modules/acme/demo/ext/panels/team.yaml"],
       patterns: ["panels/team.yaml"]
     }
   ]);
@@ -231,7 +231,7 @@ test("state-backed module management lists self and admin cross-user visibility 
   });
   assert.deepEqual(
     aliceL1.map((entry) => entry.path),
-    ["L1/team/mod/acme/demo/"]
+    ["L1/team/modules/acme/demo/"]
   );
 
   const bobL1 = await listInstalledModules({
@@ -252,7 +252,7 @@ test("state-backed module management lists self and admin cross-user visibility 
   });
   assert.deepEqual(
     aliceSelf.map((entry) => entry.path),
-    ["L2/alice/mod/acme/demo/"]
+    ["L2/alice/modules/acme/demo/"]
   );
 
   const adminUsers = await listInstalledModules({
@@ -266,8 +266,8 @@ test("state-backed module management lists self and admin cross-user visibility 
   assert.deepEqual(
     adminUsers.map((entry) => [entry.requestPath, entry.ownerCount]),
     [
-      ["/mod/acme/demo", 1],
-      ["/mod/acme/solo", 1]
+      ["/modules/acme/demo", 1],
+      ["/modules/acme/solo", 1]
     ]
   );
 
@@ -275,12 +275,12 @@ test("state-backed module management lists self and admin cross-user visibility 
     includeOtherUsers: true,
     maxLayer: 2,
     ownerId: "bob",
-    path: "/mod/acme/solo",
+    path: "/modules/acme/solo",
     projectRoot: "/workspace/agent-one",
     runtimeParams,
     stateSystem,
     username: "admin"
   });
   assert.equal(bobInfo.installed, true);
-  assert.equal(bobInfo.selectedPath, "L2/bob/mod/acme/solo/");
+  assert.equal(bobInfo.selectedPath, "L2/bob/modules/acme/solo/");
 });

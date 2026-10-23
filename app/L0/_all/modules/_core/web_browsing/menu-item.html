@@ -1,0 +1,17 @@
+<html>
+  <head>
+    <script type="module" src="/modules/_core/web_browsing/store.js"></script>
+  </head>
+  <body>
+    <button
+      type="button"
+      class="space-topbar-menu-action"
+      data-order="250"
+      role="menuitem"
+      @click="isOpen = false; $store.webBrowsing.openFromMenu()"
+    >
+      <x-icon>travel_explore</x-icon>
+      <span class="space-topbar-menu-action-label">Browser</span>
+    </button>
+  </body>
+</html>

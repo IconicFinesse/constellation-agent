@@ -1,0 +1,261 @@
+<html>
+  <head>
+    <link rel="stylesheet" href="/modules/_core/admin/views/shell/shell.css" />
+    <link rel="stylesheet" href="/modules/_core/visual/index.css" />
+    <script type="module" src="/modules/_core/admin/views/shell/shell.js"></script>
+    <script type="module" src="/modules/_core/admin/views/shell/page.js"></script>
+  </head>
+  <body>
+    <div x-data>
+      <template x-if="$store.adminShell && $store.adminPage">
+        <div
+          class="admin-shell"
+          x-cloak
+          x-init="$nextTick(() => { $store.adminShell.mount({ mainFrame: $refs.mainFrame }); $store.adminPage.mount({ tabBar: $refs.tabBar, topbar: $refs.topbar, topbarMeasure: $refs.topbarMeasure, topbarCompactMeasure: $refs.topbarCompactMeasure }); })"
+          x-destroy="$store.adminPage.unmount(); $store.adminShell.unmount()"
+          @pointermove.window="$store.adminShell.handlePointerMove($event)"
+          @pointerup.window="$store.adminShell.stopDrag($event)"
+          @pointercancel.window="$store.adminShell.stopDrag($event)"
+        >
+          <x-context data-tags="admin"></x-context>
+          <aside class="pane admin-pane" aria-label="Admin panel">
+            <main class="admin-pane-content">
+              <div class="admin-page">
+                <header
+                  class="space-topbar admin-topbar"
+                  :class="{ 'is-collapsed': $store.adminPage.tabsCollapsed, 'is-compact': $store.adminPage.tabsCompact }"
+                  x-ref="topbar"
+                  aria-label="Admin navigation"
+                  @keydown.escape.window="$store.adminPage.closeOverflowMenu()"
+                >
+                  <div class="admin-tab-list" x-ref="tabBar" role="tablist" aria-label="Admin tabs">
+                    <template x-for="tab in $store.adminPage.visibleTabs" :key="tab.id">
+                      <button
+                        :id="`admin-tab-${tab.id}`"
+                        class="space-topbar-button admin-tab-button"
+                        :class="{ 'is-active': $store.adminPage.isTabActive(tab.id) }"
+                        :data-tab-id="tab.id"
+                        :aria-label="tab.label"
+                        :aria-selected="String($store.adminPage.isTabActive(tab.id))"
+                        :tabindex="$store.adminPage.isTabActive(tab.id) ? 0 : -1"
+                        :title="tab.label"
+                        type="button"
+                        role="tab"
+                        :aria-controls="`admin-panel-${tab.id}`"
+                        @click="$store.adminPage.selectTab(tab.id)"
+                        @keydown="$store.adminPage.handleTabKeydown($event, tab.id)"
+                      >
+                        <template x-if="tab.avatarPath">
+                          <img class="admin-tab-avatar" :src="tab.avatarPath" alt="" />
+                        </template>
+                        <template x-if="!tab.avatarPath">
+                          <x-icon x-text="tab.icon"></x-icon>
+                        </template>
+                        <span class="admin-tab-label" x-text="tab.label"></span>
+                      </button>
+                    </template>
+                  </div>
+
+                  <div
+                    class="space-topbar-menu admin-tab-overflow"
+                    x-cloak
+                    x-show="$store.adminPage.tabsCollapsed"
+                    @click.outside="$store.adminPage.closeOverflowMenu()"
+                  >
+                    <button
+                      type="button"
+                      class="space-topbar-button space-topbar-button--icon admin-overflow-button"
+                      :class="{ 'is-active': $store.adminPage.isOverflowMenuOpen }"
+                      aria-label="Open admin tabs"
+                      aria-haspopup="menu"
+                      aria-controls="admin-tabs-overflow-menu"
+                      :aria-expanded="String($store.adminPage.isOverflowMenuOpen)"
+                      @click="$store.adminPage.toggleOverflowMenu()"
+                    >
+                      <x-icon>menu</x-icon>
+                    </button>
+
+                    <div
+                      id="admin-tabs-overflow-menu"
+                      class="space-topbar-menu-panel admin-tab-overflow-panel"
+                      x-cloak
+                      x-show="$store.adminPage.isOverflowMenuOpen"
+                      x-transition.opacity.scale.origin.top.right.duration.160ms
+                      role="menu"
+                      aria-label="Admin tabs"
+                    >
+                      <template x-for="tab in $store.adminPage.tabs" :key="tab.id">
+                        <button
+                          type="button"
+                          class="space-topbar-menu-action admin-tab-menu-action"
+                          :class="{ 'is-active': $store.adminPage.isTabActive(tab.id) }"
+                          role="menuitemradio"
+                          :aria-checked="String($store.adminPage.isTabActive(tab.id))"
+                          @click="$store.adminPage.selectTabFromMenu(tab.id)"
+                        >
+                          <template x-if="tab.avatarPath">
+                            <img class="admin-tab-avatar admin-tab-menu-avatar" :src="tab.avatarPath" alt="" />
+                          </template>
+                          <template x-if="!tab.avatarPath">
+                            <x-icon x-text="tab.icon"></x-icon>
+                          </template>
+                          <span class="space-topbar-menu-action-label" x-text="tab.label"></span>
+                          <x-icon class="admin-tab-menu-check" x-show="$store.adminPage.isTabActive(tab.id)" x-cloak>check</x-icon>
+                        </button>
+                      </template>
+                    </div>
+                  </div>
+
+                  <button
+                    class="space-topbar-button space-topbar-button--icon admin-close-button"
+                    type="button"
+                    aria-label="Leave admin area"
+                    title="Leave admin area"
+                    @click="$store.adminShell.leaveAdminArea()"
+                  >
+                    <x-icon>exit_to_app</x-icon>
+                  </button>
+                </header>
+
+                <div class="admin-topbar-measure" aria-hidden="true">
+                  <div class="space-topbar admin-topbar admin-topbar--measure" x-ref="topbarMeasure">
+                    <div class="admin-tab-list" role="presentation">
+                      <template x-for="tab in $store.adminPage.tabs" :key="`measure-${tab.id}`">
+                        <button
+                          class="space-topbar-button admin-tab-button"
+                          :class="{ 'is-active': $store.adminPage.isTabActive(tab.id) }"
+                          type="button"
+                          tabindex="-1"
+                        >
+                          <template x-if="tab.avatarPath">
+                            <img class="admin-tab-avatar" :src="tab.avatarPath" alt="" />
+                          </template>
+                          <template x-if="!tab.avatarPath">
+                            <x-icon x-text="tab.icon"></x-icon>
+                          </template>
+                          <span class="admin-tab-label" x-text="tab.label"></span>
+                        </button>
+                      </template>
+                    </div>
+                    <button
+                      class="space-topbar-button space-topbar-button--icon admin-close-button"
+                      type="button"
+                      tabindex="-1"
+                    >
+                      <x-icon>exit_to_app</x-icon>
+                    </button>
+                  </div>
+                  <div class="space-topbar admin-topbar admin-topbar--measure is-compact" x-ref="topbarCompactMeasure">
+                    <div class="admin-tab-list" role="presentation">
+                      <template x-for="tab in $store.adminPage.tabs" :key="`compact-measure-${tab.id}`">
+                        <button
+                          class="space-topbar-button admin-tab-button"
+                          :class="{ 'is-active': $store.adminPage.isTabActive(tab.id) }"
+                          type="button"
+                          tabindex="-1"
+                        >
+                          <template x-if="tab.avatarPath">
+                            <img class="admin-tab-avatar" :src="tab.avatarPath" alt="" />
+                          </template>
+                          <template x-if="!tab.avatarPath">
+                            <x-icon x-text="tab.icon"></x-icon>
+                          </template>
+                          <span class="admin-tab-label" x-text="tab.label"></span>
+                        </button>
+                      </template>
+                    </div>
+                    <button
+                      class="space-topbar-button space-topbar-button--icon admin-close-button"
+                      type="button"
+                      tabindex="-1"
+                    >
+                      <x-icon>exit_to_app</x-icon>
+                    </button>
+                  </div>
+                </div>
+
+                <div id="_core/onscreen_menu/bar_start" class="admin-injected-controls" aria-label="Active admin panel controls"></div>
+
+                <div class="admin-stage">
+                  <section
+                    id="admin-panel-dashboard"
+                    class="admin-panel-shell"
+                    x-show="$store.adminPage.isTabActive('dashboard')"
+                    x-cloak
+                    role="tabpanel"
+                    aria-labelledby="admin-tab-dashboard"
+                  >
+                    <x-component path="/modules/_core/admin/views/dashboard/panel.html"></x-component>
+                  </section>
+
+                  <section
+                    id="admin-panel-agent"
+                    class="admin-panel-shell admin-panel-shell-agent"
+                    x-show="$store.adminPage.isTabActive('agent')"
+                    x-cloak
+                    role="tabpanel"
+                    aria-labelledby="admin-tab-agent"
+                  >
+                    <x-component path="/modules/_core/admin/views/agent/panel.html"></x-component>
+                  </section>
+
+                  <section
+                    id="admin-panel-files"
+                    class="admin-panel-shell admin-panel-shell-files"
+                    x-show="$store.adminPage.isTabActive('files')"
+                    x-cloak
+                    role="tabpanel"
+                    aria-labelledby="admin-tab-files"
+                  >
+                    <x-component path="/modules/_core/admin/views/files/panel.html"></x-component>
+                  </section>
+
+                  <template x-if="$store.adminPage.isTabActive('time_travel')">
+                    <section
+                      id="admin-panel-time_travel"
+                      class="admin-panel-shell admin-panel-shell-time-travel"
+                      x-cloak
+                      role="tabpanel"
+                      aria-labelledby="admin-tab-time_travel"
+                    >
+                      <x-component path="/modules/_core/admin/views/time_travel/panel.html"></x-component>
+                    </section>
+                  </template>
+
+                  <section
+                    id="admin-panel-modules"
+                    class="admin-panel-shell"
+                    x-show="$store.adminPage.isTabActive('modules')"
+                    x-cloak
+                    role="tabpanel"
+                    aria-labelledby="admin-tab-modules"
+                  >
+                    <x-component path="/modules/_core/admin/views/modules/panel.html"></x-component>
+                  </section>
+                </div>
+              </div>
+            </main>
+          </aside>
+
+          <div class="divider">
+            <button
+              class="divider-handle"
+              type="button"
+              aria-label="Resize split view"
+              title="Drag to resize panels"
+              @pointerdown="$store.adminShell.startDrag($event)"
+              @keydown.left.prevent="$store.adminShell.nudge(-32)"
+              @keydown.right.prevent="$store.adminShell.nudge(32)"
+              @keydown.up.prevent="$store.adminShell.nudge(-32)"
+              @keydown.down.prevent="$store.adminShell.nudge(32)"
+            ></button>
+          </div>
+
+          <section class="pane main-pane" aria-label="Main application">
+            <iframe x-ref="mainFrame" class="main-frame" title="Constellation Agent main app" :src="$store.adminShell.mainFrameUrl"></iframe>
+          </section>
+        </div>
+      </template>
+    </div>
+  </body>
+</html>

@@ -205,7 +205,7 @@ space.api.userSelfInfo()
 path rules
 - use app rooted paths like L2/alice/user.yaml or /app/L2/alice/user.yaml
 - ~ or ~/... means current user's L2/<username>/...
-- not /mod/... cascade paths
+- not /modules/... cascade paths
 - trailing / means directory
 - fileRead fileWrite fileDelete accept batch objects with files or paths
 - batch operations validate all targets first and fail fast

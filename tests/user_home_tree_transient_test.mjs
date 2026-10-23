@@ -6,7 +6,7 @@ import {
   buildUserHomeFileTreeTransientSection,
   USER_HOME_FILE_TREE_DEFAULTS,
   USER_HOME_FILE_TREE_TRANSIENT_KEY
-} from "../app/L0/_all/mod/_core/onscreen_agent/prompt-context.js";
+} from "../app/L0/_all/modules/_core/onscreen_agent/prompt-context.js";
 
 test("buildUserHomeFileTreeTransientSection shows an empty root when no files are present", () => {
   assert.deepEqual(buildUserHomeFileTreeTransientSection({ paths: [] }), {

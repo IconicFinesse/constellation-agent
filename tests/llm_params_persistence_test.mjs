@@ -5,7 +5,7 @@ import test from "node:test";
 import {
   parseSimpleYaml,
   serializeSimpleYaml
-} from "../app/L0/_all/mod/_core/framework/js/yaml-lite.js";
+} from "../app/L0/_all/modules/_core/framework/js/yaml-lite.js";
 
 register(new URL("./mod_specifier_loader.mjs", import.meta.url), import.meta.url);
 
@@ -70,10 +70,10 @@ function installRuntime(files) {
 
 async function loadStorageModules() {
   const onscreenStorage = await import(
-    "../app/L0/_all/mod/_core/onscreen_agent/storage.js"
+    "../app/L0/_all/modules/_core/onscreen_agent/storage.js"
   );
   const adminStorage = await import(
-    "../app/L0/_all/mod/_core/admin/views/agent/storage.js"
+    "../app/L0/_all/modules/_core/admin/views/agent/storage.js"
   );
 
   return {
@@ -95,10 +95,10 @@ function readStoredParams(content) {
 const { adminStorage, onscreenStorage } = await loadStorageModules();
 
 const ONSCREEN_DEFAULT_PARAMS = (
-  await import("../app/L0/_all/mod/_core/onscreen_agent/config.js")
+  await import("../app/L0/_all/modules/_core/onscreen_agent/config.js")
 ).DEFAULT_ONSCREEN_AGENT_SETTINGS.paramsText;
 const ADMIN_DEFAULT_PARAMS = (
-  await import("../app/L0/_all/mod/_core/admin/views/agent/config.js")
+  await import("../app/L0/_all/modules/_core/admin/views/agent/config.js")
 ).DEFAULT_ADMIN_CHAT_SETTINGS.paramsText;
 
 test("onscreen agent keeps an explicitly cleared params value and saved custom instructions", async () => {

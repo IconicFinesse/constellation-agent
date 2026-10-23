@@ -40,7 +40,7 @@ function createStoreRuntime() {
 
 async function loadWebBrowsingStoreModule() {
   const runtime = createStoreRuntime();
-  const moduleUrl = pathToFileURL(path.resolve("app/L0/_all/mod/_core/web_browsing/store.js")).href;
+  const moduleUrl = pathToFileURL(path.resolve("app/L0/_all/modules/_core/web_browsing/store.js")).href;
   await import(`${moduleUrl}?test=${Date.now()}-${Math.random().toString(16).slice(2)}`);
   return {
     runtime,

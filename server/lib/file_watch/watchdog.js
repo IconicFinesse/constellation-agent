@@ -9,7 +9,7 @@ import {
   resolveProjectPathFromAbsolute
 } from "../customware/layout.js";
 import { globToRegExp, normalizePathSegment } from "../utils/app_files.js";
-import { parseSimpleYaml } from "../../../app/L0/_all/mod/_core/framework/js/yaml-lite.js";
+import { parseSimpleYaml } from "../../../app/L0/_all/modules/_core/framework/js/yaml-lite.js";
 import { createStateSystem } from "../../runtime/state_system.js";
 import {
   FILE_INDEX_AREA,

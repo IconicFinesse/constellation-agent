@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   resolveOnscreenAgentBoundaryAfterAssistantResponse
-} from "../app/L0/_all/mod/_core/onscreen_agent/turn-boundary.js";
+} from "../app/L0/_all/modules/_core/onscreen_agent/turn-boundary.js";
 
 test("queued onscreen follow-up waits for pending assistant execution output", () => {
   assert.equal(

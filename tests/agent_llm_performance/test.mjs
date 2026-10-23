@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   parseSimpleYaml,
   serializeSimpleYaml
-} from "../../app/L0/_all/mod/_core/framework/js/yaml-lite.js";
+} from "../../app/L0/_all/modules/_core/framework/js/yaml-lite.js";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(SCRIPT_DIR, "../..");

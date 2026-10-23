@@ -15,7 +15,7 @@ Backend changes are exceptional in this project:
 
 This is a top-level DOX child doc. It owns server-wide responsibilities, request flow, and infrastructure boundaries. Detailed subsystem contracts belong in deeper docs inside `server/`.
 
-Documentation is top priority for this area. After any change under `server/` or any server contract change owned here, update this file, the closest owning subsystem `AGENTS.md` files, and the relevant supplemental docs under `app/L0/_all/mod/_core/documentation/docs/` in the same session before finishing.
+Documentation is top priority for this area. After any change under `server/` or any server contract change owned here, update this file, the closest owning subsystem `AGENTS.md` files, and the relevant supplemental docs under `app/L0/_all/modules/_core/documentation/docs/` in the same session before finishing.
 
 ## Ownership
 
@@ -59,7 +59,7 @@ Current server layout:
 - `server/pages/`: page shells for `/`, `/login`, `/enter`, `/admin`, and the public hosted-share clone shell at `/share/space/<token>`, plus public shell assets under `server/pages/res/`
 - `server/data/`: gitignored backend-only secret storage used as the default local fallback for auth keys and per-user `userCrypto` server shares when shared deployment secrets are not injected and `SPACE_AUTH_DATA_DIR` is unset
 - `server/api/`: endpoint modules loaded by endpoint name
-- `server/router/`: top-level request routing, page handling, `/mod/...` serving, direct app-file fetches, request context, response helpers, proxy transport, and CORS handling
+- `server/router/`: top-level request routing, page handling, `/modules/...` serving, direct app-file fetches, request context, response helpers, proxy transport, and CORS handling
 - `server/lib/utils/process_title.js`: canonical OS process-title helper for direct serve, clustered primary, clustered workers, and supervisor-owned runtime naming
 - `server/lib/utils/project_version.js`: shared project-version resolver for Git-tag source checkouts and package-version fallback display in page shells
 - `server/lib/customware/`: logical app-path normalization, customware-root resolution, group and inheritance logic, extension override resolution, app-file access, and module management
@@ -79,7 +79,7 @@ Request routing order is:
 1. API preflight handling
 2. `/api/proxy`
 3. `/api/<endpoint>`
-4. `/mod/...`
+4. `/modules/...`
 5. `/~/...` and `/L0/...`, `/L1/...`, `/L2/...` app-file fetches
 6. page shells and page actions as the final fallback
 
@@ -100,16 +100,16 @@ Core runtime contracts:
 - `/enter` is the firmware-backed launcher route for launcher-eligible sessions: always in single-user runtime, and also for authenticated multi-user requests; unauthenticated multi-user requests are redirected to `/login`
 - launcher-eligible requests route new browser-opened tabs and windows through `/enter` by a server-injected page-shell guard on `/` and `/admin`, while reloads in the same tab keep their current target; framework-created same-origin `_blank` opens may pre-grant the same tab-access marker before navigation
 - `HOST` and `PORT` come from the same runtime-parameter system as other server params instead of a special-case startup path; `PORT=0` is valid when a caller wants the OS to assign a free port, and the started runtime object must publish the resolved bound `port` and `browserUrl` after `listen()`
-- `/api/proxy`, `/mod/...`, and direct app-file fetches require an authenticated session unless an endpoint explicitly opts into anonymous access
-- `/mod/...` resolution uses the layered customware model and honors `maxLayer`, which defaults to `2`
-- `/mod/...`, page-shell HTML, and `server/pages/res/` helper assets should be served with explicit no-store headers so reloads replace stale origin-scoped browser or proxy caches after source updates
+- `/api/proxy`, `/modules/...`, and direct app-file fetches require an authenticated session unless an endpoint explicitly opts into anonymous access
+- `/modules/...` resolution uses the layered customware model and honors `maxLayer`, which defaults to `2`
+- `/modules/...`, page-shell HTML, and `server/pages/res/` helper assets should be served with explicit no-store headers so reloads replace stale origin-scoped browser or proxy caches after source updates
 - `/admin` requests effectively force `maxLayer=0` for module and extension resolution through explicit request data, query parameters, the `X-Space-Max-Layer` request header, or admin-origin fallback
 - `/~/path` maps to the authenticated user's `L2/<username>/path`
 - logical `/app/L1/...` and `/app/L2/...` paths may resolve to disk outside the repo when `CUSTOMWARE_PATH` is configured, while `/app/L0/...` remains repo-backed
 - `USER_FOLDER_SIZE_LIMIT_BYTES=0` disables user-folder quotas; positive values cap each `L2/<user>/` folder in bytes, block projected growth over the cap, and allow only size-reducing app-file mutations while a folder is already over the cap
 - `/L0/...`, `/L1/...`, and `/L2/...` direct fetches require authentication and use the same read permission model as the file APIs
 - `/share/space/<token>` is a public multi-segment page route owned by `pages_handler.js`; it is available only when guest users are enabled, otherwise the router should treat it as missing
-- non-`/mod`, non-`/api`, and non-app-fetch requests stay limited to the root page shells and page actions owned by `server/pages/`
+- non-`/modules`, non-`/api`, and non-app-fetch requests stay limited to the root page shells and page actions owned by `server/pages/`
 - `/logout` is handled by the pages layer and clears the current session cookie before redirecting to `/login`
 - autoscaled or multi-instance deployments must inject the same `SPACE_AUTH_PASSWORD_SEAL_KEY` and `SPACE_AUTH_SESSION_HMAC_KEY` values into every instance; the local `server/data/` or `SPACE_AUTH_DATA_DIR` fallback is for single-instance development and other shared-filesystem setups
 
@@ -138,7 +138,7 @@ The server relies on a small set of shared infrastructure contracts. Do not re-i
 - `server/runtime/state_system.js` is the canonical primary-owned shared state engine for cross-worker coordination, replicated index shards, primary-only challenge state, delta replay, and named locks
 - `server/jobs/job_runner.js` is the canonical primary-owned periodic job scheduler and should reuse `state_system.js` named locks instead of inventing parallel lockfiles or second schedulers
 - `server/lib/utils/project_version.js` is the canonical project-version resolver for both the CLI version command and page-shell version display
-- `app/L0/_all/mod/_core/framework/js/yaml-lite.js` is the canonical YAML parser and serializer for both browser and server code; server modules import it directly instead of maintaining a duplicate server-side helper
+- `app/L0/_all/modules/_core/framework/js/yaml-lite.js` is the canonical YAML parser and serializer for both browser and server code; server modules import it directly instead of maintaining a duplicate server-side helper
 - `server/lib/customware/layout.js` is the canonical logical-to-disk resolver for repo `L0` and configured writable `L1`/`L2` roots
 
 Infrastructure rules:

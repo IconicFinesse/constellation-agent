@@ -100,11 +100,11 @@ provenance, and baseline tag.
 
 ### An additive namespace rule
 
-> New capabilities live in `app/L0/_all/mod/constellation/<repo>/` — additive, tracked,
+> New capabilities live in `app/L0/_all/modules/constellation/<repo>/` — additive, tracked,
 > never inside inherited `_core`.
 
-This keeps upstream pulls cheap, keeps provenance legible (`mod/constellation/...` is
-ours, `mod/_core/...` is inherited), and means a module can be replaced wholesale
+This keeps upstream pulls cheap, keeps provenance legible (`modules/constellation/...` is
+ours, `modules/_core/...` is inherited), and means a module can be replaced wholesale
 without touching the firmware beneath it. Extending the framework is preferred;
 editing it is allowed when a seam genuinely cannot express the change.
 

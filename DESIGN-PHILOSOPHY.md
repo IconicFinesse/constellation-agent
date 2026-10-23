@@ -18,7 +18,7 @@ Provenance: distilled from the upstream creator's public launch interview for Sp
 
 An agent can only reshape the layers it actually lives in. An agent on a VPS behind a messaging API can change the backend but is imprisoned by the chat interface; an agent in the browser runtime can mutate the page it is displayed on. Decide what the agent should be *able to change*, then choose where it lives — not the other way round. This is the load-bearing difference between the two products under our license: Agent Zero runs autonomously in a container; Space Agent runs with the user on the page.
 
-- Anchor: `inspection-proven` — the loop and prompt assembly are browser-resident (`app/L0/_all/mod/_core/onscreen_agent/`), while `server/` is thin infrastructure.
+- Anchor: `inspection-proven` — the loop and prompt assembly are browser-resident (`app/L0/_all/modules/_core/onscreen_agent/`), while `server/` is thin infrastructure.
 - Cost: residency in the browser ties the run lifetime to the page and forfeits OS access, background jobs, and clean server-side IPs.
 
 ## 2. Two social contracts
@@ -32,7 +32,7 @@ An agent's autonomy setting is a *social* decision, not a technical one. A backg
 
 Every token spent on ceremony is a token not spent on work. End a turn with plain text — no response envelope, no JSON wrapper, no mandatory tool call. Open an execution block with the smallest possible marker. The protocol should be as close to *nothing* as correctness allows, because the protocol tax is paid on every single turn forever.
 
-- Anchor: `inspection-proven` — `_____javascript` separator with narration before it, enforced as a fail-fast contract (not loose guidance) in `app/L0/_all/mod/_core/spaces/AGENTS.md` and the `space-widgets` skill.
+- Anchor: `inspection-proven` — `_____javascript` separator with narration before it, enforced as a fail-fast contract (not loose guidance) in `app/L0/_all/modules/_core/spaces/AGENTS.md` and the `space-widgets` skill.
 - Cost: a near-empty protocol has almost no structured error surface, so malformed output has to be caught by repair logic rather than by a schema. See Tension A.
 
 ## 4. Context economics — the cost compounds per turn, not per call
@@ -46,7 +46,7 @@ Volatile state (page transcription, widget source, open browsers) belongs in a *
 
 Store the generator, not the rendered artefact. A widget is persisted as the **source of a function that can recreate it**, so a reload regenerates it identically and a space stays a few kilobytes of text rather than a serialized DOM blob. Generalised: anything reproducible from source does not need snapshotting.
 
-- Anchor: `inspection-proven` — `getWidgetRendererReadLines` and `buildWidgetRendererSourceUrl` in `app/L0/_all/mod/_core/spaces/storage.js` / `store.js`.
+- Anchor: `inspection-proven` — `getWidgetRendererReadLines` and `buildWidgetRendererSourceUrl` in `app/L0/_all/modules/_core/spaces/storage.js` / `store.js`.
 - Cost: regeneration only works while the runtime that executes the source is intact; a broken runtime takes its own capabilities with it. This is precisely why principle 6 exists.
 
 ## 6. Recoverability is a feature, and the escape hatch lives outside the thing that can break

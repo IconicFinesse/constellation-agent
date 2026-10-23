@@ -380,7 +380,7 @@ function createRequestHandler(options) {
         return;
       }
 
-      if (requestUrl.pathname.startsWith("/mod/")) {
+      if (requestUrl.pathname.startsWith("/modules/")) {
         if (!ensureAuthenticatedOrRespond(res, requestContext, auth)) {
           return;
         }

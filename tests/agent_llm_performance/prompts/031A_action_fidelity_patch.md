@@ -215,7 +215,7 @@ app file apis
 path rules
 - use app rooted paths like L2/alice/user.yaml or /app/L2/alice/user.yaml
 - ~ or ~/... means current user's L2/<username>/...
-- not /mod/... cascade paths
+- not /modules/... cascade paths
 - trailing / means directory
 - fileRead fileWrite fileDelete accept batch objects with files or paths
 - userSelfInfo returns { username, fullName, groups, managedGroups }

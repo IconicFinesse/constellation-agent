@@ -4,7 +4,7 @@
 
 `server/router/` owns top-level HTTP request handling for the local server runtime.
 
-It is responsible for request ordering, request context creation, page handling, `/mod/...` serving, direct app-file fetches, proxy routing, CORS handling, body parsing, and shared response helpers.
+It is responsible for request ordering, request context creation, page handling, `/modules/...` serving, direct app-file fetches, proxy routing, CORS handling, body parsing, and shared response helpers.
 
 Documentation is top priority for this subtree. After any change under `server/router/`, update this file and any affected parent or helper docs in the same session.
 
@@ -14,7 +14,7 @@ Current files:
 
 - `router.js`: top-level routing order and API dispatch
 - `pages_handler.js`: page-route redirects, auth gating, `/logout`, and `/pages/res/...`
-- `mod_handler.js`: `/mod/...` serving through layered module inheritance
+- `mod_handler.js`: `/modules/...` serving through layered module inheritance
 - `app_fetch_handler.js`: `/~/...` and `/L0/...`, `/L1/...`, `/L2/...` direct app-file serving
 - `request_context.js`: cookie parsing, request user resolution, and AsyncLocalStorage-backed request context
 - `request_body.js`: parsed request-body helpers
@@ -31,7 +31,7 @@ Current request order is fixed:
 1. API preflight handling
 2. `/api/proxy`
 3. `/api/<endpoint>`
-4. `/mod/...`
+4. `/modules/...`
 5. `/~/...` and `/L0/...`, `/L1/...`, `/L2/...`
 6. page shells and page actions
 
@@ -89,11 +89,11 @@ Pages:
 
 Modules:
 
-- `mod_handler.js` resolves `/mod/...` through `server/lib/customware/module_inheritance.js`
-- `/mod/...`, page-shell HTML, and `server/pages/res/` asset responses should be emitted with explicit no-store headers so source updates replace stale browser or proxy caches on reload across origins such as `localhost`, `127.0.0.1`, and deployed hosts
+- `mod_handler.js` resolves `/modules/...` through `server/lib/customware/module_inheritance.js`
+- `/modules/...`, page-shell HTML, and `server/pages/res/` asset responses should be emitted with explicit no-store headers so source updates replace stale browser or proxy caches on reload across origins such as `localhost`, `127.0.0.1`, and deployed hosts
 - request-time module serving should consume the replicated shared state interface passed into the router, not reach back into watchdog-specific scanning helpers
 - module serving and direct app-file serving must ensure the current user's full L2 file-index shard before resolving user-layer paths
-- logical `L1` and `L2` module overrides may come from the configured `CUSTOMWARE_PATH` storage root even though request paths stay `/mod/...`
+- logical `L1` and `L2` module overrides may come from the configured `CUSTOMWARE_PATH` storage root even though request paths stay `/modules/...`
 - `maxLayer` is read from explicit request data, query params, the `X-Space-Max-Layer` request header, or admin-origin fallback through `layer_limit.js`
 
 Direct app-file fetches:
@@ -119,7 +119,7 @@ Responses:
 - keep routing logic here, not in page or API modules
 - keep page and module serving thin and delegate policy decisions to shared helpers
 - do not bypass `request_context.js` for auth state
-- if routing order, page gating, launcher behavior, or direct app-fetch semantics change, also update the matching docs under `app/L0/_all/mod/_core/documentation/docs/server/`
+- if routing order, page gating, launcher behavior, or direct app-fetch semantics change, also update the matching docs under `app/L0/_all/modules/_core/documentation/docs/server/`
 - if routing order, auth flow, page handling, response contracts, or state-version fencing change, update this file and `/server/AGENTS.md`
 
 ## Verification

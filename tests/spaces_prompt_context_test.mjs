@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { SPACES_ROUTE_PATH } from "../app/L0/_all/mod/_core/spaces/constants.js";
+import { SPACES_ROUTE_PATH } from "../app/L0/_all/modules/_core/spaces/constants.js";
 import {
   AVAILABLE_SPACES_TRANSIENT_KEY,
   buildAvailableSpacesTransientSection,
   buildCurrentSpaceContextTags,
   buildCurrentSpaceWidgetsTransientSection,
   CURRENT_SPACE_WIDGETS_TRANSIENT_KEY
-} from "../app/L0/_all/mod/_core/spaces/prompt-context.js";
+} from "../app/L0/_all/modules/_core/spaces/prompt-context.js";
 
 test("buildCurrentSpaceContextTags exposes in-space tags with the current id", () => {
   assert.equal(buildCurrentSpaceContextTags("space-7"), "space:open space:id:space-7");

@@ -210,7 +210,7 @@ function resolveDesktopFrameInjectUrl(baseOrigin, injectPath) {
   }
 
   const decodedPathname = decodeURIComponent(injectUrl.pathname);
-  if (!decodedPathname.startsWith("/mod/")) {
+  if (!decodedPathname.startsWith("/modules/")) {
     throw new Error(`Desktop frame injection rejected non-module script path \"${normalizedPath}\".`);
   }
 

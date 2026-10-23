@@ -8,7 +8,7 @@ import {
 import {
   parseSimpleYaml,
   serializeSimpleYaml
-} from "../../../app/L0/_all/mod/_core/framework/js/yaml-lite.js";
+} from "../../../app/L0/_all/modules/_core/framework/js/yaml-lite.js";
 
 const USER_META_DIRNAME = "metadata";
 const USER_CONFIG_FILENAME = "user.yaml";
@@ -198,7 +198,7 @@ function writeUserCryptoRecord(projectRoot, username, record, runtimeParams = nu
 function ensureUserStructure(projectRoot, username, runtimeParams = null) {
   const userDir = buildUserAbsolutePath(projectRoot, username, "", runtimeParams);
   const metaDir = buildUserAbsolutePath(projectRoot, username, USER_META_DIRNAME, runtimeParams);
-  const modDir = buildUserAbsolutePath(projectRoot, username, "mod", runtimeParams);
+  const modDir = buildUserAbsolutePath(projectRoot, username, "modules", runtimeParams);
   fs.mkdirSync(modDir, { recursive: true });
   fs.mkdirSync(metaDir, { recursive: true });
   return {

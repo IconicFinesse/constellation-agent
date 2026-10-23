@@ -9,7 +9,7 @@ import { recordAppPathMutations } from "./git_history.js";
 import {
   parseSimpleYaml,
   serializeSimpleYaml
-} from "../../../app/L0/_all/mod/_core/framework/js/yaml-lite.js";
+} from "../../../app/L0/_all/modules/_core/framework/js/yaml-lite.js";
 
 const GROUP_WRITE_LAYER = "L1";
 
@@ -49,7 +49,7 @@ function ensureGroupDirectory(projectRoot, groupId, runtimeParams = null) {
   const groupDir = path.dirname(groupConfigPath);
   const existed = fs.existsSync(groupDir);
 
-  fs.mkdirSync(path.join(groupDir, "mod"), { recursive: true });
+  fs.mkdirSync(path.join(groupDir, "modules"), { recursive: true });
 
   if (!existed) {
     recordAppPathMutations(

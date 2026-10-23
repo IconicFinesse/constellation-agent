@@ -4,15 +4,15 @@ import http from "node:http";
 import { register } from "node:module";
 import test from "node:test";
 
-// Browser modules import each other through the logical `/mod/...` app paths, so a tiny
+// Browser modules import each other through the logical `/modules/...` app paths, so a tiny
 // resolve hook maps those specifiers onto the firmware module root before any import runs.
-const MODULE_ROOT_URL = new URL("../app/L0/_all/mod/", import.meta.url).href;
+const MODULE_ROOT_URL = new URL("../app/L0/_all/modules/", import.meta.url).href;
 
 register(
   `data:text/javascript,${encodeURIComponent(`
 export async function resolve(specifier, context, nextResolve) {
-  if (specifier.startsWith("/mod/")) {
-    return { url: new URL(specifier.slice(5), ${JSON.stringify(MODULE_ROOT_URL)}).href, shortCircuit: true };
+  if (specifier.startsWith("/modules/")) {
+    return { url: new URL(specifier.slice("/modules/".length), ${JSON.stringify(MODULE_ROOT_URL)}).href, shortCircuit: true };
   }
   return nextResolve(specifier, context);
 }
@@ -105,10 +105,10 @@ globalThis.fetch = (input, init) => {
 };
 
 const { streamOnscreenAgentCompletion } = await import(
-  "../app/L0/_all/mod/_core/onscreen_agent/api.js"
+  "../app/L0/_all/modules/_core/onscreen_agent/api.js"
 );
 const { streamAdminAgentCompletion } = await import(
-  "../app/L0/_all/mod/_core/admin/views/agent/api.js"
+  "../app/L0/_all/modules/_core/admin/views/agent/api.js"
 );
 
 test.after(() => {

@@ -5,7 +5,7 @@ import {
   buildAssistantMessageRepeatLog,
   normalizeAssistantMessageContent,
   prependAssistantEvaluationLogs
-} from "../app/L0/_all/mod/_core/agent-chat/assistant-message-evaluation.js";
+} from "../app/L0/_all/modules/_core/agent-chat/assistant-message-evaluation.js";
 
 test("normalizeAssistantMessageContent trims line endings and trailing whitespace", () => {
   assert.equal(
