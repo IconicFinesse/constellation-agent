@@ -55,10 +55,10 @@ CLOUD_SHARE_ALLOWED:
   default: false
   frontend_exposed: false
 CLOUD_SHARE_URL:
-  description: Public cloud-share host or URL used by the spaces share modal for hosted uploads and links.
+  description: Public cloud-share host or URL used by the spaces share modal for hosted uploads and links. Empty disables hosted sharing while local ZIP export and import keep working.
   type: text
   allowed: ["*"]
-  default: share.space-agent.ai
+  default: ""
   frontend_exposed: true
 CUSTOMWARE_GIT_HISTORY:
   description: Enable debounced local Git history repositories in writable L1 group and L2 user roots.

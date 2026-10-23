@@ -402,7 +402,7 @@ const model = {
     activeRequest = request;
     this.activeRequestId = request.id;
     this.busyAction = "";
-    this.cloudShareBaseUrl = normalizeCloudShareBaseUrl(runtime.config?.get("CLOUD_SHARE_URL", "share.space-agent.ai"));
+    this.cloudShareBaseUrl = normalizeCloudShareBaseUrl(runtime.config?.get("CLOUD_SHARE_URL", ""));
     this.cloudSharePassword = "";
     this.currentSpace = normalizedOptions.currentSpace;
     this.clearArchiveFeedback();
