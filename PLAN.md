@@ -9,9 +9,10 @@ check-in points, open decisions.
 Working evidence lives in the maintainer's local checkout: paths under
 `fixes/`, `prs/`, `worktrees/`, and `local/` are not tracked in this repository.
 
-Updated: 2026-10-22 23:20 MST — **FEATURES PHASE OPEN. LANE 1 ACTIVE:
-connected mode** (A tunnel infra → B desktop feature → C docs behind).
-Bug-fix phase closed at `v0.66-fork.6`.
+Updated: 2026-10-23 03:45 MST — **Phase 3 Lane 1 (connected mode) COMPLETE
+AND RELEASED at `v0.66-fork.7`; Lane 2 (saved-server removal) merged and
+awaiting the next release.** No lane is active. Bug-fix phase closed at
+`v0.66-fork.6`.
 
 ## Phase status
 
@@ -19,12 +20,12 @@ Bug-fix phase closed at `v0.66-fork.6`.
 | --- | --- |
 | 1 — bug squash | **COMPLETE 2026-10-22** — last fixes released in `v0.66-fork.6` |
 | 2 — parked ladder | **DEFERRED** by owner decision; no further bug work until new reports arrive |
-| 3 — features, ideas, improvements | **OPEN — Lane 1 active: connected mode** (approved plan v1.0; A infra / B feature / C docs) |
+| 3 — features, ideas, improvements | **OPEN** — Lane 1 (connected mode) shipped in `v0.66-fork.7`; Lane 2 (saved-server removal) merged, awaiting release; no lane active |
 
 Nothing in `fixes/` or `prs/` requires action. The upstream PR phase closed
 with the rebrand; six staged bodies remain only as reference.
 
-## Active lanes — Phase 3, Lane 1: connected mode (opened 2026-10-22)
+## Lanes — Phase 3 (all closed; Lane 1 released, Lane 2 awaiting release)
 
 Approved plan v1.0; owner answers recorded in the project's private memory.
 
@@ -86,6 +87,32 @@ Approved plan v1.0; owner answers recorded in the project's private memory.
   services active, worktree and main both clean, all doc greps 1/1, ISSUES.md
   correctly untouched (feature, not bug). README What's-new regeneration is a
   release-gate step, not a lane item.
+- **Lane D — saved-server removal. MERGED 2026-10-23 as `421472f`, awaiting
+  the next release.** Owner hit a black screen after mistyping a server URL
+  and could not delete the entry. Every saved row now carries its own remove
+  control: `removeSavedConnection()` in `connection_mode.js` is a pure list
+  operation, the chooser-scoped IPC handler persists the result to
+  `connections.json` (0600), and the UI re-renders from the returned list so
+  it cannot drift from disk. Suite 13 -> 17 cases; `desktop_packaging_test`
+  17/17 and `release_version_test` 6/6 stayed green. Runtime-proven by a
+  chooser e2e that removed a seeded typo origin and left the valid one
+  (`E2E PASS`, file re-read from disk). Evidence:
+  `fixes/lane-d-saved-server-removal-2026-10-23.log`.
+
+### Unreleased since `v0.66-fork.7`
+
+`main` carries four commits past the release tag, all awaiting the next tag
+(`v0.66-fork.8`):
+
+| Commit | Content |
+| --- | --- |
+| `b5c49c9` | publish the four planning/doctrine docs that had lived only in the local checkout (sanitized for a public repo) |
+| `a039733` | DOX pass: root index for those docs + the public-document rule, the two new suites in `tests/AGENTS.md`, the fork-tag contract in `packaging/AGENTS.md` |
+| `421472f` | saved-server removal in the connection chooser (Lane D) |
+| — | release-note and README regeneration happen at tag time, not before |
+
+No release should be cut until the owner asks; `v0.66-fork.7` remains the
+shipping build and **does not contain** the saved-server removal.
 
 ## Phase 3 — what this phase is for
 
@@ -201,7 +228,12 @@ until the owner calls the order.
 | `v0.66-fork.6` | `1484eb3` | production dependency audit + container browser harness |
 | `v0.66-fork.7` | `f94be65` | desktop connected mode + fork-tag release fix + privacy redaction |
 
-`v0.66-fork.7` was the first **feature** release of the fork (desktop connected mode).
+`v0.66-fork.7` was the first **feature** release of the fork (desktop connected
+mode) and the first build the owner installed end-to-end: standalone launched,
+the chooser listed both modes, the cloud instance signed in over HTTPS, and the
+embedded browser worked with full `space.browser` capability.
+
+`v0.66-fork.8` is not cut yet; see *Unreleased since `v0.66-fork.7`* above.
 
 ## Batch history
 
@@ -211,6 +243,12 @@ until the owner calls the order.
   answered in `fixes/self-host-guidance.md`.
 - **Batch 6** — #83 dependency audit + container browser harness (fixed,
   `fork.6`).
+- **Batch 7** — desktop connected mode (Lane A tunnel + Lane B feature + Lane C
+  docs), the fork-tag release-parser fix, and the private-detail redaction.
+  Released in `fork.7` — the fork's first successful desktop release.
+- **Batch 8** — doc synchronization into the public repo (with the
+  public-document rule), the follow-up DOX pass, and saved-server removal.
+  Merged, **not yet released**.
 
 ## Parked ladder (no work scheduled)
 
