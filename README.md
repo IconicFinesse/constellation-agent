@@ -112,13 +112,14 @@ editing it is allowed when a seam genuinely cannot express the change.
 
 ### Its own release line
 
-Releases are tagged `vX.Y.Z` from this repository, beginning with
-**`v1.0.0` — First Light**. Earlier fork builds used `v0.66-fork.N`; those tags
-stay valid, and because `1.0.0` sorts above `0.66.7` an existing install updates
-forward cleanly. Downstream instances (a container test instance, an UmbrelOS VM)
-update by git pull or release against `origin`, and their `L1`/`L2` state is
-expected to survive every update untouched — the same contract upstream gave its
-users, now given by this fork.
+Releases are tagged `vX.Y.Z` from this repository. Every `v1.x` release
+carries the **First Light** moniker — `v1.0.0` introduced it and `v1.1.0`
+continues it; the moniker changes only at a major version bump. Earlier fork
+builds used `v0.66-fork.N`; those tags stay valid, and because `1.0.0` sorts
+above `0.66.7` an existing install updates forward cleanly. Downstream instances
+(a container test instance, an UmbrelOS VM) update by git pull or release against
+`origin`, and their `L1`/`L2` state is expected to survive every update untouched —
+the same contract upstream gave its users, now given by this fork.
 
 ## What's new
 
@@ -133,10 +134,17 @@ users, now given by this fork.
 - Add connection_mode resolver with standalone default and pinned-origin guard
 - Report first-run account state instead of a credential error
 
-**Unreleased**
+**`v1.0.0`**
 
 - Prepare First Light
 - Remove saved servers from the connection chooser
+
+**Unreleased**
+
+- Prepare First Light continuation
+- Read legacy user-data paths when the new names are absent
+- Rename the mod namespace to modules
+- Spell out user home directory names
 
 _Newest releases only. The full per-release record lives in [`ROADMAP.md`](./ROADMAP.md). Generated from `baseline-2026-06-08..HEAD` by `packaging/scripts/whats-new.js`._
 <!-- WHATS-NEW:END -->

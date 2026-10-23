@@ -34,6 +34,30 @@ honestly provide, contract decisions now and content decisions from use.
 The fork began at upstream commit `10f4ffd` (tag `baseline-2026-06-08`, the v0.66
 era). Everything below diverges from that point.
 
+### `v1.1.0` — First Light
+
+The framework's shorthand names are spelled out, and nothing that already
+existed stops working.
+
+- **User home directories use long-form names.** `~/conf/` became `~/config/`,
+  `~/hist/` became `~/history/`, and `~/meta/` became `~/metadata/`, so the tree
+  the agent sees in its own prompt context is readable at a glance instead of
+  abbreviated.
+- **The module namespace is `modules`, not `mod`.** The `/mod/` URL prefix became
+  `/modules/`, and the on-disk `app/L0/_all/mod` and `app/L0/_admin/mod` trees
+  became `.../modules`. This was one atomic change: the URL prefix, the directory
+  name, and the path parsers that map requests onto disk all had to agree, or
+  module resolution would silently stop matching. It is cheaper now, before the
+  builder phase produces modules against absolute import paths.
+- **Existing installs keep their data.** A legacy read fallback means a server
+  provisioned before this release still finds its credentials under `meta/`,
+  its config under `conf/`, its history under `hist/`, and its installed modules
+  under `mod/`. Reads prefer the new names and fall back to the old ones; writes
+  always use the new names. No data is moved, renamed, or migrated.
+
+Deliberately unchanged: `ext/`, `res/`, `lib/`, and `end/`, which are
+recognizable conventions rather than cryptic abbreviations.
+
 ### `v1.0.0` — First Light
 
 The first standalone release: the product is Constellation Agent throughout,
