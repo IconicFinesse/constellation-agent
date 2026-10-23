@@ -18,38 +18,6 @@ const EXAMPLE_ORDER = Object.freeze([
   "retro-arcade",
   "agent-zero-videos"
 ]);
-const RESOURCE_LINKS = Object.freeze([
-  {
-    href: "https://github.com/agent0ai/space-agent",
-    id: "github-repo",
-    label: "GitHub Repo"
-  },
-  {
-    href: "https://deepwiki.com/agent0ai/space-agent",
-    id: "deepwiki-docs",
-    label: "DeepWiki Docs"
-  },
-  {
-    href: "https://agent-zero.ai",
-    id: "agent-zero-site",
-    label: "Agent Zero"
-  },
-  {
-    href: "https://discord.gg/B8KZKNsPpj",
-    id: "discord",
-    label: "Discord"
-  },
-  {
-    href: "https://www.youtube.com/@AgentZeroFW",
-    id: "youtube",
-    label: "YouTube"
-  },
-  {
-    href: "https://x.com/Agent0ai",
-    id: "x",
-    label: "X"
-  }
-]);
 const EXAMPLE_ORDER_INDEX = new Map(EXAMPLE_ORDER.map((id, index) => [id, index]));
 
 function getRuntime() {
@@ -191,7 +159,6 @@ globalThis.dashboardWelcome = function dashboardWelcome() {
     hidden: false,
     installingExampleId: "",
     ready: false,
-    resources: RESOURCE_LINKS,
     savingPreference: false,
 
     async init() {

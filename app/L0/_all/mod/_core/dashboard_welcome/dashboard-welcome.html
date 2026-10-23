@@ -21,31 +21,10 @@
             <div class="dashboard-welcome-copy">
               <p class="page-eyebrow">Welcome</p>
               <h2>Start fast</h2>
-              <p>Open the project links or launch one of the bundled demo spaces.</p>
+              <p>Launch one of the bundled demo spaces.</p>
             </div>
 
             <div class="dashboard-welcome-sections">
-              <section class="dashboard-welcome-section" aria-label="Resources">
-                <h3 class="dashboard-welcome-section-title">Resources</h3>
-
-                <div class="dashboard-welcome-actions dashboard-welcome-resources">
-                  <template x-for="resource in resources" :key="resource.id">
-                    <a
-                      class="dashboard-welcome-link"
-                      :href="resource.href"
-                      target="_blank"
-                      rel="noreferrer noopener"
-                    >
-                      <span class="dashboard-welcome-link-label" x-text="resource.label"></span>
-
-                      <span class="dashboard-welcome-link-arrow" aria-hidden="true">
-                        <x-icon>open_in_new</x-icon>
-                      </span>
-                    </a>
-                  </template>
-                </div>
-              </section>
-
               <section class="dashboard-welcome-section" aria-label="Demo spaces">
                 <h3 class="dashboard-welcome-section-title">Demo Spaces</h3>
 

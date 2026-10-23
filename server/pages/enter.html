@@ -535,55 +535,6 @@
         gap: 0.65rem;
       }
 
-      .public-links {
-        pointer-events: auto;
-      }
-
-      .public-links-list {
-        display: flex;
-        align-items: center;
-        gap: 0.7rem;
-        margin: 0;
-        padding: 0;
-        list-style: none;
-      }
-
-      .public-link {
-        display: grid;
-        place-items: center;
-        width: 2.2rem;
-        height: 2.2rem;
-        border-radius: 999px;
-        opacity: 0.72;
-        transition:
-          opacity 160ms ease,
-          background-color 160ms ease,
-          box-shadow 160ms ease;
-      }
-
-      .public-link:hover {
-        opacity: 0.96;
-        background: rgba(255, 255, 255, 0.05);
-      }
-
-      .public-link:focus-visible {
-        outline: none;
-        opacity: 1;
-        background: rgba(255, 255, 255, 0.05);
-        box-shadow: 0 0 0 4px rgba(125, 220, 255, 0.12);
-      }
-
-      .public-link-icon {
-        display: block;
-        width: 1.2rem;
-        height: 1.2rem;
-      }
-
-      .public-link-icon-agent-zero {
-        width: 1.44rem;
-        height: 1.44rem;
-      }
-
       .instance-version {
         margin: 0;
         color: #ffffff;
@@ -777,74 +728,6 @@
       ></section>
 
       <div class="shell-footer">
-        <nav class="public-links" aria-label="Constellation Agent links">
-          <ul class="public-links-list">
-            <li>
-              <a
-                class="public-link"
-                href="https://github.com/agent0ai/space-agent"
-                target="_blank"
-                rel="noreferrer"
-                aria-label="GitHub repository"
-              >
-                <img
-                  class="public-link-icon"
-                  src="/pages/res/social-github.svg"
-                  alt=""
-                  decoding="async"
-                />
-              </a>
-            </li>
-            <li>
-              <a
-                class="public-link"
-                href="https://discord.gg/B8KZKNsPpj"
-                target="_blank"
-                rel="noreferrer"
-                aria-label="Discord community"
-              >
-                <img
-                  class="public-link-icon"
-                  src="/pages/res/social-discord.svg"
-                  alt=""
-                  decoding="async"
-                />
-              </a>
-            </li>
-            <li>
-              <a
-                class="public-link"
-                href="https://x.com/Agent0ai"
-                target="_blank"
-                rel="noreferrer"
-                aria-label="Agent Zero on X"
-              >
-                <img
-                  class="public-link-icon"
-                  src="/pages/res/social-x.svg"
-                  alt=""
-                  decoding="async"
-                />
-              </a>
-            </li>
-            <li>
-              <a
-                class="public-link"
-                href="https://agent-zero.ai"
-                target="_blank"
-                rel="noreferrer"
-                aria-label="Agent Zero website"
-              >
-                <img
-                  class="public-link-icon public-link-icon-agent-zero"
-                  src="/pages/res/social-agent-zero.svg"
-                  alt=""
-                  decoding="async"
-                />
-              </a>
-            </li>
-          </ul>
-        </nav>
         <p class="instance-version" aria-label="Instance version">
           <span><!-- SPACE_PROJECT_VERSION --></span>
         </p>
