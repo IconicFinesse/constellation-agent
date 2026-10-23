@@ -38,7 +38,6 @@ Current public shell assets:
 - `res/share-crypto.js`
 - `res/readme-banner.webp` as the shared social-preview image for page-shell Open Graph and Twitter cards
 - login-shell image assets under `res/`
-- login-shell social-link SVG assets under `res/`
 - shared transparent helmet favicon assets and `res/site.webmanifest`
 
 ## Local Contracts
@@ -69,7 +68,7 @@ Current public shell assets:
 - is public and must not depend on authenticated `/mod/...` assets
 - owns the login flow, guest creation flow, login-disabled fallback copy, and pre-auth layout
 - declares the same shared product-level Open Graph and Twitter social-preview card as the other shells, so anonymous shares of any deployment origin still resolve to a Constellation Agent product preview after the server redirects crawlers to `/login`
-- renders a centered footer below the main shell content with white semi-transparent outbound icons for GitHub, Discord, X, and a slightly larger Agent Zero logo in the last slot, then places the injected `SPACE_PROJECT_VERSION` value beneath that icon row
+- renders a centered footer below the main shell content that places the injected `SPACE_PROJECT_VERSION` value beneath it
 - reads injected `meta[name="space-config"]` tags directly so guest-login UI and the password form can follow backend runtime parameters such as `ALLOW_GUEST_USERS` and `LOGIN_ALLOWED` without authenticated module imports
 - reads the derived `HAS_USERS` meta tag and, when it is `false`, states in the existing status region that the server has no accounts yet and names the exact `node space user create` bootstrap command, because a server with zero accounts has no in-browser signup path and no password can succeed
 - declares the shared Constellation Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and the `Login | Constellation Agent` document title
@@ -82,15 +81,14 @@ Current public shell assets:
 - if that first authenticated recovery pass still leaves `userCrypto` missing, the authenticated bootstrap should sign the browser out instead of leaving the app running in a half-working state
 - if login completes without a usable `userCrypto` record, the shell must fail sign-in in place instead of redirecting into an authenticated-page logout loop
 - grants same-tab launcher access in `sessionStorage` after successful password sign-in so the tab that just authenticated can land on `/` while fresh tabs still route through `/enter`
-- when `LOGIN_ALLOWED=false`, keeps the floating public shell, product copy, self-host CTA, footer links, and version label visible but replaces the login form with a plain `Login is disabled in this system.` message and suppresses guest-account actions
+- when `LOGIN_ALLOWED=false`, keeps the floating public shell, product copy, self-host CTA, and version label visible but replaces the login form with a plain `Login is disabled in this system.` message and suppresses guest-account actions
 - renders the guest-account removal warning with yellow warning treatment and a recovery-safe inline Google Material Symbols warning icon, without depending on authenticated icon fonts
 - keeps the self-host call-to-action visually separated from the sign-in form even when guest account creation is disabled and the guest-only block is hidden
 - opens the self-host call-to-action as a two-panel login-styled modal: `Native App` and `Own Server` panels split left-right on desktop and stack top-bottom on mobile, with a privacy/security subtitle, one short explanatory line per panel, a large inline Material icon, and a local inline-icon action button
 - keeps the modal's outbound URLs as navigation only: the native app button links to this repository's own release page, and the server-hosting button links to the README `#run-it-yourself` section
-- keeps the footer social links as navigation-only outbound targets to the Constellation Agent repository, Discord community, Agent Zero website, and X account
 - keeps the mobile shell scrollable when the viewport is shorter than the content, and reserves extra small-screen side spacing for the intro column rather than inflating the login card
 - keeps the mirrored canvas gradient and star or glow backdrop pinned to fixed viewport layers while the login shell content scrolls
-- keeps the public-shell glass shadowless: no painted box-shadow, text-shadow, or drop-shadow treatments on first-party shell chrome, astronaut art, or footer icons
+- keeps the public-shell glass shadowless: no painted box-shadow, text-shadow, or drop-shadow treatments on first-party shell chrome or astronaut art
 - keeps login-specific styling and motion local
 
 `share_space.html`:
@@ -117,13 +115,12 @@ Current public shell assets:
 - declares that same shared product-level Open Graph and Twitter social-preview card so launcher-route shares use the same public Constellation Agent banner and description
 - declares the shared Constellation Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and the `Enter Space | Constellation Agent` document title
 - runs the shared public-shell browser compatibility gate from `server/pages/res/browser-compat.js` before launcher logic starts, and renders the same blocking message contract as `/login` when the browser is missing required runtime features for the later app shell; because `/enter` is the mandatory launcher in single-user runtime, that gate must let plain-HTTP single-user sessions through without `crypto.subtle`
-- renders the same centered footer treatment as `/login`: white semi-transparent outbound icons for GitHub, Discord, X, and a slightly larger Agent Zero logo in the last slot, followed by the injected `SPACE_PROJECT_VERSION` value beneath that icon row
+- renders the same centered footer treatment as `/login`, placing the injected `SPACE_PROJECT_VERSION` value beneath the shell content
 - accepts an optional `next` query param, grants per-tab launcher access through `sessionStorage`, and routes the Enter or Admin buttons back to the original target when appropriate
 - mirrors the login-shell intro layout, floating astronaut, and public backdrop while replacing the right-side form card with direct launcher actions
-- keeps the footer social links as navigation-only outbound targets to the Constellation Agent repository, Discord community, Agent Zero website, and X account
 - keeps extra small-screen side spacing around the launcher shell and a generous top and inter-button gap when the launcher actions collapse below the intro copy
 - should reuse the mirrored public backdrop assets instead of introducing a second standalone visual system
-- `/login` and `/enter` launcher actions plus public footer links must keep a stable clickable hitbox on hover and focus; use opacity, border, background, or outline changes instead of translate-based lift
+- `/login` and `/enter` launcher actions must keep a stable clickable hitbox on hover and focus; use opacity, border, background, or outline changes instead of translate-based lift
 
 ### Root Discovery File Contracts
 

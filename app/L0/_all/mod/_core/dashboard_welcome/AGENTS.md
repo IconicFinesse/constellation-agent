@@ -12,12 +12,12 @@ Documentation is top priority for this module. After any change under `_core/das
 
 This module owns:
 
-- `dashboard-welcome.html`, `dashboard-welcome.js`, and `dashboard-welcome.css`: the injected welcome UI, shared hidden-state sync, the external resources button row, and demo-space launch actions
+- `dashboard-welcome.html`, `dashboard-welcome.js`, and `dashboard-welcome.css`: the injected welcome UI, shared hidden-state sync, and demo-space launch actions
 - `dashboard-prefs.js`: shared dashboard preference loading, saving, and welcome-hidden sync events for dashboard-local surfaces
 - `dashboard-topbar-toggle.html` and `dashboard-topbar-toggle.js`: the dashboard topbar restore button shown only while the welcome panel is hidden
 - `ext/html/_core/dashboard/content_start/dashboard-welcome.html`: thin dashboard extension adapter for the welcome surface
 - `ext/html/_core/dashboard/topbar_secondary/welcome-toggle.html`: thin dashboard topbar adapter for the hidden-state restore action
-- `examples/`: the curated bundled example-space folders copied into the user's writable spaces area on demand; the current firmware bundle contains `examples/daily-news/`, `examples/crypto-dashboard/`, `examples/retro-arcade/`, and `examples/agent-zero-videos/`
+- `examples/`: the curated bundled example-space folders copied into the user's writable spaces area on demand; the current firmware bundle contains `examples/daily-news/`, `examples/crypto-dashboard/`, `examples/retro-arcade/`
 
 ## Local Contracts
 
@@ -30,9 +30,8 @@ Current dashboard integration:
 - when the welcome panel is hidden, the dashboard flow should collapse completely with no placeholder row, and the restore action should move into the dashboard's teleported topbar cluster instead
 - the welcome surface should stay optional and user-dismissable without affecting the rest of the dashboard
 - the dismiss control should stay a compact circular icon button aligned to the panel edge within the dashboard gutter, with local sizing rules strong enough to override shared `secondary-button` chrome
-- the welcome panel should render two compact stacked sections: `Resources` first and `Demo Spaces` second
-- both sections should use explicit responsive grids instead of wrap-based pill rows, so desktop layouts stay evenly aligned and narrower widths collapse in clean column counts rather than leaving one orphan button on a trailing row
-- the resources grid should expose one-line outbound buttons for the Constellation Agent GitHub repo, the repo DeepWiki URL, the Agent Zero site, Discord, YouTube, and X
+- the welcome panel should render a single compact `Demo Spaces` section
+- the demo section should use an explicit responsive grid instead of wrap-based pill rows, so desktop layouts stay evenly aligned and narrower widths collapse in clean column counts rather than leaving one orphan button on a trailing row
 - demo buttons should stay compact one-line pills with a small inline icon chip, title text, and a trailing action glyph instead of large card bodies or background-motif icons
 - the panel itself should stay glass-like and avoid local gradient washes or decorative radial glow layers; the shared dashboard canvas already owns the richer background atmosphere
 - demo button title, icon, and icon color should load from each bundled example's own `space.yaml` so the dashboard preview matches the installed space metadata instead of relying on separate hardcoded presentation values
