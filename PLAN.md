@@ -101,8 +101,8 @@ Approved plan v1.0; owner answers recorded in the project's private memory.
 
 ### Unreleased since `v0.66-fork.7`
 
-`main` carries four commits past the release tag, all awaiting the next tag
-(`v0.66-fork.8`):
+`main` carried four commits past the release tag before the rebrand lane merged.
+They ship in `v1.0.0` — First Light, which supersedes the planned `v0.66-fork.8`:
 
 | Commit | Content |
 | --- | --- |
@@ -111,8 +111,8 @@ Approved plan v1.0; owner answers recorded in the project's private memory.
 | `421472f` | saved-server removal in the connection chooser (Lane D) |
 | — | release-note and README regeneration happen at tag time, not before |
 
-No release should be cut until the owner asks; `v0.66-fork.7` remains the
-shipping build and **does not contain** the saved-server removal.
+`v1.0.0` — First Light is the release that carries these, together with the
+terminology and identity cleanup recorded under *Rebrand follow-ups*.
 
 ## Phase 3 — what this phase is for
 
@@ -233,7 +233,8 @@ mode) and the first build the owner installed end-to-end: standalone launched,
 the chooser listed both modes, the cloud instance signed in over HTTPS, and the
 embedded browser worked with full `space.browser` capability.
 
-`v0.66-fork.8` is not cut yet; see *Unreleased since `v0.66-fork.7`* above.
+`v1.0.0` — First Light supersedes the planned `v0.66-fork.8`; see *Unreleased
+since `v0.66-fork.7`* above.
 
 ## Batch history
 

@@ -53,11 +53,12 @@ function hasBaseline() {
   }
 }
 
-// Fork release tags in creation order, each resolved to its own commit.
-// A tag is included only when it sits ahead of the fork baseline.
+// Release tags in creation order, each resolved to its own commit.
+// A tag is included only when it sits ahead of the fork baseline, which keeps
+// upstream's own v0.x tags out without hardcoding a fork tag scheme.
 function releaseTags() {
   const baseline = git(["rev-parse", BASELINE_TAG]);
-  const listed = git(["tag", "--list", "v*-fork.*", "--sort=creatordate"]);
+  const listed = git(["tag", "--list", "v*", "--contains", BASELINE_TAG, "--sort=creatordate"]);
   if (!listed) return [];
 
   const tags = [];

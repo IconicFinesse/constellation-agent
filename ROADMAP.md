@@ -34,6 +34,37 @@ honestly provide, contract decisions now and content decisions from use.
 The fork began at upstream commit `10f4ffd` (tag `baseline-2026-06-08`, the v0.66
 era). Everything below diverges from that point.
 
+### `v1.0.0` — First Light
+
+The first standalone release: the product is Constellation Agent throughout,
+not a fork of something else still carrying its old name on screen.
+
+- **Upstream identity is gone from the product surface.** The dashboard resource
+  row, the `/login` and `/enter` footer social rows, and their local icons were
+  removed outright. Repository, release, and publish metadata now point here,
+  which also fixes a publish configuration that combined upstream's owner with
+  this repository's name — a repository that does not exist.
+- **Hosted space sharing no longer reaches upstream.** `CLOUD_SHARE_URL`
+  defaulted to upstream's receiver, so a default install would have uploaded
+  shares to a service this project does not run. It now defaults to empty, which
+  the existing guards already treat as unavailable: local ZIP export and import
+  are unaffected, and the hosted path stays hidden until a receiver is
+  configured deliberately.
+- **Packaged desktop stops adopting upstream's profile directory.** Dropping the
+  upstream names from the legacy `userData` candidates prevents a fresh install
+  from silently preferring that folder. The project's original `Agent One` names
+  are still honoured, and the current-product names were always supported.
+- **Linux packaging metadata names this repository's maintainer**, while the
+  global `author` field keeps the original author's credit.
+- **OpenRouter requests now identify this repository.** They previously sent
+  upstream's domain as the referer on every call.
+- **The Agent Zero video demos are gone.** Both bundled demo spaces streamed
+  upstream's YouTube channel, and the onboarding launcher entry went with them.
+
+Upstream attribution deliberately remains in `README.md`, `FORK.md`,
+`PROJECT-THESIS.md`, `DESIGN-PHILOSOPHY.md`, and `LICENSE`. The lineage is the
+point, not a detail to erase.
+
 ### `v0.66-fork.7`
 
 - Desktop **connected mode**: the packaged app can run against a saved remote
