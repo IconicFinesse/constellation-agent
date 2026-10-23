@@ -24,6 +24,7 @@ import {
 } from "./passwords.js";
 import { setUserPassword } from "./user_manage.js";
 import {
+  hasAnyPasswordUser,
   readUserLogins,
   readUserPasswordVerifier,
   writeUserLogins,
@@ -794,6 +795,15 @@ export function createAuthService(options = {}) {
       userCryptoState?.status === "missing" ? createUserCryptoServerShare() : "";
 
     if (!normalizedUsername || !normalizedClientNonce || !verifier) {
+      // Zero accounts is a first-run state, not a bad password. Saying so is safe:
+      // there is no existing account to enumerate, and the operator needs the one
+      // supported bootstrap path instead of a misleading credential error.
+      if (!hasAnyPasswordUser(projectRoot, runtimeParams)) {
+        throw new Error(
+          "This server has no accounts yet. Create the first one on the server with `node space user create <username> --password <password> --groups _admin`, then sign in."
+        );
+      }
+
       throw new Error("Invalid username or password.");
     }
 

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { hasAnyPasswordUser } from "../lib/auth/user_files.js";
 import { areGuestUsersAllowed, isSingleUserApp } from "../lib/utils/runtime_params.js";
 import { runTrackedMutation } from "../runtime/request_mutations.js";
 import { createNoStoreHeaders, sendFile, sendJson, sendNotFound, sendRedirect } from "./responses.js";
@@ -28,6 +29,7 @@ const ROOT_PAGE_RESOURCE_ALIASES = new Map([
   ["/sitemap.xml", "/sitemap.xml"]
 ]);
 const FRONTEND_CONFIG_META_NAME = "space-config";
+const LOGIN_HAS_USERS_PARAM_NAME = "HAS_USERS";
 const ENTER_GUARD_PLACEHOLDER = "<!-- SPACE_SINGLE_USER_ENTER_GUARD -->";
 const ENTER_GUARD_SCRIPT_TAG = '    <script src="/pages/res/enter-guard.js"></script>';
 const PROJECT_VERSION_PLACEHOLDER = "<!-- SPACE_PROJECT_VERSION -->";
@@ -81,6 +83,26 @@ function buildFrontendConfigMetaTags(runtimeParams) {
         `    <meta name="${FRONTEND_CONFIG_META_NAME}" data-space-param="${escapeHtmlAttribute(entry.name)}" data-space-type="${escapeHtmlAttribute(entry.type)}" content="${escapeHtmlAttribute(entry.content)}" />`
     )
     .join("\n");
+}
+
+// Derived deployment state for the public login shell. This is not an operator-set
+// runtime parameter, so it is injected here instead of living in params.yaml. It is
+// safe to disclose: a zero-account instance has nothing to enumerate, and the shell
+// must stop presenting a password form for accounts that cannot exist yet.
+function injectLoginAccountState(sourceText, options = {}) {
+  if (String(options.pageName || "") !== "login.html") {
+    return sourceText;
+  }
+
+  const metaTag = `    <meta name="${FRONTEND_CONFIG_META_NAME}" data-space-param="${LOGIN_HAS_USERS_PARAM_NAME}" data-space-type="boolean" content="${options.hasPasswordUser ? "true" : "false"}" />`;
+
+  if (/<\/head>/iu.test(sourceText)) {
+    return sourceText.replace(/<\/head>/iu, `${metaTag}
+  </head>`);
+  }
+
+  return `${metaTag}
+${sourceText}`;
 }
 
 function injectFrontendConfigMetaTags(sourceText, runtimeParams) {
@@ -139,16 +161,19 @@ async function sendPageHtml(res, filePath, options = {}) {
     return;
   }
 
-  const body = injectFrontendConfigMetaTags(
-    injectProjectVersion(
-      injectEnterGuard(sourceText, {
-        pageName: options.pageName,
-        requestContext: options.requestContext,
-        runtimeParams: options.runtimeParams
-      }),
-      options.projectVersion
+  const body = injectLoginAccountState(
+    injectFrontendConfigMetaTags(
+      injectProjectVersion(
+        injectEnterGuard(sourceText, {
+          pageName: options.pageName,
+          requestContext: options.requestContext,
+          runtimeParams: options.runtimeParams
+        }),
+        options.projectVersion
+      ),
+      options.runtimeParams
     ),
-    options.runtimeParams
+    options
   );
 
   res.writeHead(200, createNoStoreHeaders({
@@ -286,7 +311,7 @@ function resolveRootPageResourceRequest(pagesDir, pathname) {
 }
 
 async function handlePageRequest(res, requestUrl, options = {}) {
-  const { auth, pagesDir, requestContext, runtimeParams } = options;
+  const { auth, pagesDir, projectRoot, requestContext, runtimeParams } = options;
 
   if (requestUrl.pathname === LOGOUT_ROUTE) {
     await handleLogoutRequest(res, options);
@@ -373,7 +398,13 @@ async function handlePageRequest(res, requestUrl, options = {}) {
     return;
   }
 
+  const hasPasswordUser =
+    !isLoginPage || !projectRoot
+      ? true
+      : hasAnyPasswordUser(projectRoot, runtimeParams);
+
   await sendPageHtml(res, pageRequest.filePath, {
+    hasPasswordUser,
     headers: createSessionCleanupHeaders(requestContext, auth),
     pageName: pageRequest.pageName,
     projectVersion: options.projectVersion,

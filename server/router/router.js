@@ -414,6 +414,7 @@ function createRequestHandler(options) {
         auth,
         mutationSync,
         pagesDir,
+        projectRoot,
         projectVersion,
         runtimeParams,
         requestContext

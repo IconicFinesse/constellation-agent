@@ -1961,6 +1961,14 @@
       setGuestCredentials(null);
       if (allowLogin && !passwordLoginSupported) {
         setStatus(getUnsupportedPasswordLoginMessage(), "error");
+      } else if (allowLogin && !readFrontendConfigValue("HAS_USERS", true)) {
+        // A fresh multi-user install has no accounts and no in-browser signup, so no
+        // password can ever succeed here. Name the one supported bootstrap path
+        // instead of letting the form imply the visitor mistyped something.
+        setStatus(
+          "This server has no accounts yet. Create the first one on the server with: node space user create <username> --password <password> --groups _admin",
+          "error"
+        );
       }
       if (introAstronaut && !introAstronaut.complete) {
         introAstronaut.addEventListener("load", startIntroFloat, { once: true });

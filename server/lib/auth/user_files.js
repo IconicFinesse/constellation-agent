@@ -1,6 +1,7 @@
 import fs from "node:fs";
 
 import {
+  getAppPathRoots,
   normalizeEntityId,
   resolveProjectAbsolutePath
 } from "../customware/layout.js";
@@ -67,6 +68,46 @@ function readJsonObject(filePath, fallback = {}) {
   } catch {
     return { ...(fallback || {}) };
   }
+}
+
+// A server with no password-bearing account cannot authenticate anyone. The public
+// login shell and the login challenge use this to say so plainly instead of implying
+// that the visitor mistyped a password. The scan stops at the first account that
+// already has a verifier, so a populated instance answers after one directory entry.
+function hasAnyPasswordUser(projectRoot, runtimeParams = null) {
+  const roots = getAppPathRoots(projectRoot, runtimeParams);
+  let entries;
+
+  try {
+    entries = fs.readdirSync(roots.l2Dir, {
+      withFileTypes: true
+    });
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return false;
+    }
+
+    throw error;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const passwordPath = buildUserAbsolutePath(
+      projectRoot,
+      entry.name,
+      `${USER_META_DIRNAME}/${USER_PASSWORD_FILENAME}`,
+      runtimeParams
+    );
+
+    if (fs.existsSync(passwordPath)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function readUserConfig(projectRoot, username, runtimeParams = null) {
@@ -176,6 +217,7 @@ export {
   buildUserAbsolutePath,
   buildUserProjectPath,
   ensureUserStructure,
+  hasAnyPasswordUser,
   normalizeUsername,
   readUserConfig,
   readUserCryptoRecord,
