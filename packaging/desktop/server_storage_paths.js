@@ -9,8 +9,6 @@ const DESKTOP_RUNTIME_STATE_MARKERS = Object.freeze([
 const DESKTOP_LEGACY_USER_DATA_DIRNAMES = Object.freeze([
   "Agent One",
   "agent-one",
-  "Space Agent",
-  "space-agent",
   "Constellation Agent",
   "constellation-agent"
 ]);
