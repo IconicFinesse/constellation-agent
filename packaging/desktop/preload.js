@@ -25,6 +25,7 @@ const DESKTOP_BROWSER_UPDATE_CHANNEL = "space-desktop:browser-view-update";
 const DESKTOP_CONNECTION_CHOOSE_CHANNEL = "space-desktop:connection-choose";
 const DESKTOP_CONNECTION_LIST_SAVED_CHANNEL = "space-desktop:connection-list-saved";
 const DESKTOP_CONNECTION_STATUS_CHANNEL = "space-desktop:connection-status";
+const DESKTOP_CONNECTION_REMOVE_SAVED_CHANNEL = "space-desktop:connection-remove-saved";
 
 const browserEnvelopeListeners = new Map();
 const browserHostEventListeners = new Set();
@@ -190,6 +191,11 @@ contextBridge.exposeInMainWorld("spaceDesktop", {
     },
     listSaved() {
       return ipcRenderer.invoke(DESKTOP_CONNECTION_LIST_SAVED_CHANNEL);
+    },
+    removeSaved(origin) {
+      return ipcRenderer.invoke(DESKTOP_CONNECTION_REMOVE_SAVED_CHANNEL, {
+        origin: normalizeText(origin)
+      });
     },
     onStatus(listener) {
       if (typeof listener !== "function") {

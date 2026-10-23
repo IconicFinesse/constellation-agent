@@ -46,8 +46,14 @@ add-a-server form. It is shown when the app is packaged or
 how the e2e harness and scripted runs get deterministic starts. Saved connections
 persist to `<userData>/connections.json` (`0600`); the chooser talks to the host
 only through the narrow `spaceDesktop.connection` preload bridge
-(`choose` / `listSaved` / `onStatus`), which exists for the chooser window alone
-and is never a general app-surface API.
+(`choose` / `listSaved` / `removeSaved` / `onStatus`), which exists for the
+chooser window alone and is never a general app-surface API. Every saved entry
+carries its own remove control, because a mistyped or dead server URL otherwise
+strands the user with an unusable row: removal is a pure list operation
+(`removeSavedConnection` in `connection_mode.js`, which normalizes the remainder
+and reports whether anything was actually dropped) and only the host persists
+the result, re-rendering the list from the value the bridge returns so the UI
+never drifts from disk.
 
 Connected mode must keep these invariants: the local server is not spawned and
 `stopServerRuntime` stays a no-op; `resolveDesktopAppOrigin`,
@@ -66,7 +72,7 @@ successful load; and `getDesktopRuntimeInfo()` reports `connectionMode` plus
 
 Standalone browser-bridge debugging belongs under `tests/browser_component_harness/`, not inside the real desktop host. `packaging/desktop/main.js` and `packaging/desktop/preload.js` must stay focused on production desktop behavior and should not grow test-driver IPC or scenario hooks for browser harness work.
 
-The connected-mode E2E seams are the one sanctioned exception to that rule and must stay inert in ordinary use: `SPACE_DESKTOP_E2E_EXIT_AFTER_LOAD=1` makes a loaded window print one `[E2E]` verdict line and exit, and `SPACE_DESKTOP_CHOOSER_E2E_PICK` / `SPACE_DESKTOP_CHOOSER_E2E_SCREENSHOT` drive the chooser window. Both are env-gated only, carry no production path, add no IPC channel, and must never be reachable from page script.
+The connected-mode E2E seams are the one sanctioned exception to that rule and must stay inert in ordinary use: `SPACE_DESKTOP_E2E_EXIT_AFTER_LOAD=1` makes a loaded window print one `[E2E]` verdict line and exit, and `SPACE_DESKTOP_CHOOSER_E2E_PICK` / `SPACE_DESKTOP_CHOOSER_E2E_REMOVE` / `SPACE_DESKTOP_CHOOSER_E2E_SCREENSHOT` drive the chooser window. Both are env-gated only, carry no production path, add no IPC channel, and must never be reachable from page script.
 
 `packaging/desktop/updater_artifacts.js` is the canonical packaged-desktop helper for updater cache ownership: it writes a marker before explicit restart-to-install handoff, then clears stale `pending/` payloads from the current and legacy updater cache roots on the next packaged launch while leaving reusable metadata such as blockmaps intact.
 

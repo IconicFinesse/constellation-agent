@@ -29,6 +29,14 @@
       .card.primary { border-color: rgba(121, 237, 216, 0.5); }
       .card strong { font-size: 0.98rem; }
       .card span { color: rgba(239, 245, 255, 0.62); font-size: 0.85rem; overflow-wrap: anywhere; }
+      .saved-row { display: grid; grid-template-columns: 1fr auto; gap: 0.5rem; align-items: stretch; }
+      button.remove {
+        width: 2.6rem; border-radius: 10px; border: 1px solid rgba(148, 188, 255, 0.22);
+        color: rgba(239, 245, 255, 0.7); background: rgba(10, 20, 33, 0.72);
+        font: inherit; font-size: 1.05rem; line-height: 1; cursor: pointer;
+      }
+      button.remove:hover { border-color: rgba(255, 138, 128, 0.65); color: #ffb4a8; background: rgba(30, 14, 14, 0.8); }
+      button.remove:focus-visible { outline: 1px solid rgba(121, 237, 216, 0.6); outline-offset: 2px; }
       .helper { color: rgba(239, 245, 255, 0.5); font-size: 0.82rem; }
       .muted { margin: 0; color: rgba(239, 245, 255, 0.5); font-size: 0.85rem; }
       form { display: grid; gap: 0.5rem; }
@@ -119,6 +127,9 @@
             return;
           }
           saved.forEach((connection) => {
+            const row = document.createElement("div");
+            row.className = "saved-row";
+
             const button = document.createElement("button");
             button.type = "button";
             button.className = "card";
@@ -128,7 +139,22 @@
             span.textContent = connection.origin;
             button.append(strong, span);
             button.addEventListener("click", () => pickRemote(connection.url, connection.label, false));
-            savedEl.appendChild(button);
+
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.className = "remove";
+            remove.textContent = "\u00d7";
+            remove.title = "Remove this saved server";
+            remove.setAttribute("aria-label", "Remove saved server " + (connection.label || connection.origin));
+            remove.addEventListener("click", (event) => {
+              event.stopPropagation();
+              Promise.resolve(API?.removeSaved?.(connection.origin))
+                .then((remaining) => renderSaved(remaining))
+                .catch(() => setStatus("Could not remove that saved server."));
+            });
+
+            row.append(button, remove);
+            savedEl.appendChild(row);
           });
         }
 

@@ -201,6 +201,21 @@ function readConnectionRequestFromEnv(env = process.env) {
   return { mode: mode || (url ? CONNECTION_MODE.CONNECTED : ""), url };
 }
 
+// Deleting a saved server is a pure list operation so the chooser can drop a
+// mistyped entry without owning filesystem access. Returns the normalized
+// remainder plus whether anything was actually removed.
+function removeSavedConnection(values, origin) {
+  const saved = normalizeSavedConnections(values);
+  const normalizedOrigin = normalizeText(origin);
+
+  if (!normalizedOrigin) {
+    return { removed: false, connections: saved };
+  }
+
+  const next = saved.filter((entry) => entry.origin !== normalizedOrigin);
+  return { removed: next.length !== saved.length, connections: next };
+}
+
 module.exports = {
   CONNECTION_MODE,
   CONNECTION_MODE_ENV_NAME,
@@ -210,6 +225,7 @@ module.exports = {
   normalizeSavedConnection,
   normalizeSavedConnections,
   readConnectionRequestFromEnv,
+  removeSavedConnection,
   resolveConnectionConfig,
   validateRemoteServerUrl
 };

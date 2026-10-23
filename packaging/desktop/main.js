@@ -15,6 +15,7 @@ const {
   CONNECTION_MODE,
   normalizeSavedConnections,
   readConnectionRequestFromEnv,
+  removeSavedConnection,
   resolveConnectionConfig
 } = require("./connection_mode");
 const {
@@ -53,6 +54,7 @@ const DESKTOP_BROWSER_UPDATE_CHANNEL = "space-desktop:browser-view-update";
 const DESKTOP_CONNECTION_CHOOSE_CHANNEL = "space-desktop:connection-choose";
 const DESKTOP_CONNECTION_LIST_SAVED_CHANNEL = "space-desktop:connection-list-saved";
 const DESKTOP_CONNECTION_STATUS_CHANNEL = "space-desktop:connection-status";
+const DESKTOP_CONNECTION_REMOVE_SAVED_CHANNEL = "space-desktop:connection-remove-saved";
 const DESKTOP_FRAME_PRELOAD_PATH = path.join(__dirname, "frame-preload.js");
 const DESKTOP_FRAME_INJECT_REGISTER_CHANNEL = "space-desktop:frame-inject-register";
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
@@ -2010,6 +2012,28 @@ function openConnectionChooser() {
       return normalizeSavedConnections(loadSavedConnectionRecords());
     });
 
+    ipcMain.removeHandler(DESKTOP_CONNECTION_REMOVE_SAVED_CHANNEL);
+    ipcMain.handle(DESKTOP_CONNECTION_REMOVE_SAVED_CHANNEL, (event, payload = {}) => {
+      if (event.sender !== chooser.webContents) {
+        return normalizeSavedConnections(loadSavedConnectionRecords());
+      }
+
+      const result = removeSavedConnection(loadSavedConnectionRecords(), payload?.origin);
+
+      if (result.removed) {
+        try {
+          const file = resolveDesktopConnectionsFilePath();
+          fs.mkdirSync(path.dirname(file), { recursive: true });
+          fs.writeFileSync(file, JSON.stringify({ connections: result.connections }, null, 2), { mode: 0o600 });
+          console.log(`[space-desktop] Removed saved server origin: ${String(payload?.origin || "").trim()}`);
+        } catch (error) {
+          console.warn("[space-desktop] Could not persist the removed server record.", error);
+        }
+      }
+
+      return result.connections;
+    });
+
     ipcMain.removeAllListeners(DESKTOP_CONNECTION_CHOOSE_CHANNEL);
     ipcMain.on(DESKTOP_CONNECTION_CHOOSE_CHANNEL, (event, payload = {}) => {
       if (event.sender !== chooser.webContents) {
@@ -2061,6 +2085,43 @@ function openConnectionChooser() {
               app.exit(1);
             });
         }, 900);
+        return;
+      }
+
+      const scriptedRemove = String(process.env.SPACE_DESKTOP_CHOOSER_E2E_REMOVE || "").trim();
+      if (scriptedRemove) {
+        setTimeout(() => {
+          const script = [
+            "(function(){",
+            "  const rows = Array.from(document.querySelectorAll('.saved-row'));",
+            "  for (const row of rows) {",
+            "    const span = row.querySelector('span');",
+            "    if (span && span.textContent.trim() === " + JSON.stringify(scriptedRemove) + ") {",
+            "      const target = row.querySelector('.remove');",
+            "      if (target) { target.click(); return 'clicked'; }",
+            "    }",
+            "  }",
+            "  return 'not-found';",
+            "})()"
+          ].join("\n");
+          chooser.webContents
+            .executeJavaScript(script)
+            .then((outcome) => {
+              setTimeout(() => {
+                const remaining = normalizeSavedConnections(loadSavedConnectionRecords());
+                const gone = !remaining.some((entry) => entry.origin === scriptedRemove);
+                const ok = outcome === "clicked" && gone;
+                console.log(
+                  `[E2E] ${ok ? "PASS" : "FAIL"} chooser-remove outcome=${outcome} removed=${scriptedRemove} remaining=${JSON.stringify(remaining.map((entry) => entry.origin))}`
+                );
+                app.exit(ok ? 0 : 1);
+              }, 900);
+            })
+            .catch((error) => {
+              console.log(`[E2E] FAIL chooser-remove error=${String(error && error.message ? error.message : error)}`);
+              app.exit(1);
+            });
+        }, 700);
         return;
       }
 

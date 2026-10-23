@@ -10,6 +10,7 @@ const {
   normalizeSavedConnection,
   normalizeSavedConnections,
   readConnectionRequestFromEnv,
+  removeSavedConnection,
   resolveConnectionConfig,
   validateRemoteServerUrl
 } = require("../packaging/desktop/connection_mode.js");
@@ -149,4 +150,39 @@ test("env seam drives connected mode for the e2e harness", () => {
   });
   assert.equal(fromMode.mode, "connected");
   assert.equal(fromMode.url, "https://constellation.example.com");
+});
+
+test("removing a saved server drops only that origin", () => {
+  const result = removeSavedConnection([
+    { label: "Typo", url: "https://typo.example.com" },
+    { label: "Good", url: "https://good.example.com" }
+  ], "https://typo.example.com");
+  assert.equal(result.removed, true);
+  assert.deepEqual(result.connections.map((entry) => entry.origin), ["https://good.example.com"]);
+});
+
+test("removing an unknown origin changes nothing", () => {
+  const result = removeSavedConnection([
+    { label: "Good", url: "https://good.example.com" }
+  ], "https://absent.example.com");
+  assert.equal(result.removed, false);
+  assert.equal(result.connections.length, 1);
+});
+
+test("removing with a blank origin is a no-op", () => {
+  const result = removeSavedConnection([
+    { label: "Good", url: "https://good.example.com" }
+  ], "");
+  assert.equal(result.removed, false);
+  assert.equal(result.connections.length, 1);
+});
+
+test("removing invalid stored entries still normalizes the remainder", () => {
+  const result = removeSavedConnection([
+    { label: "Good", url: "https://good.example.com" },
+    { label: "Local", url: "http://localhost:3000" },
+    { label: "Bad", url: "http://insecure.example.com" }
+  ], "https://good.example.com");
+  assert.equal(result.removed, true);
+  assert.deepEqual(result.connections.map((entry) => entry.origin), ["http://localhost:3000"]);
 });
