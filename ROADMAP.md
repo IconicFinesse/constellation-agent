@@ -1,18 +1,47 @@
 # Roadmap
 
-Three tiers, and the difference between them matters.
+Four tiers, and the difference between them matters.
 
 - **Shipped** is verifiable in git history. Nothing here is aspirational.
+- **Selected** is owner-approved for this phase and not yet started. It is a
+  commitment, not a schedule — no lane opens until the sequencing decision in
+  `PROJECT-THESIS.md` §8.6 is called.
 - **In progress** is work actively being built. It may slip.
 - **Exploring** is ambition, not commitment. Items here may never ship, or may ship
   in a form nobody has described yet.
 
-Last updated by hand: 2026-10-22.
+The **Selected** tier exists because collapsing it into either neighbour would lie:
+"In progress" would overstate (nothing is being built), and "Exploring" would
+understate (the owner has chosen these).
+
+Last updated by hand: 2026-10-22, features phase open.
+
+## The standing thesis these tiers serve
+
+> **The agent is a citizen of the system, not a client of it.**
+
+No external vantage point, no schema boundary between thinking and doing, and a
+server that holds no agent state — which is what makes the agent **unhostable** and
+the deployment genuinely private. The product shape that follows is a **workspace
+with an agent resident in it**, not a chat that produces artifacts.
+
+Every candidate feature is filtered by `PROJECT-THESIS.md` §8 before it lands on
+this page: no new server authority, no capability the residency model cannot
+honestly provide, contract decisions now and content decisions from use.
 
 ## Shipped since the fork
 
 The fork began at upstream commit `10f4ffd` (tag `baseline-2026-06-08`, the v0.66
 era). Everything below diverges from that point.
+
+### `v0.66-fork.6`
+
+- Clear five high production dependency advisories with a plain `npm audit fix`
+  (no `--force`); post-fix audit reports zero vulnerabilities (#83).
+- Fix the container browser harness: install the missing `electron` the browser
+  suites silently depended on, and pass `--disable-dev-shm-usage` so a 64 MB
+  `/dev/shm` stops hanging Chromium (`browser_address_bar` 0/1 → 1/1,
+  `browser_content_format` 0/5 → 5/5).
 
 ### `v0.66-fork.5`
 
@@ -51,45 +80,127 @@ era). Everything below diverges from that point.
 ### Repository and governance
 
 - Fork charter with provenance, baseline tag, and divergence policy (`FORK.md`).
-- Binding project thesis and namespace rule (`PROJECT-THESIS.md`).
+- Binding project thesis, namespace rule, and modularity rule (`PROJECT-THESIS.md`).
 - Dual MIT notice; upstream attribution retained throughout.
+
+## Selected
+
+Owner-approved for the features phase. Both are additive modules under
+`app/L0/_all/mod/constellation/`, self-contained under the modularity rule, and
+neither requires new server authority. Full descriptions in `PROJECT-THESIS.md`
+§8.4 and §8.5.
+
+### Capability authoring as the compounding loop
+
+**What it is:** the agent goes from building the thing you asked for to building the
+*capability* that builds those things. Write a `SKILL.md`, validate the frontmatter,
+reload the catalog, prove the new capability fires — browser side, through the file
+APIs the server already has.
+
+**Why it earns a slot:** content is disposable, capability compounds. A widget helps
+once; a skill that produces widgets of a class helps every time after. That is the
+difference between an agent that is the tool and one that is the colleague.
+
+**Why it is not purely a build task:** *when should a repeated solution be promoted
+into a skill?* is a judgement about a real workflow. That half is discovered by use,
+not designed from architecture knowledge.
+
+**Honest constraints:** extension lookups are cached in memory so a new extension
+file is not live until refresh (skill files are re-read on prompt build); auto-loaded
+discovery is limited to top-level `ext/skills/*/SKILL.md`, and nested skills are
+explicit-load only. The feature inherits those rules rather than working around them.
+
+### A memory surface, not a memory policy
+
+**What it is:** a way to see, understand, and correct what the agent remembers and why
+— what it knows, when it learned it, which space or conversation produced it, and what
+is currently in the prompt versus merely resident.
+
+**Why it earns a slot:** memory here is already the right substance —
+`~/memory/*.include.md`, plain text, in the user's own layer, auto-loaded by a skill
+that teaches a convention rather than by prompt-builder special-casing. It is currently
+invisible. Making an existing architectural advantage legible is the cheapest kind of
+value to add and the most durable. A user who can read the agent's memory can correct
+it, and a corrected memory beats a longer context window.
+
+**Why it is not the dashboard everyone else ships:** competing products expose an
+opaque store through categories and confidence scores you cannot inspect. This is a
+view over files the user already owns.
+
+**Contract versus content:** where memory lives, its format, how it is discovered and
+ordered, and the runtime surface the module reads through are all already fixed by the
+inherited architecture — so this feature *defends* an existing contract instead of
+inventing one. When the agent should write memory on its own, and what belongs in
+memory versus a space's own files, is content: discovered by use.
+
+That split is why the read-only half can ship before a use phase and the write-behaviour
+half cannot.
+
+### Sequencing — not yet called
+
+Whether these two come before, after, or interleaved with a real use phase is the open
+decision recorded in `PROJECT-THESIS.md` §8.6 and `PLAN.md`. No lane starts until the
+owner calls it.
 
 ## In progress
 
-Nothing is listed here yet. The bug-fix phase closed 2026-10-22, and feature work
-starts after it. Items appear here when they are actively being built, not when they
-are merely planned.
+Nothing is listed here yet. The bug-fix phase closed 2026-10-22; feature work starts
+after the sequencing decision above.
 
 ## Exploring
 
 Ambition only. These are trajectories the architecture makes possible, drawn from the
-project's own analysis — not commitments, and not a promise list.
+project's own analysis — not commitments, and not a promise list. Each is stated with
+the reason it is not yet Selected.
 
-- **Agent-authored capabilities, not just agent-authored content.** Because skills
-  are readable/writable text and the extension system has legal seams, "build me a
-  widget" could become "build me a capability that builds these widgets."
+- **Agent-authored capabilities, not just agent-authored content.** *Selected above;
+  retained here only as a pointer to the original framing.* Because skills are
+  readable/writable text and the extension system has legal seams, "build me a widget"
+  could become "build me a capability that builds these widgets."
+- **Standing intent per space.** A space that knows what it is for, so the agent picks
+  up the thread when you open it — persisted intent attached to the workspace instead
+  of buried in a chat log. *Not selected yet:* durable-intent semantics interact with
+  the residency limits and should be designed against a workflow someone actually runs.
+- **Spaces as the thing you point at.** The transient tail already carries live page
+  state, so the room is already context; the missing primitive is "this" — work on this
+  room. *Not selected yet:* this is interaction grammar rather than a module, and the
+  right grammar is a use-phase finding.
+- **Team capability in L1.** A skill pack in the group layer is a team capability,
+  versioned by time travel, shared by permission rather than by publish step. The server
+  never needs to know two agents exist. *Not selected yet:* requires the isolation audit
+  first — per-user/group/global enforcement is the canon's most under-audited surface.
+- **Template-with-context sharing.** A shared space that ships its standing instructions
+  too, so a research room arrives with the agent already briefed. *Not selected yet:*
+  depends on where standing intent lands.
 - **Multi-agent collaboration inside one space.** If agent state is files in a layer,
   two agents acting for two users in a shared group layer is a permissions problem
   rather than an architecture problem. The server would not need to know they exist.
+  *Not selected yet:* same isolation-audit dependency as L1 team capability.
 - **Local-first, provider-agnostic inference.** Browser-side model runtimes plus
   browser-owned API keys plus `CUSTOMWARE_PATH` could produce a genuinely private
-  deployment.
+  deployment. *Not selected yet:* largely already possible; the gap is packaging and
+  guidance, not architecture.
 - **The admin console as a true control plane.** `maxLayer=0` plus app-file APIs
   across all layers plus Time Travel equals a guaranteed-working surface that can
-  inspect and repair any broken customization.
+  inspect and repair any broken customization. *Not selected yet:* the untested claim
+  (that the hatch survives a fully broken main UI) is a cheap test and a candidate to
+  pull forward as a trust artifact.
 - **Making the residency handoff honest.** The system's strongest claim (the agent
   lives in the frontend runtime) is in tension with its most useful one (the agent can
   do persistent structural work), because the frontend is ephemeral. Rather than
   resolving that, the honest path is an explicit handoff: browser-resident agent for
   interactive, high-bandwidth, in-context work; something else for the long tail. The
-  extension system could host that second thing without violating `L0`.
+  extension system could host that second thing without violating `L0`. *Not selected
+  yet:* the largest idea on this page and the one most likely to change shape after a
+  use phase.
 
 ## Deliberately not planned
 
 Stated so nobody waits for them:
 
 - **Durable background agent work.** No server-side orchestration, no headless agent.
-  A task that outlives the tab cannot exist in this design as specified.
+  A task that outlives the tab cannot exist in this design as specified, and adding it
+  would dissolve the constitution that keeps the agent unhostable.
 - **Multi-client session continuity.** `space` does not cross browsing contexts. Two
   devices are two independent agents sharing a filesystem.
 - **No new upstream pull requests.** The upstream PR phase closed 2026-10-22. Genuinely
@@ -98,5 +209,8 @@ Stated so nobody waits for them:
 ## How this file is maintained
 
 Tiers are updated by hand because roadmap status is a judgement call, not a
-mechanical fact. The **What's new** block in [`README.md`](./README.md) is generated
-from git history by `packaging/scripts/whats-new.js` and should not be hand-edited.
+mechanical fact. Selecting an item moves it from **Exploring** to **Selected** with the
+reason it was chosen; starting a lane moves it to **In progress**; shipping it moves it
+to **Shipped** with the tag. The **What's new** block in [`README.md`](./README.md) is
+generated from git history by `packaging/scripts/whats-new.js` and should not be
+hand-edited.
