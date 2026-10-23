@@ -76,7 +76,7 @@
     "linux": {
       "icon": "packaging/platforms/linux/icons",
       "category": "Development",
-      "maintainer": "Jan Tomasek <info@space-agent.ai>",
+      "maintainer": "IconicFinesse <IconicFinesse@users.noreply.github.com>",
       "target": [
         "AppImage"
       ]
