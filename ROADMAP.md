@@ -120,7 +120,7 @@ extracted into a unit-testable module rather than inline in `main.js`; zero
 **Content discovered later:** chooser polish, reconnect-on-launch behavior,
 multi-server management UX.
 
-**Serving infrastructure (approved):** `constellation.brauklabs.com` via
+**Serving infrastructure (approved):** `private` via
 Cloudflare Tunnel — cloudflared runs inside the Tier 1 Debian guest as a systemd
 service (upstream `127.0.0.1:3000`), not via the Umbrel cloudflared app; the
 tailnet path stays as fallback and sidesteps the ~100 MB free-tier request cap
