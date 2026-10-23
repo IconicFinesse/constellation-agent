@@ -19,7 +19,44 @@ Documentation is top priority for this area. After any change under `packaging/`
 
 ### Current State
 
-`packaging/desktop/` holds the current Electron desktop host.
+`packaging/desktop/` holds the current Electron desktop host. It supports two
+connection modes, resolved once at launch by `packaging/desktop/connection_mode.js`:
+
+- **`standalone` (default).** The host spawns its own loopback server exactly as
+  before, applies the packaged runtime param overrides, and pins the main window
+  to that local origin. Unchanged behavior for users who never pick a server.
+- **`connected`.** The host skips the local spawn entirely and pins the main
+  window to a saved HTTPS remote server, so the same renderer, agent runtime, and
+  full `spaceDesktop.browser` webview surface run against canonical remote data.
+
+`connection_mode.js` is the pure resolver and must stay Electron-free so it can
+run under plain `node --test`: it owns mode constants, URL validation, saved
+connection normalization, pinned-origin change detection, and the launch seam.
+Validation contract: **https only**, with an explicit `localhost` / `127.0.0.1` /
+`[::1]` carve-out for local development; embedded credentials in a URL are
+rejected. A saved connection is `{ label, url, origin }` and `origin` is the pin —
+if a saved URL no longer matches its pinned origin the resolver surfaces a review
+error instead of silently following the new host.
+
+`packaging/desktop/connect.html` is the launcher chooser: Standalone shown and
+highlighted as the default, saved servers listed for one-click reconnect, and an
+add-a-server form. It is shown when the app is packaged or
+`SPACE_DESKTOP_SHOW_CHOOSER=1`, and a launch driven by
+`SPACE_DESKTOP_CONNECTION_MODE` / `SPACE_DESKTOP_SERVER_URL` bypasses it, which is
+how the e2e harness and scripted runs get deterministic starts. Saved connections
+persist to `<userData>/connections.json` (`0600`); the chooser talks to the host
+only through the narrow `spaceDesktop.connection` preload bridge
+(`choose` / `listSaved` / `onStatus`), which exists for the chooser window alone
+and is never a general app-surface API.
+
+Connected mode must keep these invariants: the local server is not spawned and
+`stopServerRuntime` stays a no-op; `resolveDesktopAppOrigin`,
+`isDesktopMainWindowAllowedUrl`, the navigation revert fallback, and the window's
+initial URL all resolve from the mode rather than from `serverRuntime`; the
+packaged auto-updater is **disabled** while connected because it describes the
+installed bundle, not the remote server; origin pinning is persisted on the first
+successful load; and `getDesktopRuntimeInfo()` reports `connectionMode` plus
+`connectedOrigin` so the renderer and the browser-runtime gate can see the mode.
 
 `packaging/desktop/preload.js` exposes the launcher-shell desktop bridge as `space` on the recovery-safe `/enter` and `/login` pages only, including packaged-runtime info, background update-check hooks, explicit download or install actions, and the packaged debug-only `debugReinstall(version?)` hook. The main app runtime keeps owning `window.space` everywhere else, so the preload must not publish a competing bridge on ordinary app routes; instead it now exposes the ordinary-app `spaceDesktop.browser` bridge for desktop browser embedding metadata, host events, and any legacy native-browser hooks. `packaging/desktop/frame-preload.js` is the packaged-app-only iframe preload split in two parts: in the top-level app frame it watches iframe `data-space-inject` markers, ensures each opt-in iframe is registered under a unique frame `name` plus host-visible `iframeId`, and registers those entries with the main process so Electron can inject validated module scripts into the matching child frames after load; in subframes it runs a document-start main-world `attachShadow(...)` override that forces future shadow roots open inside iframe documents. `packaging/desktop/browser-dom-helper.js` is the packaged desktop browser guest kernel installed into the page's main world at document start; it maintains the frame-local DOM helper state, recursively snapshots shadow roots plus nested iframe documents, assigns helper-owned node ids inside each frame, routes later detail or action requests back through the correct `frameChain`, and must log request failures to the guest-page console so desktop devtools can show frame-helper problems directly. Those helper-owned node ids are part of the readable-content contract too: any element that `content(...)` exposes as a typed ref, including plain `IMG` nodes and generic event-bound controls such as framework-owned clickable `div`s, must receive a helper node id so later `detail(...)` lookups succeed in packaged desktop mode. The helper must also serialize the compact state or semantic tags and live value text needed for lean descriptors such as `[disabled muted button N] Continue`, `[checked checkbox N] Email updates`, or `[input text N] Search value=Ethereum`. That helper now has two distinct snapshot modes: raw `dom` snapshots may still emit synthetic wrapper elements such as `space-browser-frame-document` and `space-browser-shadow-root` for debugging, while content-oriented snapshots must strip those helper shells, unwrap any stray helper-wrapper or whole-document shells that survive nested frame capture, inline only the useful nested body or shadow content so downstream readable markdown stays human- and agent-focused, and omit obviously non-visible nodes such as `hidden`, `aria-hidden`, `display:none`, `visibility:hidden|collapse`, `content-visibility:hidden`, or fully transparent `opacity:0` subtrees from the readable snapshot. When the caller supplies selector-scoped capture for either raw `dom` or content-oriented reads, through `selector` or `selectors`, that helper should serialize only the requested live targets instead of snapshotting the entire recursive page first, so short-timeout debugging surfaces stay responsive on ad-heavy pages. Content-oriented frame capture must also stay best-effort: if one nested iframe cannot be captured quickly or at all, the helper should omit that iframe's readable content instead of aborting the whole top-level capture. Helper-backed actions should return the same action-effect payloads as the live DOM path too, including visible-reaction flags such as `reacted`, `noObservedEffect`, `validationTextAdded`, and semantic hints for newly revealed text. `packaging/desktop/browser-webview-preload.js` is the preferred desktop browsing preload: it opens future shadow roots inside packaged `<webview>` guest pages, installs that same guest kernel into the top page and all subframes, and exposes the view-local `__spaceBrowserEmbedTransport__` bridge so the injected runtime can use the same request-response envelope contract there that the iframe path already uses for `ping`, `dom`, `content`, `detail`, `evaluate`, ref-targeted page actions, navigation requests, and host events. That transport should now publish explicit `sendEventName` and `receiveEventName` DOM-event channels for guest-page communication instead of relying on cross-world callback invocation, may keep callback helpers only as fallback compatibility, should emit lightweight `__preload_ready__` and `__preload_received__` debug events back to the host so the embedder can prove the preload is alive during transport debugging, and the guest bootstrap should emit one lightweight bridge-ready event back to the host as soon as the transport comes up. The renderer-side store should wait for those guest readiness events before it starts retrying navigation-state bridge calls, and it should mirror guest browser-debug console lines back through the webview `console-message` surface so the main renderer devtools show guest bootstrap state without opening a separate inspector. The desktop browser path should produce readable devtools diagnostics at every stage, but the app-side browser logger now gates those mirrored diagnostics through `_core/web_browsing`'s shared browser log level: packaged app runs default to `error` so routine preload or bridge chatter does not flood the renderer or the agent-facing framework, and operators can raise that threshold at runtime with `space.browser.setLogLevel("warn"|"info"|"debug")` when they need deeper transport tracing. `packaging/desktop/browser-preload.js` remains the legacy native-browser-view preload for the older `WebContentsView` path.
 
@@ -28,6 +65,8 @@ Documentation is top priority for this area. After any change under `packaging/`
 `packaging/desktop/server_storage_paths.js` is the canonical packaged-desktop helper for choosing the stable packaged `userData` root across desktop rebrands and for locating writable server temp and auth fallback storage outside the installed bundle.
 
 Standalone browser-bridge debugging belongs under `tests/browser_component_harness/`, not inside the real desktop host. `packaging/desktop/main.js` and `packaging/desktop/preload.js` must stay focused on production desktop behavior and should not grow test-driver IPC or scenario hooks for browser harness work.
+
+The connected-mode E2E seams are the one sanctioned exception to that rule and must stay inert in ordinary use: `SPACE_DESKTOP_E2E_EXIT_AFTER_LOAD=1` makes a loaded window print one `[E2E]` verdict line and exit, and `SPACE_DESKTOP_CHOOSER_E2E_PICK` / `SPACE_DESKTOP_CHOOSER_E2E_SCREENSHOT` drive the chooser window. Both are env-gated only, carry no production path, add no IPC channel, and must never be reachable from page script.
 
 `packaging/desktop/updater_artifacts.js` is the canonical packaged-desktop helper for updater cache ownership: it writes a marker before explicit restart-to-install handoff, then clears stale `pending/` payloads from the current and legacy updater cache roots on the next packaged launch while leaving reusable metadata such as blockmaps intact.
 
