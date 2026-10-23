@@ -130,6 +130,10 @@ the same contract upstream gave its users, now given by this fork.
 - Add connection_mode resolver with standalone default and pinned-origin guard
 - Report first-run account state instead of a credential error
 
+**Unreleased**
+
+- Remove saved servers from the connection chooser
+
 _Newest releases only. The full per-release record lives in [`ROADMAP.md`](./ROADMAP.md). Generated from `baseline-2026-06-08..HEAD` by `packaging/scripts/whats-new.js`._
 <!-- WHATS-NEW:END -->
 
