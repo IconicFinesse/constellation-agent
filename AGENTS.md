@@ -91,3 +91,17 @@ Default section order:
 - `/packaging/AGENTS.md` - packaging/ contains native app hosts and the packaging surface around them.
 - `/server/AGENTS.md` - server/ is the thin local infrastructure runtime.
 - `/tests/AGENTS.md` - tests/ owns repo-level verification harnesses and evaluation fixtures
+
+Top-level project docs (not subtree contracts):
+
+- `/PROJECT-THESIS.md` - binding scope decision and the editions model.
+- `/ROADMAP.md` - product tiers: shipped, selected, in progress, exploring.
+- `/PLAN.md` - live execution board: phase state, lane composition, gates, owner queue.
+- `/ISSUES.md` - upstream issue ledger mapped against fork work state.
+- `/DESIGN-PHILOSOPHY.md` - borrowed design principles with their code anchors.
+- `/ANALYSIS-space-agent-reference.md` - architecture and philosophical analysis of the upstream baseline.
+- `/FORK.md` - fork charter and provenance.
+
+These are public documents: they carry no personal hostnames, private-network
+addresses, tunnel identifiers, credentials, or maintainer identity. Local
+operational notes stay out of the repository.
