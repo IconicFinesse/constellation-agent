@@ -121,13 +121,16 @@ the same contract upstream gave its users, now given by this fork.
 
 <!-- WHATS-NEW:START -->
 
-**`v0.66-fork.4`**
-
-- Point update + install links at Constellation, not upstream
-
 **`v0.66-fork.5`**
 
 - Stop re-probing absent space thumbnail files (#15)
+
+**Unreleased**
+
+- Connection chooser with saved servers, standalone default, and preload connection bridge
+- Wire connected mode into main process with remote origin, pinned-origin persistence, and e2e load seam
+- Add connection_mode resolver with standalone default and pinned-origin guard
+- Report first-run account state instead of a credential error
 
 _Newest releases only. The full per-release record lives in [`ROADMAP.md`](./ROADMAP.md). Generated from `baseline-2026-06-08..HEAD` by `packaging/scripts/whats-new.js`._
 <!-- WHATS-NEW:END -->
