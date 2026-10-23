@@ -120,11 +120,12 @@ extracted into a unit-testable module rather than inline in `main.js`; zero
 **Content discovered later:** chooser polish, reconnect-on-launch behavior,
 multi-server management UX.
 
-**Serving infrastructure (approved):** `private` via
-Cloudflare Tunnel — cloudflared runs inside the Tier 1 Debian guest as a systemd
-service (upstream `127.0.0.1:3000`), not via the Umbrel cloudflared app; the
-tailnet path stays as fallback and sidesteps the ~100 MB free-tier request cap
-for large uploads.
+**Serving infrastructure (approved):** an owner-hosted HTTPS endpoint published
+through a Cloudflare Tunnel, with the connector running inside the self-hosted
+server guest as a systemd service (upstream `127.0.0.1:3000`) rather than the
+host's tunnel app; a private-network fallback route stays available and
+sidesteps the ~100 MB free-tier request cap for large uploads. No concrete
+hostnames, addresses, or credentials belong in this repository.
 
 ### Capability authoring as the compounding loop
 

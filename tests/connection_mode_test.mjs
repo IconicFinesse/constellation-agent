@@ -22,20 +22,20 @@ test("standalone is the default and needs no configuration", () => {
 });
 
 test("standalone wins even when a URL is supplied without connected mode", () => {
-  const resolved = resolveConnectionConfig({ url: "https://constellation.brauklabs.com" });
+  const resolved = resolveConnectionConfig({ url: "https://constellation.example.com" });
   assert.equal(resolved.mode, CONNECTION_MODE.STANDALONE);
   assert.equal(resolved.url, "");
 });
 
 test("https remote servers are accepted and origin-normalized", () => {
-  const validation = validateRemoteServerUrl("https://constellation.brauklabs.com/");
+  const validation = validateRemoteServerUrl("https://constellation.example.com/");
   assert.equal(validation.ok, true);
-  assert.equal(validation.origin, "https://constellation.brauklabs.com");
+  assert.equal(validation.origin, "https://constellation.example.com");
   assert.equal(validation.error, "");
 });
 
 test("plain http remote servers are rejected; localhost dev targets are allowed", () => {
-  const remote = validateRemoteServerUrl("http://100.70.166.56:3000");
+  const remote = validateRemoteServerUrl("http://192.0.2.10:3000");
   assert.equal(remote.ok, false);
   assert.match(remote.error, /https/i);
 
@@ -56,11 +56,11 @@ test("embedded credentials and non-http schemes are rejected", () => {
 
 test("saved connections keep their pinned origin and report origin changes", () => {
   const stable = normalizeSavedConnection({
-    label: "Umbrel VM",
-    url: "https://constellation.brauklabs.com",
-    origin: "https://constellation.brauklabs.com"
+    label: "My server",
+    url: "https://constellation.example.com",
+    origin: "https://constellation.example.com"
   });
-  assert.equal(stable.label, "Umbrel VM");
+  assert.equal(stable.label, "My server");
   assert.equal(stable.pinnedOriginChanged, false);
 
   const moved = normalizeSavedConnection({
@@ -89,21 +89,21 @@ test("saved connection lists dedupe by origin and drop invalid entries", () => {
 test("connected mode with an explicit URL resolves to that server", () => {
   const resolved = resolveConnectionConfig({
     mode: "connected",
-    url: "https://constellation.brauklabs.com"
+    url: "https://constellation.example.com"
   });
   assert.equal(resolved.mode, CONNECTION_MODE.CONNECTED);
-  assert.equal(resolved.origin, "https://constellation.brauklabs.com");
+  assert.equal(resolved.origin, "https://constellation.example.com");
   assert.equal(resolved.error, "");
 });
 
 test("connected mode falls back to the first saved connection", () => {
   const resolved = resolveConnectionConfig({
     mode: "connected",
-    savedConnections: [{ label: "VM", url: "https://constellation.brauklabs.com" }]
+    savedConnections: [{ label: "My server", url: "https://constellation.example.com" }]
   });
   assert.equal(resolved.mode, CONNECTION_MODE.CONNECTED);
-  assert.equal(resolved.url, "https://constellation.brauklabs.com/");
-  assert.equal(resolved.label, "VM");
+  assert.equal(resolved.url, "https://constellation.example.com/");
+  assert.equal(resolved.label, "My server");
 });
 
 test("connected mode without any saved server returns a clear error", () => {
@@ -116,7 +116,7 @@ test("connected mode without any saved server returns a clear error", () => {
 test("connected mode with an insecure URL refuses to resolve", () => {
   const resolved = resolveConnectionConfig({
     mode: "connected",
-    url: "http://100.70.166.56:3000"
+    url: "http://192.0.2.10:3000"
   });
   assert.equal(resolved.url, "");
   assert.match(resolved.error, /https/i);
@@ -139,14 +139,14 @@ test("env seam drives connected mode for the e2e harness", () => {
   assert.equal(readConnectionRequestFromEnv({}), null);
 
   const fromUrl = readConnectionRequestFromEnv({
-    [CONNECTED_SERVER_URL_ENV_NAME]: "https://constellation.brauklabs.com"
+    [CONNECTED_SERVER_URL_ENV_NAME]: "https://constellation.example.com"
   });
   assert.equal(fromUrl.mode, CONNECTION_MODE.CONNECTED);
 
   const fromMode = readConnectionRequestFromEnv({
     [CONNECTION_MODE_ENV_NAME]: "connected",
-    [CONNECTED_SERVER_URL_ENV_NAME]: "https://constellation.brauklabs.com"
+    [CONNECTED_SERVER_URL_ENV_NAME]: "https://constellation.example.com"
   });
   assert.equal(fromMode.mode, "connected");
-  assert.equal(fromMode.url, "https://constellation.brauklabs.com");
+  assert.equal(fromMode.url, "https://constellation.example.com");
 });
