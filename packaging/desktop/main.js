@@ -2202,21 +2202,38 @@ function createWindow() {
         const finishUrl = normalizeDesktopNavigationUrl(mainWindow?.webContents?.getURL?.() || "");
         const finishTitle = String(mainWindow?.webContents?.getTitle?.() || "");
         const expectedOrigin = String(connectionConfig?.origin || "");
-        mainWindow.webContents
-          .executeJavaScript(
-            "Boolean(window.spaceDesktop && window.spaceDesktop.browser && window.spaceDesktop.browser.available === true)"
-          )
-          .then((bridgeAvailable) => {
-            const ok = Boolean(bridgeAvailable) && Boolean(expectedOrigin) && finishUrl.startsWith(expectedOrigin);
-            console.log(
-              `[E2E] ${ok ? "PASS" : "FAIL"} connected-window origin=${finishUrl} pinned=${expectedOrigin} title=${JSON.stringify(finishTitle)} preloadBridge=${bridgeAvailable === true}`
-            );
-            setTimeout(() => app.exit(ok ? 0 : 1), 250);
-          })
-          .catch((error) => {
-            console.log(`[E2E] FAIL connected-window bridge check error=${String(error && error.message ? error.message : error)}`);
-            setTimeout(() => app.exit(1), 250);
-          });
+        setTimeout(() => {
+          mainWindow.webContents
+            .executeJavaScript(
+              `JSON.stringify({
+                bridge: Boolean(window.spaceDesktop && window.spaceDesktop.browser && window.spaceDesktop.browser.available === true),
+                runtimeTag: (function(){ const el = document.querySelector("x-context[data-runtime]"); return el ? String(el.getAttribute("data-runtime") || "") : ""; })()
+              })`
+            )
+            .then((probeJson) => {
+              let probe = { bridge: false, runtimeTag: "" };
+              try {
+                probe = JSON.parse(String(probeJson || ""));
+              } catch {
+                probe = { bridge: false, runtimeTag: "" };
+              }
+              const liveUrl = normalizeDesktopNavigationUrl(mainWindow?.webContents?.getURL?.() || finishUrl);
+              const isLauncherShell = /\/(enter|login)(?:[?#]|$)/u.test(liveUrl);
+              const tagOk = isLauncherShell ? true : probe.runtimeTag === "app";
+              const ok = probe.bridge === true
+                && tagOk
+                && Boolean(expectedOrigin)
+                && liveUrl.startsWith(expectedOrigin);
+              console.log(
+                `[E2E] ${ok ? "PASS" : "FAIL"} connected-window origin=${liveUrl} pinned=${expectedOrigin} title=${JSON.stringify(finishTitle)} preloadBridge=${probe.bridge === true} runtimeTag=${JSON.stringify(probe.runtimeTag)}`
+              );
+              setTimeout(() => app.exit(ok ? 0 : 1), 250);
+            })
+            .catch((error) => {
+              console.log(`[E2E] FAIL connected-window bridge check error=${String(error && error.message ? error.message : error)}`);
+              setTimeout(() => app.exit(1), 250);
+            });
+        }, 1800);
       }
     }
     desktopPageTitle = normalizeDesktopWindowTitle(mainWindow?.webContents?.getTitle?.() || desktopPageTitle);
