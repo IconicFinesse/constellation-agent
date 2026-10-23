@@ -34,6 +34,23 @@ honestly provide, contract decisions now and content decisions from use.
 The fork began at upstream commit `10f4ffd` (tag `baseline-2026-06-08`, the v0.66
 era). Everything below diverges from that point.
 
+### `v0.66-fork.7`
+
+- Desktop **connected mode**: the packaged app can run against a saved remote
+  HTTPS server instead of always spawning a local one. First launch shows a
+  connection chooser with Standalone (default) and saved servers; connections
+  are HTTPS-only outside localhost development, the origin is pinned on first
+  connect with a visible warning if it changes, and auto-update checks are
+  disabled while connected. The embedded browser keeps full `space.browser`
+  capability against the remote server with **zero** `web_browsing/` changes.
+- **Fork-tag release fix**: `release-version.js` accepted only plain `vX.Y.Z`,
+  so every `v*-fork.*` tag failed the desktop release `prepare` job before any
+  build ran. Fork tags now map the fork ordinal to the semver patch
+  (`v0.66-fork.7` → `0.66.7`), which also keeps the desktop updater monotonic.
+- **Privacy**: tracked files carry no personal hostnames, private-network
+  addresses, tunnel identifiers, or credentials; connection-mode tests use
+  RFC 2606 example domains and RFC 5737 TEST-NET addresses.
+
 ### `v0.66-fork.6`
 
 - Clear five high production dependency advisories with a plain `npm audit fix`
