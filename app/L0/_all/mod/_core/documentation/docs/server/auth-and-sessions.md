@@ -26,6 +26,23 @@ On disk:
 - relocates under `CUSTOMWARE_PATH/L2/...` when configured
 - when `CUSTOMWARE_GIT_HISTORY` is enabled, the L2 history repo ignores `meta/password.json`, `meta/logins.json`, and `meta/user_crypto.json`, and rollback preserves those current files instead of restoring old auth state
 
+## First Run
+
+A fresh server has no accounts and the browser shells offer no signup. Create the
+first account on the server itself, pointing the CLI at the same state roots the
+runtime uses:
+
+```bash
+CUSTOMWARE_PATH=/srv/space/customware SPACE_AUTH_DATA_DIR=/srv/space/auth \
+  node space user create admin --password "change-me-now" --groups _admin
+```
+
+Until at least one account carries a sealed password verifier, `/login` reports
+`HAS_USERS=false`, the shell explains that the server has no accounts yet, and
+`/api/login_challenge` answers with that same bootstrap guidance instead of
+`Invalid username or password`. Once one account exists, the response reverts to
+the generic credential error so usernames stay unenumerable.
+
 Backend-only auth keys are not stored in the logical app tree.
 
 They come from:

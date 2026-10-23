@@ -75,6 +75,7 @@ Current behavior:
 Pages:
 
 - `pages_handler.js` is the only owner of page auth gating, pretty-route redirects, `/logout`, `/pages/res/...`, root favicon and manifest aliases, injected frontend runtime-config meta tags, and project-version placeholder injection
+- `/login` additionally receives a derived `HAS_USERS` boolean meta tag that `pages_handler.js` computes per request from the resolved `L2` root through `hasAnyPasswordUser()`; it is deployment state, not an operator-declared runtime parameter, so it is deliberately absent from `params.yaml` and never exposed on other page shells
 - `pages_handler.js` is also the only owner of the public root crawler and LLM discovery aliases for `/robots.txt`, `/llms.txt`, `/llms-full.txt`, and `/sitemap.xml`
 - `/login` is public even when `LOGIN_ALLOWED=false`, but the login shell should then show only the public copy and links instead of the password form
 - `/share/space/<token>` is a special public multi-segment page route served directly by `pages_handler.js` when guest users are enabled; if guest users are disabled, it should resolve as missing

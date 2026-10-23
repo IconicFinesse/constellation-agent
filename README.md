@@ -154,7 +154,7 @@ git clone https://github.com/IconicFinesse/constellation-agent.git
 cd constellation-agent
 npm install
 
-# create yourself an admin
+# create yourself an admin (a fresh server has no accounts and no browser signup)
 node space user create admin --password "change-me-now" --full-name "Admin" --groups _admin
 
 # start the server

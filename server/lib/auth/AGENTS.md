@@ -16,7 +16,7 @@ Current files:
 - `keys_manage.js`: backend-only auth-key loading from shared env injection or local fallback storage at `server/data/auth_keys.json` by default or `SPACE_AUTH_DATA_DIR/auth_keys.json` when that override is set
 - `passwords.js`: verifier and proof helpers
 - `user_crypto.js`: persistent wrapped user-key record helpers, backend-sealed server-share recovery, local backend-share cache storage, and invalidation
-- `user_files.js`: canonical `L2/<username>/user.yaml` and `meta/` read or write helpers
+- `user_files.js`: canonical `L2/<username>/user.yaml` and `meta/` read or write helpers, plus the read-only `hasAnyPasswordUser()` first-run probe that reports whether any account already carries a sealed password verifier
 - `user_index.js`: derived user and session index snapshot builder
 - `user_manage.js`: create user, delete user, set password, and create guest user helpers
 
@@ -65,6 +65,7 @@ Current password rules:
 - `meta/password.json` stores a server-sealed SCRAM verifier envelope, not plaintext `stored_key` and `server_key` fields
 - only backend helpers that hold the auth seal key may generate accepted password records
 - a shape-valid sealed verifier that fails AES-GCM authentication means the running runtime holds different auth keys than the process that sealed it; `service.js` reports that through a loud `[auth]` operator log naming the user, the seal failure, and the active key source, while the client still receives the generic `Invalid username or password` response so usernames stay unenumerable
+- a server whose `L2` root holds no sealed password verifier is a first-run state, not a bad credential: `createLoginChallenge` then names the `node space user create` bootstrap path instead of `Invalid username or password`, and it only does so while zero accounts exist, so the response still cannot be used to enumerate usernames once a single account is present
 - `openPasswordVerifierRecord()` keeps returning `null` on any open failure; callers that need the distinction pass `onSealOpenFailure`, which never changes the login outcome
 - authenticated self-service password changes validate the current password in `service.js`, then reuse the shared password-reset primitive so the sealed verifier and cleared sessions are published through the normal auth mutation path
 - when the current user has a ready `userCrypto` record, authenticated self-service password changes must also carry a browser-generated replacement `meta/user_crypto.json` record that rewraps the same user master key for the new password
