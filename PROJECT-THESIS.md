@@ -46,6 +46,38 @@ Concretely:
 - **Memory is owned text.** `~/memory/*.include.md` lives in the user's own layer and opens in a file editor. No other agent can say that. It is not a feature we added; it is a consequence of the architecture we must not waste.
 - **Capability is authored, not trained.** A `SKILL.md` the agent writes is a durable extension of what it can do, in a format a human can read and correct.
 
+### 1.3 Editions: one product, three clients
+
+The agent lives in the client; the server is a thin authenticated filesystem.
+That split produces exactly three ways to open the product, and no fourth is
+planned:
+
+1. **Server edition (self-hosted, any OS).** The canonical workspace: files,
+   auth, job runner — nothing else. Opened from a plain browser tab it gives
+   the whole workspace minus one capability: the embedded browser. That is
+   permanent and correct signposting, not a defect to fix. Guest-page
+   injection is a privilege a desktop webview holds and a sandboxed tab does
+   not; no server-side work can move it.
+2. **Desktop edition, standalone — the default.** The packaged Electron app
+   spawns a local server on loopback. Zero-config for a new user.
+3. **Desktop edition, connected.** The same binary pointed at a remote server
+   URL instead of a local spawn: same renderer, same agent runtime, same
+   embedded browser at full `space.browser` capability, with canonical data
+   on the owner's server. One app, two connection modes chosen at launch.
+
+Rules that fall out, binding for future work:
+
+- The embedded browser is a **client capability**. Any server-side browsing
+  (headless agent research, a remotely rendered view) is a different project
+  that must argue for itself on its own merits — it is never described as
+  "parity."
+- **Standalone remains the default.** Connected mode adds a
+  saved-connection chooser at launch; it never replaces local operation.
+- Connections are HTTPS-only outside explicit localhost dev targets; the
+  origin is pinned on first connect, with a visible warning if it changes.
+- There is no separate hybrid artifact, wire protocol, or server build.
+  One server; three clients.
+
 ---
 
 ## 2. What the Analysis Established

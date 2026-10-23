@@ -85,10 +85,46 @@ era). Everything below diverges from that point.
 
 ## Selected
 
-Owner-approved for the features phase. Both are additive modules under
-`app/L0/_all/mod/constellation/`, self-contained under the modularity rule, and
-neither requires new server authority. Full descriptions in `PROJECT-THESIS.md`
-§8.4 and §8.5.
+Owner-approved for the features phase. The two thesis features are additive
+modules under `app/L0/_all/mod/constellation/`, self-contained under the
+modularity rule; the connected-mode lane is desktop-packaging work under
+`packaging/desktop/`. None of the three requires new server authority. Full
+descriptions in `PROJECT-THESIS.md` §1.3, §8.4 and §8.5.
+
+### Connected mode — the desktop app pointed at a remote server
+
+**Status:** Phase 3 Lane 1 (active 2026-10-22).
+
+**What it is:** the packaged desktop app gains a second connection mode next to
+the default `standalone` spawn: `connected` skips the local server and opens a
+saved HTTPS remote URL — same renderer, same agent runtime, same embedded
+browser at full capability, canonical data on the owner's server. The browser
+wall in a plain webUI tab resolves without touching `web_browsing/`: the
+runtime gate reads the desktop bridge, and the wall copy stays as accurate
+signposting for browser tabs.
+
+**Why it earns the slot:** first owner-ratified feature since the fork, and the
+only shape that keeps both halves of the vision — a light, always-reachable
+server for workspace data, and the fully capable embedded browser living in the
+desktop client — with zero new server authority and zero agent state moved
+server-side. It strengthens the residency thesis instead of arguing with it.
+
+**Contracts frozen now:** standalone remains the default and stays zero-config;
+a launcher chooser offers both modes every launch; saved connections (label +
+pinned origin) live in desktop `userData`; HTTPS-only outside localhost dev
+targets; origin pinned on first connect with a visible change warning;
+auto-update checks disabled in connected mode; connection-mode resolution
+extracted into a unit-testable module rather than inline in `main.js`; zero
+`web_browsing/` changes.
+
+**Content discovered later:** chooser polish, reconnect-on-launch behavior,
+multi-server management UX.
+
+**Serving infrastructure (approved):** `constellation.brauklabs.com` via
+Cloudflare Tunnel — cloudflared runs inside the Tier 1 Debian guest as a systemd
+service (upstream `127.0.0.1:3000`), not via the Umbrel cloudflared app; the
+tailnet path stays as fallback and sidesteps the ~100 MB free-tier request cap
+for large uploads.
 
 ### Capability authoring as the compounding loop
 
@@ -136,11 +172,13 @@ memory versus a space's own files, is content: discovered by use.
 That split is why the read-only half can ship before a use phase and the write-behaviour
 half cannot.
 
-### Sequencing — not yet called
+### Sequencing — partially called
 
-Whether these two come before, after, or interleaved with a real use phase is the open
-decision recorded in `PROJECT-THESIS.md` §8.6 and `PLAN.md`. No lane starts until the
-owner calls it.
+Connected mode was called by the owner on 2026-10-22 and runs as Phase 3 Lane 1
+(tunnel infra → desktop feature → docs). Whether the two module features come
+before, after, or interleaved with a real use phase remains the open decision
+recorded in `PROJECT-THESIS.md` §8.6 and `PLAN.md`. No lane for them starts until
+the owner calls it.
 
 ## In progress
 
