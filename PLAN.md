@@ -267,24 +267,110 @@ embedded browser worked with full `space.browser` capability.
 - Optional: post `prs/comment-50.md` goodwill comment as yourself.
 - PR phase stays closed — do not resume upstream PR work from this file.
 
-## Rebrand follow-ups (owner's next session)
+## Rebrand follow-ups
 
-Found during the first end-to-end desktop test of `v0.66-fork.7`. These are
-naming and polish items, not defects in shipped behavior.
+Found during the first end-to-end desktop test of `v0.66-fork.7`, then worked
+through in the `rebrand/terminology-cleanup` session.
 
-- **The `space-agent` profile folder persists.** The packaged host deliberately
-  prefers a legacy profile directory that already owns runtime state
-  (`customware/` or `server/data/`) over the current product name, which is what
-  keeps existing installs alive across rebrands. Consequence observed on
-  Windows: the saved-server file resolves to
-  `%APPDATA%\space-agent\connections.json`, not
-  `%APPDATA%\Constellation Agent\`. **A rebrand fix here is a migration, not a
-  rename** — adopt the current-name folder when it already owns runtime state,
-  otherwise move the legacy contents exactly once and record that the move
-  happened, so no install loses its customware or auth data. Contract lives in
+### Resolved
+
+- **Upstream social and project links are gone.** The dashboard resource row,
+  the `/login` and `/enter` shell footer social rows, and their four SVG icons
+  were removed outright rather than repointed. `RESOURCE_LINKS` is deleted.
+- **Repository identity points at the fork.** `repository.url`, the
+  `build.publish` owner (which had been mixed — upstream owner with this fork's
+  repo name, i.e. a repository that does not exist), and the release-notes
+  default slug all resolve to `IconicFinesse/constellation-agent`.
+- **The dead `#host` anchor is fixed.** The login host link pointed at a README
+  heading that never existed; it now targets `#run-it-yourself`.
+- **`CLOUD_SHARE_URL` no longer defaults to upstream.** It shipped as
+  `share.space-agent.ai`, which would have routed hosted space shares to
+  upstream's receiver. The default is now empty, which the existing
+  `normalizeCloudShareBaseUrl` and `canShareToCloud` guards already treat as
+  unavailable: local ZIP export and import are untouched and the hosted button
+  stays hidden until a receiver is configured deliberately.
+- **Linux maintainer metadata** now names the fork owner. The global `author`
+  field keeps Jan Tomasek, so original authorship credit survives.
+- **The `space-agent` profile folder is no longer adopted.** Owner decision: the
+  fork has no install base to protect yet, so `Space Agent` and `space-agent`
+  were dropped from `DESKTOP_LEGACY_USER_DATA_DIRNAMES` rather than migrated.
+  `Agent One` and `agent-one` stay, because those are the project's original
+  pre-`space-agent` name rather than a `space-agent` reference, and the desktop
+  packaging contract still asserts on them. Contract lives in
   `packaging/desktop/server_storage_paths.js`.
-- **Remaining "space agent" strings** in window titles, installer metadata, and
-  in-app copy. Owner is working through these.
+- **The Agent Zero video demos are gone.** Both bundled demo spaces streamed
+  upstream's YouTube channel, which is an upstream social reference shipped as
+  product surface. `compareExamples` only sorts and never filters, so the
+  `EXAMPLE_ORDER` entry alone would have left the demo listed last; the example
+  trees and the onboarding launcher entry went with it.
+
+### Deliberately left alone
+
+- **Code identifiers** containing the old word. The `normalizeSpace*` family and
+  `buildCurrentSpaceAgentInstructionsPromptSection` describe a *space's* agent
+  instructions — the domain noun, not the product — so renaming them would make
+  the code lie. Confirmed with the owner.
+- **Upstream attribution.** README, `PROJECT-THESIS.md`, `DESIGN-PHILOSOPHY.md`,
+  `FORK.md`, `LICENSE`, and the `llms` files keep their honest upstream
+  references. `Agent One` in the packaged user-data list falls in the same
+  category.
+- **The eval fixtures.** The ~50 `tests/agent_llm_performance/prompts/*` files
+  and the dated `onscreen_agent/prompts/system-prompt.backup-*` snapshots open
+  with `you are space agent ...`. They are benchmark inputs and historical
+  snapshots; editing them would invalidate existing eval baselines. The live
+  system prompt already reads `you are a browser runtime operator`.
+
+### Outstanding: artwork (mapped, not yet replaced)
+
+Every asset below is still upstream artwork. Icons are a separate pass from the
+terminology sweep; this list is the marker set so the replacement does not miss
+a surface. The new `constellation-agent-icon*` files already sit beside their
+`space-agent-icon*` counterparts.
+
+**Page identity** (wired into all six server pages and the PWA manifest):
+
+- `server/pages/res/favicon.ico`
+- `server/pages/res/favicon-16x16.png`
+- `server/pages/res/favicon-32x32.png`
+- `server/pages/res/apple-touch-icon.png`
+- `server/pages/res/android-chrome-192x192.png`
+- `server/pages/res/android-chrome-512x512.png`
+
+**Desktop packaging** (wired into electron-builder):
+
+- `packaging/platforms/windows/icon.ico`
+- `packaging/platforms/linux/icons/` — `16x16`, `24x24`, `32x32`, `48x48`,
+  `64x64`, `128x128`, `256x256`, `512x512`, plus `icon.png`
+
+**Superseded sources** (replace, do not layer over):
+
+- `packaging/resources/icons/source/space-agent-icon.png`
+- `packaging/resources/icons/source/space-agent-icon-256.webp`
+- `packaging/resources/icons/source/space-agent-icon-512.webp`
+
+**Astronaut visual identity:**
+
+- `server/pages/res/astronaut_no_bg.png`, `astronaut_no_bg.webp`,
+  `astronaut_green_bg.png`
+- `app/L0/_all/mod/_core/visual/res/chat/overlay/astronaut_no_bg.webp`
+- `app/L0/_all/mod/_core/visual/res/chat/admin/astronaut_no_bg.png` and `.webp`
+- `app/L0/_all/mod/_core/visual/res/engineer/astronaut_red_no_bg.png` and
+  `astronaut_red_512h.webp`
+
+**Unreferenced GitHub assets** (safe to drop whenever the artwork pass runs):
+
+- `.github/thumbnail.webp`
+- `.github/readme-banner.png`
+- `.github/readme-banner.webp`
+- `.github/readme-banner-thin.webp`
+- `.github/readme-try-live-now.svg`
+
+`.github/readme-banner-thin.svg` is the one that is actually referenced from the
+README. Note `server/pages/res/readme-banner.webp` is a *different* file with the
+same basename and is the live Open Graph image — do not confuse the two.
+
+### Outstanding: polish
+
 - **Chooser polish:** the window comfortably shows about two saved servers
   before scrolling, and saved servers can only be managed at launch — there is
   no in-app settings surface for them yet.
