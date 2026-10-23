@@ -15,16 +15,16 @@ This doc covers the file-backed auth model and the session contract.
 Current logical storage:
 
 - `L2/<username>/user.yaml`: user metadata
-- `L2/<username>/meta/password.json`: sealed password verifier envelope
-- `L2/<username>/meta/logins.json`: active session verifiers plus signed metadata
-- `L2/<username>/meta/user_crypto.json`: wrapped browser-owned user master key record
+- `L2/<username>/metadata/password.json`: sealed password verifier envelope
+- `L2/<username>/metadata/logins.json`: active session verifiers plus signed metadata
+- `L2/<username>/metadata/user_crypto.json`: wrapped browser-owned user master key record
 - `L2/<username>/mod/`: user-owned modules
 
 On disk:
 
 - defaults under repo `app/L2/...`
 - relocates under `CUSTOMWARE_PATH/L2/...` when configured
-- when `CUSTOMWARE_GIT_HISTORY` is enabled, the L2 history repo ignores `meta/password.json`, `meta/logins.json`, and `meta/user_crypto.json`, and rollback preserves those current files instead of restoring old auth state
+- when `CUSTOMWARE_GIT_HISTORY` is enabled, the L2 history repo ignores `metadata/password.json`, `metadata/logins.json`, and `metadata/user_crypto.json`, and rollback preserves those current files instead of restoring old auth state
 
 ## First Run
 
@@ -73,7 +73,7 @@ Important behavior:
 
 - the browser cookie is a bearer token
 - in multi-user runtime the cookie value also carries the username hint needed to load only that user's auth files; older token-only cookies are cleared because resolving them would require scanning all users
-- the backend stores only a verifier plus signed metadata in `meta/logins.json`
+- the backend stores only a verifier plus signed metadata in `metadata/logins.json`
 - each stored session record also carries a backend-generated `sessionId`, which the browser uses to bind its session-scoped `userCrypto` cache to the active login
 - unsigned or expired session records are rejected
 - revocation deletes the stored session record and republishes the changed auth file through the shared mutation commit path
@@ -87,8 +87,8 @@ Important behavior:
 
 Important rules:
 
-- backend compromise of only the app tree is not enough because `meta/user_crypto.json` does not include the backend-only server share
-- `meta/user_crypto.json` may include a backend-sealed server-share envelope for multi-instance recovery, but that envelope is not usable without the backend auth keys
+- backend compromise of only the app tree is not enough because `metadata/user_crypto.json` does not include the backend-only server share
+- `metadata/user_crypto.json` may include a backend-sealed server-share envelope for multi-instance recovery, but that envelope is not usable without the backend auth keys
 - password knowledge alone is not enough because the browser also needs the backend-only server share released during a successful login
 - `/api/login_challenge` reports whether the account is `ready`, `missing`, or `invalidated`; legacy accounts with no record receive a one-time provisioning share so the browser can create the missing record during the same login
 - accounts that still have a wrapped record but no recoverable server share are treated as `invalidated`, not `missing`, so login does not silently replace a key that may still protect existing ciphertext
@@ -105,7 +105,7 @@ Important rules:
 
 - do not hand-author these files
 - only backend helpers that hold the seal key can create accepted payloads
-- authenticated self-service password changes go through `/api/password_change`, which validates the current password against the opened sealed verifier, rewrites `meta/password.json`, rewraps `meta/user_crypto.json` when the current session has unlocked browser crypto, clears `meta/logins.json`, and clears the current browser auth cookie
+- authenticated self-service password changes go through `/api/password_change`, which validates the current password against the opened sealed verifier, rewrites `metadata/password.json`, rewraps `metadata/user_crypto.json` when the current session has unlocked browser crypto, clears `metadata/logins.json`, and clears the current browser auth cookie
 - legacy plaintext verifier files are migrated to sealed form when that user is loaded on demand, not by scanning every L2 user at startup
 - the auth service uses the shared state system for challenge coordination; there is no second in-memory login-challenge path in the runtime
 
@@ -144,7 +144,7 @@ This mode is used especially by packaged desktop flows.
 
 Important side effects:
 
-- user creation initializes the user directory, `meta/`, and `mod/`, and publishes the new auth files so incremental user indexing sees the new account immediately
+- user creation initializes the user directory, `metadata/`, and `mod/`, and publishes the new auth files so incremental user indexing sees the new account immediately
 - password resets rewrite the sealed verifier and clear active sessions, and the authenticated `_core/user` page reaches that same rewrite path through `/api/password_change` after the backend validates the current password and receives a replacement wrapped `user_crypto.json` record from the browser when needed
 - guest users use randomized `guest_...` usernames
 - guest deletion removes the whole `L2/<username>/` root and republishes that logical path so replicated user and session indexes drop the deleted guest immediately

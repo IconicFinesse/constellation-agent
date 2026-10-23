@@ -4,7 +4,7 @@
 
 `_core/login_hooks/` owns frontend-only login lifecycle hooks for authenticated framework-backed pages.
 
-It is a headless core module. It does not own a route or UI. Its job is to run during authenticated browser bootstrap, check the client-owned first-login marker in `~/meta/login_hooks.json`, fire the first-login JS extension seam once per user when that marker is missing, and fire the repeatable any-login seam when the authenticated shell was reached directly from `/login`.
+It is a headless core module. It does not own a route or UI. Its job is to run during authenticated browser bootstrap, check the client-owned first-login marker in `~/metadata/login_hooks.json`, fire the first-login JS extension seam once per user when that marker is missing, and fire the repeatable any-login seam when the authenticated shell was reached directly from `/login`.
 
 Documentation is top priority for this module. After any change under `_core/login_hooks/`, update this file, the affected app docs, and the matching supplemental docs in the same session.
 
@@ -20,8 +20,8 @@ This scope owns:
 ### Local Contracts
 
 - this module stays frontend-only and must not require backend auth-service edits to fire login lifecycle hooks
-- the first-login marker path is `~/meta/login_hooks.json`; its existence suppresses later first-login hook dispatch for that user
-- the marker file is client-owned state under the current user's `meta/` folder, not backend auth state
+- the first-login marker path is `~/metadata/login_hooks.json`; its existence suppresses later first-login hook dispatch for that user
+- the marker file is client-owned state under the current user's `metadata/` folder, not backend auth state
 - first-login hook dispatch uses the explicit JS extension point `_core/login_hooks/first_login`
 - repeatable login hook dispatch uses the explicit JS extension point `_core/login_hooks/any_login`
 - first-login hooks run before the marker file is written and before any-login hooks on the same bootstrap
@@ -36,7 +36,7 @@ This scope owns:
 
 - keep this module headless and bootstrap-focused
 - use the shared `_core/framework/initializer.js/initialize/end` seam instead of editing page shells
-- keep first-login persistence minimal and explicit so future client-owned lifecycle markers can share the same `meta/` folder without confusion
+- keep first-login persistence minimal and explicit so future client-owned lifecycle markers can share the same `metadata/` folder without confusion
 - keep feature-owned onboarding behavior in first-login hook extensions owned by the feature module instead of hardcoding that behavior into `login-hooks.js`
 - if the marker path, dispatch order, extension point names, or login-detection heuristic changes, also update `/app/AGENTS.md` and the matching docs under `_core/documentation/docs/app/`
 

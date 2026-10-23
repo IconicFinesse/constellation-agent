@@ -544,9 +544,9 @@ export function createAuthService(options = {}) {
             projectRoot,
             runtimeParams
           },
-          [`/app/L2/${normalizedUsername}/meta/password.json`]
+          [`/app/L2/${normalizedUsername}/metadata/password.json`]
         );
-        changedProjectPaths.add(`/app/L2/${normalizedUsername}/meta/password.json`);
+        changedProjectPaths.add(`/app/L2/${normalizedUsername}/metadata/password.json`);
         changed = true;
       }
 
@@ -557,9 +557,9 @@ export function createAuthService(options = {}) {
             projectRoot,
             runtimeParams
           },
-          [`/app/L2/${normalizedUsername}/meta/logins.json`]
+          [`/app/L2/${normalizedUsername}/metadata/logins.json`]
         );
-        changedProjectPaths.add(`/app/L2/${normalizedUsername}/meta/logins.json`);
+        changedProjectPaths.add(`/app/L2/${normalizedUsername}/metadata/logins.json`);
         changed = true;
       }
 
@@ -677,7 +677,7 @@ export function createAuthService(options = {}) {
         projectRoot,
         runtimeParams
       },
-      [`/app/L2/${normalizedUsername}/meta/logins.json`]
+      [`/app/L2/${normalizedUsername}/metadata/logins.json`]
     );
 
     return {
@@ -959,7 +959,7 @@ export function createAuthService(options = {}) {
         projectRoot,
         runtimeParams
       },
-      [`/app/L2/${normalizedUsername}/meta/logins.json`]
+      [`/app/L2/${normalizedUsername}/metadata/logins.json`]
     );
 
     return true;

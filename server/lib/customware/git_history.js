@@ -28,9 +28,9 @@ const IMMEDIATE_WAIT_THRESHOLD_MS = 10 * 60_000;
 const DEFAULT_AUTHOR_NAME = "Constellation Agent";
 const DEFAULT_AUTHOR_EMAIL = "constellation-agent@local";
 const USER_HISTORY_IGNORED_PATHS = [
-  "meta/password.json",
-  "meta/logins.json",
-  "meta/user_crypto.json"
+  "metadata/password.json",
+  "metadata/logins.json",
+  "metadata/user_crypto.json"
 ];
 const pendingCommits = new Map();
 let suppressionDepth = 0;

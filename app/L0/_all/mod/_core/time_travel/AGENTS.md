@@ -52,7 +52,7 @@ This module owns:
 - the backend returns `currentHash`; that commit is treated as the current point in time and should not present a rollback action
 - travel must ask for explicit user confirmation in the preview modal because it hard-resets the selected writable owner root on the server
 - rollback preserves the previous head in backend-owned history refs so commits after the travelled-to point remain visible for forward travel
-- the backend preserves ignored auth files such as `meta/password.json` and `meta/logins.json`; the page should not claim to roll those files back
+- the backend preserves ignored auth files such as `metadata/password.json` and `metadata/logins.json`; the page should not claim to roll those files back
 - Travel In Time and Revert Changes should stay in a shared action-button parent and render at matching widths
 
 ## Work Guidance

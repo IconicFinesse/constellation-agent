@@ -35,11 +35,11 @@ Current profile and password contract:
 - the page reads current identity through `space.api.userSelfInfo()`
 - the full-name editor reads and writes `~/user.yaml` directly through the authenticated file APIs and should preserve unrelated YAML keys already stored there
 - blank full-name saves should normalize back to the username instead of storing an empty display name
-- the password form must not hand-author `~/meta/password.json`; it calls the backend-owned `password_change` endpoint so current-password validation, sealed verifier generation, and session clearing stay server-owned
-- when `space.utils.userCrypto` is ready for the current browser session, the password form must also submit a browser-generated replacement `~/meta/user_crypto.json` payload that rewraps the same user master key for the new password instead of re-encrypting stored user data
+- the password form must not hand-author `~/metadata/password.json`; it calls the backend-owned `password_change` endpoint so current-password validation, sealed verifier generation, and session clearing stay server-owned
+- when `space.utils.userCrypto` is ready for the current browser session, the password form must also submit a browser-generated replacement `~/metadata/user_crypto.json` payload that rewraps the same user master key for the new password instead of re-encrypting stored user data
 - a successful password change signs out active sessions, so the routed page should clear its local form state, clear the current session's encrypted `userCrypto` `localStorage` restore blob, and redirect the browser back to `/login`
 - when frontend config reports `SINGLE_USER_APP=true`, the password form should stay read-only and explain that password login is disabled in single-user runtimes
-- user-facing copy and status messages on `#/user` should stay plain-language and must not expose storage paths, verifier filenames, or endpoint names such as `~/user.yaml`, `~/meta/password.json`, or `password_change`
+- user-facing copy and status messages on `#/user` should stay plain-language and must not expose storage paths, verifier filenames, or endpoint names such as `~/user.yaml`, `~/metadata/password.json`, or `password_change`
 
 ## Work Guidance
 

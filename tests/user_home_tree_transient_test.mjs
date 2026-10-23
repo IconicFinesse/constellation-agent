@@ -36,8 +36,8 @@ test("buildUserHomeFileTreeLines omits .git directories and their descendants", 
         "~/.git/",
         "~/.git/config",
         "~/.git/objects/ab/cd",
-        "~/conf/",
-        "~/conf/app.yaml",
+        "~/config/",
+        "~/config/app.yaml",
         "~/user.yaml"
       ],
       {
@@ -46,7 +46,7 @@ test("buildUserHomeFileTreeLines omits .git directories and their descendants", 
     ),
     [
       "~/",
-      "  conf/",
+      "  config/",
       "    app.yaml",
       "  user.yaml"
     ]

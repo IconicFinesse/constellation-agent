@@ -260,7 +260,7 @@ not found). Families recur; our fixes address the live instances.
    - The group index is in-memory, so a CLI-created user reads `groups: []`
      until the service restarts and `_admin` does not apply on a live instance
      until then. Not code-fixed here; restart after adding users.
-   - A CLI password reset invalidates `meta/user_crypto.json` by design (an
+   - A CLI password reset invalidates `metadata/user_crypto.json` by design (an
      admin reset cannot rewrap a browser-owned key), but that state is
      terminal: `createLoginChallenge` only offers a provisioning share for
      `missing`, and `/api/user_crypto_bootstrap` returns early unless the state

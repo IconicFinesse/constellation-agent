@@ -1,7 +1,7 @@
 import { DEFAULT_PROMPT_BUDGET_RATIOS, normalizePromptBudgetRatios } from "/mod/_core/agent_prompt/prompt-items.js";
 
-export const ADMIN_CHAT_CONFIG_PATH = "~/conf/admin-chat.yaml";
-export const ADMIN_CHAT_HISTORY_PATH = "~/hist/admin-chat.json";
+export const ADMIN_CHAT_CONFIG_PATH = "~/config/admin-chat.yaml";
+export const ADMIN_CHAT_HISTORY_PATH = "~/history/admin-chat.json";
 export const DEFAULT_ADMIN_CHAT_MAX_TOKENS = 120_000;
 export const ADMIN_CHAT_LLM_PROVIDER = {
   API: "api",

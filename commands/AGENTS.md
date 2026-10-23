@@ -329,8 +329,8 @@ Current behavior:
 
 - `create` creates the logical `L2/<username>/` root
 - `create` writes metadata to `L2/<username>/user.yaml`
-- `create` writes the backend-sealed password verifier envelope to `L2/<username>/meta/password.json`
-- `create` initializes signed session storage in `L2/<username>/meta/logins.json`
+- `create` writes the backend-sealed password verifier envelope to `L2/<username>/metadata/password.json`
+- `create` initializes signed session storage in `L2/<username>/metadata/logins.json`
 - `create` ensures a `mod/` folder exists for the user
 - `create --groups <group[,group...]>` adds the created user to one or more writable `L1` groups after user creation
 - group ids passed through `--groups` are comma-separated, normalized, de-duplicated, and sorted before membership writes
@@ -352,7 +352,7 @@ Guidance:
 
 - keep user creation idempotent only when explicitly requested; otherwise fail on existing users
 - password-changing commands must clear sessions unless the auth model is intentionally changed
-- keep auth storage layout consistent: metadata in `user.yaml`, auth state under `meta/`, and backend-only seal keys outside `app/`
+- keep auth storage layout consistent: metadata in `user.yaml`, auth state under `metadata/`, and backend-only seal keys outside `app/`
 - before sealing, `create` and `password` print a `[user]` warning when the active seal key comes from environment injection or when a different legacy `supervisor/auth/auth_keys.json` store is present, because a verifier sealed by one key source cannot be opened by a runtime started with another
 
 ### `group`
@@ -417,7 +417,7 @@ Guidance:
 - unknown flags or malformed argument combinations should fail fast with a useful usage error
 - prefer deterministic output over chatty logs
 - do not hide important destructive behavior behind implicit defaults
-- prefer explicit filesystem contracts such as `user.yaml`, `meta/password.json`, `meta/logins.json`, and `group.yaml`
+- prefer explicit filesystem contracts such as `user.yaml`, `metadata/password.json`, `metadata/logins.json`, and `group.yaml`
 - keep command names and subcommands stable once exposed; when changing them, update help text and docs in the same session
 
 ## Work Guidance

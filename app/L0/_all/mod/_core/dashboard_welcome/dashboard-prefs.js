@@ -1,4 +1,4 @@
-const DASHBOARD_CONFIG_PATH = "~/conf/dashboard.yaml";
+const DASHBOARD_CONFIG_PATH = "~/config/dashboard.yaml";
 const DASHBOARD_WELCOME_HIDDEN_CHANGE_EVENT = "dashboard_welcome:hidden_change";
 let dashboardConfigKnownMissing = false;
 

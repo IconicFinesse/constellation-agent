@@ -61,7 +61,7 @@ When a UI needs user-visible download failure feedback without fetching the arch
 - Browser storage is for small non-authoritative UI state.
 - Persistent user or group state should live in app files or explicit backend APIs.
 - Use `space.config` only for frontend-exposed runtime params, not for general persistence.
-- Browser code may update the current user's `~/user.yaml` directly when changing browser-owned metadata such as `full_name`, but password rotation must stay backend-owned through `space.api.call("password_change", ...)` instead of writing `~/meta/password.json`; that endpoint also clears the current login's persisted `userCrypto` browser state.
+- Browser code may update the current user's `~/user.yaml` directly when changing browser-owned metadata such as `full_name`, but password rotation must stay backend-owned through `space.api.call("password_change", ...)` instead of writing `~/metadata/password.json`; that endpoint also clears the current login's persisted `userCrypto` browser state.
 
 ## Identity Snapshot
 

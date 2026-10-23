@@ -71,7 +71,7 @@ function buildUserCryptoProjectPath(username) {
     throw new Error(`Invalid username: ${String(username || "")}`);
   }
 
-  return `/app/L2/${normalizedUsername}/meta/${USER_CRYPTO_FILENAME}`;
+  return `/app/L2/${normalizedUsername}/metadata/${USER_CRYPTO_FILENAME}`;
 }
 
 function buildUserCryptoShareDir(projectRoot) {

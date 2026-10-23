@@ -4,7 +4,7 @@
 
 `_core/agent/` owns the routed browser page for basic agent information and personal agent settings.
 
-It provides the first-party `#/agent` route, keeps the page UI and persistence local to the module, reuses the public login-shell astronaut asset for the informational card, and lets the current user edit their personal prompt-include file at `~/conf/personality.system.include.md`.
+It provides the first-party `#/agent` route, keeps the page UI and persistence local to the module, reuses the public login-shell astronaut asset for the informational card, and lets the current user edit their personal prompt-include file at `~/config/personality.system.include.md`.
 
 Documentation is top priority for this module. After any change under `_core/agent/`, update this file and any affected parent docs in the same session.
 
@@ -38,9 +38,9 @@ Current UI and persistence contract:
 - that floating astronaut should stay shadowless so the page matches the shared glass direction
 - the first card should explain Constellation Agent as a browser-first runtime that can reshape the live workspace and scale from personal use to shared group use; it should not foreground implementation paths or prompt-include filenames
 - the first card does not show current-user identity text and ends with one compact external repo action that links to `https://github.com/IconicFinesse/constellation-agent`
-- the second card owns the personality textarea and should load or save the exact file body from `~/conf/personality.system.include.md`
+- the second card owns the personality textarea and should load or save the exact file body from `~/config/personality.system.include.md`
 - the personality textarea has no extra label line above it and uses compact shared button styling for reload and save actions
-- save flow should create `~/conf/` when needed before writing the personality file
+- save flow should create `~/config/` when needed before writing the personality file
 - missing personality files are the normal empty-state case and should not surface as hard errors
 - the personality file is promptinclude-owned content: readable `*.system.include.md` files are injected into the agent system prompt, so this page must treat the textarea as raw include text rather than inventing a second config format
 

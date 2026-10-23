@@ -10,7 +10,7 @@ import {
   serializeSimpleYaml
 } from "../../../app/L0/_all/mod/_core/framework/js/yaml-lite.js";
 
-const USER_META_DIRNAME = "meta";
+const USER_META_DIRNAME = "metadata";
 const USER_CONFIG_FILENAME = "user.yaml";
 const USER_LOGINS_FILENAME = "logins.json";
 const USER_PASSWORD_FILENAME = "password.json";

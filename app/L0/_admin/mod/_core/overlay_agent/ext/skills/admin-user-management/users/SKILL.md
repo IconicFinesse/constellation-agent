@@ -19,8 +19,8 @@ Use this skill for concrete user-account work.
 
 - `L2/<username>/` is the user's logical root.
 - `L2/<username>/user.yaml` stores user metadata such as `full_name`.
-- `L2/<username>/meta/password.json` stores the backend-sealed SCRAM verifier.
-- `L2/<username>/meta/logins.json` stores signed session verifiers.
+- `L2/<username>/metadata/password.json` stores the backend-sealed SCRAM verifier.
+- `L2/<username>/metadata/logins.json` stores signed session verifiers.
 - `L2/<username>/mod/` is that user's customware module root.
 
 There is no separate user registry file. The watched user index is derived from files under `L2/<username>/`.
@@ -30,7 +30,7 @@ There is no separate user registry file. The watched user index is derived from 
 - Use logical paths such as `L2/alice/user.yaml`.
 - When writable storage is relocated under `CUSTOMWARE_PATH`, these logical paths stay the same.
 - `fileWrite(".../")` creates a directory because the path ends with `/`.
-- Do not hand-craft `meta/password.json` or individual session entries. Use `password_generate` for password records and only write `{}` when revoking sessions.
+- Do not hand-craft `metadata/password.json` or individual session entries. Use `password_generate` for password records and only write `{}` when revoking sessions.
 
 ## Create A User
 
@@ -55,11 +55,11 @@ return await space.api.fileWrite({
       content: space.utils.yaml.stringify({ full_name: fullName })
     },
     {
-      path: `L2/${username}/meta/password.json`,
+      path: `L2/${username}/metadata/password.json`,
       content: `${JSON.stringify(verifier, null, 2)}\n`
     },
     {
-      path: `L2/${username}/meta/logins.json`,
+      path: `L2/${username}/metadata/logins.json`,
       content: "{}\n"
     }
   ]
@@ -80,7 +80,7 @@ return await space.api.fileWrite(path, space.utils.yaml.stringify(config));
 
 ## Reset A Password
 
-Generate a fresh sealed verifier first, then overwrite `meta/password.json`.
+Generate a fresh sealed verifier first, then overwrite `metadata/password.json`.
 
 ```js
 const verifier = await space.api.call("password_generate", {
@@ -89,17 +89,17 @@ const verifier = await space.api.call("password_generate", {
 });
 
 return await space.api.fileWrite(
-  "L2/alice/meta/password.json",
+  "L2/alice/metadata/password.json",
   `${JSON.stringify(verifier, null, 2)}\n`
 );
 ```
 
 ## Revoke Sessions
 
-Overwrite `L2/<username>/meta/logins.json` with `{}`.
+Overwrite `L2/<username>/metadata/logins.json` with `{}`.
 
 ```js
-return await space.api.fileWrite("L2/alice/meta/logins.json", "{}\n");
+return await space.api.fileWrite("L2/alice/metadata/logins.json", "{}\n");
 ```
 
 When resetting a password, prefer writing the new verifier and clearing `logins.json` in the same batch. Do not attempt to preserve or invent individual session entries.

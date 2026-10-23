@@ -46,7 +46,7 @@ These endpoints are thin wrappers over shared helpers in `server/lib/customware/
 
 `user_self_info` is the frontend-facing identity snapshot. Frontend callers derive writable app roots from `username`, `managedGroups`, and `_admin` membership in `groups` without authorizing backend edits.
 
-`password_change` is the authenticated self-service password-rotation endpoint for the current user. Frontend code should call it instead of writing `~/meta/password.json` directly, because the backend validates the current password, seals the replacement verifier, clears sessions, and clears the current auth cookie.
+`password_change` is the authenticated self-service password-rotation endpoint for the current user. Frontend code should call it instead of writing `~/metadata/password.json` directly, because the backend validates the current password, seals the replacement verifier, clears sessions, and clears the current auth cookie.
 
 `user_crypto_session_key` is the authenticated localStorage-restore endpoint. It returns the current session-derived wrapping key by hashing the live backend `sessionId` with the server-held session secret, so the browser can decrypt or encrypt the one persisted `userCrypto` `localStorage` blob without the server persisting that wrapping key or the user master key.
 
@@ -64,8 +64,8 @@ These endpoints are thin wrappers over shared helpers in `server/lib/customware/
 - The server issues the `space_session` cookie and validates it by hashing it with a backend-held secret.
 - When the current login may auto-restore `userCrypto` on the same browser profile, the browser stores one encrypted `userCrypto` blob in `localStorage`, and authenticated browser code fetches the current session-derived wrapping key from `/api/user_crypto_session_key`.
 - User metadata lives at `L2/<username>/user.yaml`.
-- `L2/<username>/meta/password.json` stores a server-sealed SCRAM verifier envelope, not a self-sufficient plaintext verifier.
-- `L2/<username>/meta/logins.json` stores backend-keyed session verifiers plus signed session metadata.
+- `L2/<username>/metadata/password.json` stores a server-sealed SCRAM verifier envelope, not a self-sufficient plaintext verifier.
+- `L2/<username>/metadata/logins.json` stores backend-keyed session verifiers plus signed session metadata.
 - Authenticated self-service password changes still stay backend-owned through `/api/password_change`; browser code may edit `L2/<username>/user.yaml` directly, but not the password verifier file.
 - User-owned modules live under `L2/<username>/mod/`.
 - Backend auth keys come from shared environment injection through `SPACE_AUTH_PASSWORD_SEAL_KEY` and `SPACE_AUTH_SESSION_HMAC_KEY` for multi-instance deployments, or from the local fallback `server/data/auth_keys.json` during single-instance development.

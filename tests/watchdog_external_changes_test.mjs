@@ -117,15 +117,15 @@ test("watchdog tracks CLI-style group writes immediately and L2 user writes on d
     "the CLI-style group file to appear in the watchdog index"
   );
 
-  assert.equal(watchdog.hasPath("/app/L2/bob/meta/password.json"), false);
+  assert.equal(watchdog.hasPath("/app/L2/bob/metadata/password.json"), false);
 
   await watchdog.ensureFileIndexShardLoaded("L2/bob");
 
   assert.equal(watchdog.hasPath("/app/L2/bob/user.yaml"), true);
-  assert.equal(watchdog.hasPath("/app/L2/bob/meta/password.json"), true);
-  assert.equal(watchdog.hasPath("/app/L2/bob/meta/logins.json"), true);
+  assert.equal(watchdog.hasPath("/app/L2/bob/metadata/password.json"), true);
+  assert.equal(watchdog.hasPath("/app/L2/bob/metadata/logins.json"), true);
   assert.equal(Boolean(watchdog.getIndex("path_index")["/app/L1/team-red/group.yaml"]), true);
-  assert.equal(Boolean(watchdog.getIndex("path_index")["/app/L2/bob/meta/password.json"]), true);
+  assert.equal(Boolean(watchdog.getIndex("path_index")["/app/L2/bob/metadata/password.json"]), true);
 });
 
 test("watchdog can load L2 auth state without loading the full user shard", async (testContext) => {
@@ -159,7 +159,7 @@ test("watchdog can load L2 auth state without loading the full user shard", asyn
 
   assert.equal(watchdog.getIndex("user_index").hasUser("alice"), true);
   assert.equal(watchdog.hasPath("/app/L2/alice/user.yaml"), true);
-  assert.equal(watchdog.hasPath("/app/L2/alice/meta/password.json"), true);
+  assert.equal(watchdog.hasPath("/app/L2/alice/metadata/password.json"), true);
   assert.equal(watchdog.hasPath("/app/L2/alice/notes/private.txt"), false);
 
   await watchdog.ensureFileIndexShardLoaded("L2/alice");

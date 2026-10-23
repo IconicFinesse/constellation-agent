@@ -182,7 +182,7 @@ export const help = {
     "node space user password <username> --password <password>"
   ],
   description:
-    "Creates L2 users, stores user metadata in user.yaml, stores the password verifier in meta/password.json, and clears existing login sessions in meta/logins.json when the password changes. When CUSTOMWARE_PATH is configured the writable L2 tree lives under CUSTOMWARE_PATH/L2. User creation may also add the user to writable L1 groups.",
+    "Creates L2 users, stores user metadata in user.yaml, stores the password verifier in metadata/password.json, and clears existing login sessions in metadata/logins.json when the password changes. When CUSTOMWARE_PATH is configured the writable L2 tree lives under CUSTOMWARE_PATH/L2. User creation may also add the user to writable L1 groups.",
   arguments: [
     {
       name: "<username>",
@@ -192,7 +192,7 @@ export const help = {
   options: [
     {
       flag: "create",
-      description: "Create a user directory with user.yaml, meta/password.json, meta/logins.json, and mod/."
+      description: "Create a user directory with user.yaml, metadata/password.json, metadata/logins.json, and mod/."
     },
     {
       flag: "password",

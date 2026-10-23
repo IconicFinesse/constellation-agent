@@ -32,7 +32,7 @@ Resolution rules:
 - `/app/L1/...` and `/app/L2/...` map into `CUSTOMWARE_PATH/L1/...` and `CUSTOMWARE_PATH/L2/...` when `CUSTOMWARE_PATH` is configured
 - otherwise writable paths map into repo `app/L1/...` and `app/L2/...`
 - `~/...` expands to the authenticated user's `L2/<username>/...`
-- auth state can be indexed from only `user.yaml`, `meta/password.json`, and `meta/logins.json`; routes that list or resolve user files must demand-load the full `L2/<username>` file-index shard separately
+- auth state can be indexed from only `user.yaml`, `metadata/password.json`, and `metadata/logins.json`; routes that list or resolve user files must demand-load the full `L2/<username>` file-index shard separately
 
 ## Permission Model
 
@@ -83,7 +83,7 @@ Current contract:
 - operation previews require write access and return affected-file metadata for travel or revert, plus an operation-specific patch when a single file is requested
 - rollback resets the owner root to a requested commit, preserves the previous head for forward travel when possible, and suppresses history scheduling so rollback does not create a commit loop
 - revert creates a new history commit with inverse changes instead of resetting the owner root to the selected commit
-- owner repos carry a `.gitignore`; `L2` repos ignore `meta/password.json`, `meta/logins.json`, and `meta/user_crypto.json`, while `L1` repos currently use an empty ignore file
+- owner repos carry a `.gitignore`; `L2` repos ignore `metadata/password.json`, `metadata/logins.json`, and `metadata/user_crypto.json`, while `L1` repos currently use an empty ignore file
 - rollback preserves ignored L2 auth and wrapped-user-key files so old commits cannot log the user out, restore an old password verifier, or silently replace the current wrapped browser key
 - `.git` paths are reserved infrastructure and are excluded from path indexes, app-file APIs, and direct app fetches
 

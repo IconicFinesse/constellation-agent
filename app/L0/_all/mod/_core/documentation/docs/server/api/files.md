@@ -201,7 +201,7 @@ Behavior summary:
 - each `L1/<group>/` and `L2/<user>/` owner root is committed as its own local repository when mutations are quiet for 10 seconds
 - long write bursts shorten the pending debounce to 5 seconds after 1 minute, 1 second after 5 minutes, and immediate commit after 10 minutes
 - app-file writes, deletes, copies, moves, group/user/auth writes, and module installs schedule history for the affected owner root
-- L2 history repos ignore `meta/password.json` and `meta/logins.json`; rollback preserves those files instead of resetting them to old committed state
+- L2 history repos ignore `metadata/password.json` and `metadata/logins.json`; rollback preserves those files instead of resetting them to old committed state
 - L1 history repos still get a `.gitignore`, currently empty
 - `.git` metadata is reserved and blocked from app-file reads, writes, direct fetches, and path indexes
 - `git_history_list` accepts `path`, optional `limit`, optional `offset`, and optional `fileFilter`; plain filters match as open-ended changed-path or nested-filename substrings, responses return a page of commit metadata with timestamps, hashes, `currentHash`, and full changed-file action entries for listed commits without loading patch bodies, and filtered pages may return `total: null` when `hasMore` is already known without a full scan

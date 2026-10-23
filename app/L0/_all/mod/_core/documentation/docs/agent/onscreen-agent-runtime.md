@@ -33,13 +33,13 @@ This doc covers the floating routed overlay agent as a frontend runtime surface.
 
 Current persisted files:
 
-- config: `~/conf/onscreen-agent.yaml`
+- config: `~/config/onscreen-agent.yaml`
 - browser UI state: `sessionStorage["space.onscreenAgent.uiState"]` with `localStorage["space.onscreenAgent.uiState"]` as fallback
-- history: `~/hist/onscreen-agent.json`
+- history: `~/history/onscreen-agent.json`
 
 The loop runs entirely in the browser, so a full-page navigation (the same-tab `/admin` handoff, a reload, a closed tab) tears down the live turn and aborts its request. History writes are therefore not turn-boundary-only: the loop persists the submitted user turn at prompt start, then `history-persistence.js` gates throttled mid-stream checkpoints that write the pending turn plus the partial reply as a settled, interrupted-flagged snapshot. A reload during a long prompt restores readable history instead of nothing; the settled turn-boundary write still replaces the checkpoint with the authoritative record. Checkpoints never mutate live history or the streaming assistant message.
 
-The stored overlay config keeps `api_key` encrypted at rest when `space.utils.userCrypto` is unlocked for the current browser session. Encrypted values are stored as `userCrypto:`-prefixed strings in `~/conf/onscreen-agent.yaml`, decrypted automatically on load, and fail soft to a blank locked field when the current session cannot decrypt them. In `SINGLE_USER_APP=true`, `space.utils.userCrypto` bypasses encryption entirely, so new `api_key` values stay plaintext and no `userCrypto:` wrapper is added, but any legacy wrapped value from an older non-single-user build still loads as a blank locked field until the user replaces or clears it.
+The stored overlay config keeps `api_key` encrypted at rest when `space.utils.userCrypto` is unlocked for the current browser session. Encrypted values are stored as `userCrypto:`-prefixed strings in `~/config/onscreen-agent.yaml`, decrypted automatically on load, and fail soft to a blank locked field when the current session cannot decrypt them. In `SINGLE_USER_APP=true`, `space.utils.userCrypto` bypasses encryption entirely, so new `api_key` values stay plaintext and no `userCrypto:` wrapper is added, but any legacy wrapped value from an older non-single-user build still loads as a blank locked field until the user replaces or clears it.
 
 Important config fields:
 
@@ -62,7 +62,7 @@ Important browser UI state fields:
 - `display_mode`
 - `owner`
 
-Avatar movement, edge-hide changes, compact/full mode changes, viewport re-clamps, and history-height resize persist only to that browser UI state payload. They must not rewrite `~/conf/onscreen-agent.yaml`; the config file is rewritten only when persisted LLM settings or custom instructions change.
+Avatar movement, edge-hide changes, compact/full mode changes, viewport re-clamps, and history-height resize persist only to that browser UI state payload. They must not rewrite `~/config/onscreen-agent.yaml`; the config file is rewritten only when persisted LLM settings or custom instructions change.
 
 Current defaults:
 
@@ -72,10 +72,10 @@ Current defaults:
 - endpoint: `https://openrouter.ai/api/v1/chat/completions`
 - model: `anthropic/claude-sonnet-4.6`
 - params: `temperature: 0.2`
-- the `params` default applies only when the stored field is absent; clearing the Params box persists an empty value instead of rewriting `temperature:0.2` back into `~/conf/onscreen-agent.yaml`
+- the `params` default applies only when the stored field is absent; clearing the Params box persists an empty value instead of rewriting `temperature:0.2` back into `~/config/onscreen-agent.yaml`
 - max tokens: `120000`
 - display mode: `compact`
-- first run with no `~/conf/onscreen-agent.yaml` and no matching owner-tagged browser UI state: start with the compact avatar-plus-chat box horizontally centered, with its bottom edge targeting whichever is lower on screen: `7em` above the viewport bottom or `90%` of viewport height, instead of restoring browser-global position state
+- first run with no `~/config/onscreen-agent.yaml` and no matching owner-tagged browser UI state: start with the compact avatar-plus-chat box horizontally centered, with its bottom edge targeting whichever is lower on screen: `7em` above the viewport bottom or `90%` of viewport height, instead of restoring browser-global position state
 
 ## Runtime Surface
 

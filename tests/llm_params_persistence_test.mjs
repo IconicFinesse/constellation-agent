@@ -9,8 +9,8 @@ import {
 
 register(new URL("./mod_specifier_loader.mjs", import.meta.url), import.meta.url);
 
-const ONSCREEN_CONFIG_PATH = "~/conf/onscreen-agent.yaml";
-const ADMIN_CONFIG_PATH = "~/conf/admin-chat.yaml";
+const ONSCREEN_CONFIG_PATH = "~/config/onscreen-agent.yaml";
+const ADMIN_CONFIG_PATH = "~/config/admin-chat.yaml";
 const MEMBER_PROFILE = "temperature:1.1";
 const MEMBER_INSTRUCTIONS = "Prefer short answers.";
 

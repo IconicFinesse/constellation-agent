@@ -513,7 +513,7 @@ function parseProjectUserConfigPath(projectPath) {
 }
 
 function parseProjectUserLoginsPath(projectPath) {
-  const match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/meta\/logins\.json$/u);
+  const match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/metadata\/logins\.json$/u);
 
   if (!match) {
     return null;
@@ -533,7 +533,7 @@ function parseProjectUserLoginsPath(projectPath) {
 }
 
 function parseProjectUserPasswordPath(projectPath) {
-  const match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/meta\/password\.json$/u);
+  const match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/metadata\/password\.json$/u);
 
   if (!match) {
     return null;

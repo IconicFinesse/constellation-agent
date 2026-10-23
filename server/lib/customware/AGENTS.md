@@ -162,7 +162,7 @@ Admin-only access is required for aggregated or cross-user user-layer listings.
 - rollback suppresses scheduling so resetting a worktree does not create a commit loop
 - rollback preserves the previous head in backend-owned history refs when possible so commits after the travelled-to point remain listable for forward travel
 - revert creates a new history commit that undoes the selected commit instead of resetting the worktree to that commit
-- each owner repository has a `.gitignore`; `L2` repositories must ignore `meta/password.json`, `meta/logins.json`, and `meta/user_crypto.json`, while `L1` group repositories currently use an empty ignore file
+- each owner repository has a `.gitignore`; `L2` repositories must ignore `metadata/password.json`, `metadata/logins.json`, and `metadata/user_crypto.json`, while `L1` group repositories currently use an empty ignore file
 - rollback snapshots and restores the ignored L2 auth and wrapped-user-key files so old commits cannot log the user out, resurrect an old password verifier, or silently replace the current `userCrypto` record
 - `.git` metadata paths are reserved and must not be exposed through app-file APIs, direct app fetches, or path indexes
 

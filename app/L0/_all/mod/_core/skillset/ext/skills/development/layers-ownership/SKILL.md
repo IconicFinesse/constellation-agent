@@ -16,11 +16,11 @@ Use this skill before deciding where new files belong or how readable and writab
 - `L1/_all` is the shared group layer available to everyone.
 - `L1/_admin` is the admin group layer.
 - `L2/<username>/user.yaml` stores user metadata such as `full_name`.
-- `L2/<username>/meta/` holds auth state such as password and login session records.
+- `L2/<username>/metadata/` holds auth state such as password and login session records.
 - `L2/<username>/mod/` is that user's customware module root.
 - `L1/<group>/group.yaml` is the canonical group membership and management file.
 - When `CUSTOMWARE_GIT_HISTORY` is enabled, each writable `L1/<group>/` and `L2/<username>/` root may have a server-managed local Git history repository.
-- L2 history ignores `meta/password.json` and `meta/logins.json`; rollback preserves those current auth files and keeps previous heads listable for forward travel when possible, while revert creates a new inverse commit.
+- L2 history ignores `metadata/password.json` and `metadata/logins.json`; rollback preserves those current auth files and keeps previous heads listable for forward travel when possible, while revert creates a new inverse commit.
 
 ## Permission Model
 

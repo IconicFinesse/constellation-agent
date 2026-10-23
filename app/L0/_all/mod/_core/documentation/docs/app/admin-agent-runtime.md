@@ -24,14 +24,14 @@ The admin agent is a standalone admin-only chat surface mounted inside `/admin`.
 
 It owns:
 
-- its own settings and history persistence under `~/conf/admin-chat.yaml` and `~/hist/admin-chat.json`
+- its own settings and history persistence under `~/config/admin-chat.yaml` and `~/history/admin-chat.json`
 - its own history compaction, execution loop, provider settings, and attachment runtime
 - its own LLM transport switch between remote API streaming and the browser-local Hugging Face provider
 
 It now reuses the same standard prepared prompt builder as the onscreen agent, through shared `_core/agent_prompt/prompt-runtime.js` plus the standard builder callbacks in `_core/onscreen_agent/llm.js`. The only admin-specific prompt-shaping difference is that admin appends custom user instructions at the end of the assembled standard system prompt.
 That shared prompt runtime caches only plain structured prompt-input data. Runtime-only objects such as prompt instances must be stripped before caching so prompt-history previews, retry preparation, and other clone-heavy paths stay safe.
 
-The stored admin config keeps `api_key` encrypted at rest when `space.utils.userCrypto` is unlocked for the current browser session. Encrypted values are stored as `userCrypto:`-prefixed strings in `~/conf/admin-chat.yaml`, decrypted automatically on load, and fail soft to a blank locked field when the current session cannot decrypt them. In `SINGLE_USER_APP=true`, `space.utils.userCrypto` bypasses encryption entirely, so new `api_key` values stay plaintext and no `userCrypto:` wrapper is added, but any legacy wrapped value from an older non-single-user build still loads as a blank locked field until the user replaces or clears it.
+The stored admin config keeps `api_key` encrypted at rest when `space.utils.userCrypto` is unlocked for the current browser session. Encrypted values are stored as `userCrypto:`-prefixed strings in `~/config/admin-chat.yaml`, decrypted automatically on load, and fail soft to a blank locked field when the current session cannot decrypt them. In `SINGLE_USER_APP=true`, `space.utils.userCrypto` bypasses encryption entirely, so new `api_key` values stay plaintext and no `userCrypto:` wrapper is added, but any legacy wrapped value from an older non-single-user build still loads as a blank locked field until the user replaces or clears it.
 
 The shared thread view keeps settled admin assistant replies markdown-rendered, but submitted user bubbles stay plain pre-wrapped text so typed blank lines display literally instead of expanding into markdown paragraph gaps.
 That shared history styling resets rendered markdown bubbles back to normal white-space so parser formatting newlines between tags do not show up as visible blank lines, and it also collapses direct block margins inside list items so loose markdown bullets do not render blank-line-sized gaps between entries.

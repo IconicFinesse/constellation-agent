@@ -231,26 +231,26 @@ try {
   assert.equal(userHistory.commits.length, 1);
   assert.ok(userHistory.commits[0].changedFiles.includes(".gitignore"));
   assert.ok(userHistory.commits[0].changedFiles.includes("notes.txt"));
-  assert.ok(!userHistory.commits[0].changedFiles.includes("meta/password.json"));
-  assert.ok(!userHistory.commits[0].changedFiles.includes("meta/logins.json"));
+  assert.ok(!userHistory.commits[0].changedFiles.includes("metadata/password.json"));
+  assert.ok(!userHistory.commits[0].changedFiles.includes("metadata/logins.json"));
 
   const userGitignore = fs.readFileSync(
     path.join(projectRoot, "app", "L2", "alice", ".gitignore"),
     "utf8"
   );
-  assert.match(userGitignore, /^meta\/password\.json$/m);
-  assert.match(userGitignore, /^meta\/logins\.json$/m);
+  assert.match(userGitignore, /^metadata\/password\.json$/m);
+  assert.match(userGitignore, /^metadata\/logins\.json$/m);
 
   writeAppFile({
     content: "password-state\n",
-    path: "~/meta/password.json",
+    path: "~/metadata/password.json",
     projectRoot,
     runtimeParams,
     username: "alice"
   });
   writeAppFile({
     content: "login-state\n",
-    path: "~/meta/logins.json",
+    path: "~/metadata/logins.json",
     projectRoot,
     runtimeParams,
     username: "alice"
@@ -759,10 +759,10 @@ try {
   assert.deepEqual(managerWritableRepositoryList.paths, ["L1/team/"]);
 
   const legacyRoot = path.join(projectRoot, "app", "L2", "legacy");
-  fs.mkdirSync(path.join(legacyRoot, "meta"), { recursive: true });
+  fs.mkdirSync(path.join(legacyRoot, "metadata"), { recursive: true });
   fs.writeFileSync(path.join(legacyRoot, "notes.txt"), "old\n");
-  fs.writeFileSync(path.join(legacyRoot, "meta", "password.json"), "old-password\n");
-  fs.writeFileSync(path.join(legacyRoot, "meta", "logins.json"), "old-logins\n");
+  fs.writeFileSync(path.join(legacyRoot, "metadata", "password.json"), "old-password\n");
+  fs.writeFileSync(path.join(legacyRoot, "metadata", "logins.json"), "old-logins\n");
   runGit(legacyRoot, ["init"]);
   runGit(legacyRoot, ["add", "-A", "--", "."]);
   runGit(legacyRoot, [
@@ -788,8 +788,8 @@ try {
     "-m",
     "legacy newer"
   ]);
-  fs.writeFileSync(path.join(legacyRoot, "meta", "password.json"), "current-password\n");
-  fs.writeFileSync(path.join(legacyRoot, "meta", "logins.json"), "current-logins\n");
+  fs.writeFileSync(path.join(legacyRoot, "metadata", "password.json"), "current-password\n");
+  fs.writeFileSync(path.join(legacyRoot, "metadata", "logins.json"), "current-logins\n");
 
   await rollbackLayerHistory({
     commitHash: legacyInitialCommit,
@@ -800,8 +800,8 @@ try {
   });
 
   assert.equal(fs.readFileSync(path.join(legacyRoot, "notes.txt"), "utf8"), "old\n");
-  assert.equal(fs.readFileSync(path.join(legacyRoot, "meta", "password.json"), "utf8"), "current-password\n");
-  assert.equal(fs.readFileSync(path.join(legacyRoot, "meta", "logins.json"), "utf8"), "current-logins\n");
+  assert.equal(fs.readFileSync(path.join(legacyRoot, "metadata", "password.json"), "utf8"), "current-password\n");
+  assert.equal(fs.readFileSync(path.join(legacyRoot, "metadata", "logins.json"), "utf8"), "current-logins\n");
 
   writeAppFile({
     content: "after rollback\n",
@@ -812,8 +812,8 @@ try {
   });
   await flushGitHistoryCommits({ throwOnError: true });
 
-  assert.equal(runGit(legacyRoot, ["ls-files", "meta/password.json"]), "");
-  assert.equal(runGit(legacyRoot, ["ls-files", "meta/logins.json"]), "");
+  assert.equal(runGit(legacyRoot, ["ls-files", "metadata/password.json"]), "");
+  assert.equal(runGit(legacyRoot, ["ls-files", "metadata/logins.json"]), "");
 
   const queuedRepoRoot = path.join(projectRoot, "app", "L2", "queued");
   const gitWrapperDir = fs.mkdtempSync(path.join(os.tmpdir(), "space-native-git-wrapper-"));

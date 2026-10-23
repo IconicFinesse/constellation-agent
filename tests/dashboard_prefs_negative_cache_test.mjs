@@ -14,7 +14,7 @@ const yaml = {
 /**
  * Regression coverage for issue #15 (dashboard preference half).
  *
- * Root cause: loadDashboardPrefs() reads ~/conf/dashboard.yaml and maps a
+ * Root cause: loadDashboardPrefs() reads ~/config/dashboard.yaml and maps a
  * missing file to defaults, but it forgets that the file is missing. The
  * dashboard welcome panel and the topbar restore toggle both mount on the same
  * dashboard render and both call loadDashboardPrefs(), so a user who never saved
@@ -106,7 +106,7 @@ test("repeated loads of a missing dashboard preference file read it once", async
   assert.deepEqual(firstPrefs, { welcomeHidden: false });
   assert.deepEqual(secondPrefs, { welcomeHidden: false });
   assert.equal(reads.length, 1, "the second load must reuse the known-missing state");
-  assert.equal(reads[0], "~/conf/dashboard.yaml");
+  assert.equal(reads[0], "~/config/dashboard.yaml");
 });
 
 test("saving a preference re-enables reading and exposes the saved value", async () => {

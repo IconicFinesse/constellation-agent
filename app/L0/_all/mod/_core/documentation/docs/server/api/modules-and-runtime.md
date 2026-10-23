@@ -23,7 +23,7 @@ Important notes:
 
 - these are the public auth and health endpoints; hosted-share endpoints are the other anonymous family
 - password login flows through the shared auth challenge/proof service when `LOGIN_ALLOWED=true`, while guest-background flows may still use the guest-specific subset when `LOGIN_ALLOWED=false`
-- `login_challenge` also reports `userCrypto` bootstrap state; legacy accounts with no `meta/user_crypto.json` receive a one-time provisioning share so the browser can generate the missing wrapped record before final login, while accounts whose wrapped record no longer has any recoverable server share are reported as `invalidated`
+- `login_challenge` also reports `userCrypto` bootstrap state; legacy accounts with no `metadata/user_crypto.json` receive a one-time provisioning share so the browser can generate the missing wrapped record before final login, while accounts whose wrapped record no longer has any recoverable server share are reported as `invalidated`
 - `login` completes both the auth session and the `userCrypto` bootstrap: it may persist a missing `user_crypto.json` record before issuing the cookie, and successful responses return a backend `sessionId` plus the `userCrypto` payload needed to unlock the current browser session
 - `guest_create` creates a guest `L2` user whenever runtime config allows guest accounts, even when `LOGIN_ALLOWED=false`
 - `login_check` stays available even when `LOGIN_ALLOWED=false` for public session checks, while guest-bootstrap and hosted-share flows may still complete the same background `login_challenge` plus `login` path without showing the `/login` form
@@ -118,7 +118,7 @@ Important runtime endpoints:
 
 - is authenticated and applies only to the current user
 - validates the current password through the auth service before generating the replacement sealed verifier
-- rewrites `meta/password.json`, rewraps `meta/user_crypto.json` when the current account has ready browser crypto, clears stored sessions, and clears the current browser auth cookie so the frontend can return to `/login`
+- rewrites `metadata/password.json`, rewraps `metadata/user_crypto.json` when the current account has ready browser crypto, clears stored sessions, and clears the current browser auth cookie so the frontend can return to `/login`
 
 `user_crypto_bootstrap`:
 

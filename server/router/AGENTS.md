@@ -65,7 +65,7 @@ Current behavior:
 - the auth service resolves the current user from the `space_session` cookie or from the runtime single-user override
 - request context creation is asynchronous because resolving a multi-user session may need to demand-load that user's auth-only state before the replicated user and session indexes are available on the worker
 - the request context carries `ensureUserFileIndex(username)` for routes that need user-owned file listings; auth resolution itself must not force a full L2 shard load
-- multi-user session auth hashes the incoming cookie through a backend-held key, matches the resulting verifier against `meta/logins.json`, and rejects unsigned or expired session records
+- multi-user session auth hashes the incoming cookie through a backend-held key, matches the resulting verifier against `metadata/logins.json`, and rejects unsigned or expired session records
 - multi-user `space_session` cookie values include a username hint plus the bearer token; token-only legacy cookies cannot be resolved without scanning all L2 users and should be cleared
 - the request context is stored in AsyncLocalStorage for the lifetime of the request
 - `ensureAuthenticatedRequestContext(...)` is the shared guard for authenticated routes

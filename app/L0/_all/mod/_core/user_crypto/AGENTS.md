@@ -22,7 +22,7 @@ This scope owns:
 - the exported runtime surface is `space.utils.userCrypto`
 - the module keeps the active tab's unlock state in `sessionStorage`, keyed by backend `sessionId` plus username
 - the module may also keep one encrypted copy of that same cache entry in `localStorage` under a fixed origin-scoped key; the browser never stores the plaintext session-derived wrapping key at rest, and only the authenticated `user_crypto_session_key` endpoint may derive it from the current backend `sessionId` plus the server-held session secret
-- the persistent per-user wrapped key record still stays in `~/meta/user_crypto.json`
+- the persistent per-user wrapped key record still stays in `~/metadata/user_crypto.json`
 - encrypted text payloads generated here must start with the literal `userCrypto:` prefix
 - `decryptText(...)` must return plaintext unchanged when the input is not prefixed with `userCrypto:`, so legacy unencrypted values keep working during migration
 - in `SINGLE_USER_APP=true`, `encryptText(...)` and `decryptText(...)` must return plaintext unchanged, `encryptBytes(...)` and `decryptBytes(...)` must return raw bytes unchanged, and the module must not attempt authenticated user-crypto bootstrap, logout recovery, or emit new `userCrypto:` payloads

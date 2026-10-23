@@ -1,6 +1,6 @@
 export const PASSWORD_CHANGE_ENDPOINT = "password_change";
 export const USER_CONFIG_PATH = "~/user.yaml";
-export const USER_PASSWORD_PATH = "~/meta/password.json";
+export const USER_PASSWORD_PATH = "~/metadata/password.json";
 
 function getRuntime() {
   const runtime = globalThis.space;

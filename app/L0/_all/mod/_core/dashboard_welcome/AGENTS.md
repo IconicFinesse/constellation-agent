@@ -4,7 +4,7 @@
 
 `_core/dashboard_welcome/` owns the dashboard-injected welcome surface.
 
-It renders the dismissible welcome panel at the top of the dashboard, persists the user's hide or show preference under `~/conf/`, and ships first-party demo-space folders that can be cloned into the authenticated user's `~/spaces/` root.
+It renders the dismissible welcome panel at the top of the dashboard, persists the user's hide or show preference under `~/config/`, and ships first-party demo-space folders that can be cloned into the authenticated user's `~/spaces/` root.
 
 Documentation is top priority for this module. After any change under `_core/dashboard_welcome/`, update this file and any affected parent docs in the same session.
 
@@ -39,10 +39,10 @@ Current dashboard integration:
 
 Current persistence and demo-space contract:
 
-- the hide or show preference is stored in `~/conf/dashboard.yaml`
+- the hide or show preference is stored in `~/config/dashboard.yaml`
 - the only persisted setting currently owned here is whether the welcome panel is hidden
 - `dashboard-prefs.js` should stay the only owner of the preference read/write and cross-surface hidden-state sync contract, so the dashboard panel and topbar restore button stay aligned without duplicating file logic
-- a confirmed-missing `~/conf/dashboard.yaml` must stay memoized inside `dashboard-prefs.js`: the welcome panel and the topbar restore toggle both call `loadDashboardPrefs()` on the same dashboard mount, the server answers the missing file with a hard `404`, and a user who never saved a preference must not pay a fresh 404 read per mount; a successful save clears the memo so the next load observes the written value, and non-missing read errors must still propagate
+- a confirmed-missing `~/config/dashboard.yaml` must stay memoized inside `dashboard-prefs.js`: the welcome panel and the topbar restore toggle both call `loadDashboardPrefs()` on the same dashboard mount, the server answers the missing file with a hard `404`, and a user who never saved a preference must not pay a fresh 404 read per mount; a successful save clears the memo so the next load observes the written value, and non-missing read errors must still propagate
 - bundled demo spaces live under this module's `examples/` folder and are copied through the spaces runtime instead of being edited in place
 - `dashboard-welcome.js` should discover bundled examples at runtime through the `file_paths` pattern `mod/_core/dashboard_welcome/examples/*/space.yaml` instead of maintaining a hardcoded example list
 - each bundled example folder should own its card metadata in `space.yaml`, including `title`, `description`, `icon`, and `icon_color`

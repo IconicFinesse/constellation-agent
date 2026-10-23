@@ -11,5 +11,5 @@ group_index:
 
 user_index:
   - /app/L2/*/user.yaml
-  - /app/L2/*/meta/logins.json
-  - /app/L2/*/meta/password.json
+  - /app/L2/*/metadata/logins.json
+  - /app/L2/*/metadata/password.json

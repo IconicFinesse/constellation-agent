@@ -1,4 +1,4 @@
-export const AGENT_PERSONALITY_PATH = "~/conf/personality.system.include.md";
+export const AGENT_PERSONALITY_PATH = "~/config/personality.system.include.md";
 
 function getRuntime() {
   const runtime = globalThis.space;
@@ -45,7 +45,7 @@ export async function saveAgentPersonality(content) {
   try {
     await runtime.api.fileWrite({
       files: [
-        { path: "~/conf/" },
+        { path: "~/config/" },
         {
           path: AGENT_PERSONALITY_PATH,
           content: normalizedContent

@@ -87,7 +87,7 @@ The discipline is real: `app/AGENTS.md` instructs that if another feature needs 
 
 **Reality: honored, via a mode switch that is deeper than a setting.** `SINGLE_USER_APP=true` collapses authentication entirely: request auth resolves every request to an implicit `user` principal, which permission helpers treat as a virtual `_admin` member even with no user or group files on disk. Password SCRAM, sessions, and `userCrypto` are all bypassed.
 
-Multi-user turns on: `group.yaml` with `included_users`, `included_groups`, `managing_users`, `managing_groups`; a derived membership graph; signed session verifiers in `L2/<username>/meta/logins.json`; per-user encryption records; guest accounts; per-user folder quotas.
+Multi-user turns on: `group.yaml` with `included_users`, `included_groups`, `managing_users`, `managing_groups`; a derived membership graph; signed session verifiers in `L2/<username>/metadata/logins.json`; per-user encryption records; guest accounts; per-user folder quotas.
 
 Same codebase, two social forms. That is rarer than it sounds.
 
@@ -177,7 +177,7 @@ The server is, functionally, **an authenticated filesystem with a job runner att
 - Inference cost lands on the user's browser and the user's API key, not the host. `api_key` is even stored encrypted at rest via `userCrypto:`.
 - The server scales trivially — it's files and auth, not agent state.
 - Local model support is native: WebLLM and Hugging Face Transformers.js both run in module-local workers with a shared singleton manager, so the same saved model is reused across onscreen and admin agents in one browser context.
-- Privacy is structural: conversation history lives in `~/hist/onscreen-agent.json`, in the user's own layer.
+- Privacy is structural: conversation history lives in `~/history/onscreen-agent.json`, in the user's own layer.
 
 **What it costs** — and this is where I part company with the pitch's confidence:
 
@@ -246,7 +246,7 @@ Layer tags: **L0** firmware browser · **L1** group customware · **L2** user cu
 |---|---|
 | Password challenge/proof | Shared challenge-and-proof flow; `login_challenge` → `login` |
 | Session model | `space_session` cookie: HttpOnly, SameSite=Strict, 30-day; username-hinted token so auth loads only that user's files |
-| Session verifiers | Backend-keyed, signed metadata, absolute expiry, in `L2/<u>/meta/logins.json`; unsigned/expired rejected |
+| Session verifiers | Backend-keyed, signed metadata, absolute expiry, in `L2/<u>/metadata/logins.json`; unsigned/expired rejected |
 | `userCrypto` | Per-user wrapped master key; session-derived localStorage wrapping key via HMAC of `sessionId`; server never persists the unwrapped key |
 | Crypto states | `missing` (self-heal via bootstrap share) vs `invalidated` (don't reprovision over old ciphertext) |
 | Single-user mode | Implicit `user` principal as virtual `_admin`; bypasses cookie auth entirely |
@@ -336,9 +336,9 @@ Layer tags: **L0** firmware browser · **L1** group customware · **L2** user cu
 | Time Travel UI | Routed page: repository picker, paginated commits, file filter, diffs, preview, travel, revert |
 | History service | Per-owner-root Git repos; `ensureRepository`, `commitAll`, `listCommits`, `getCommitDiff`, `previewOperation`, `rollbackToCommit`, `revertCommit` |
 | Backends | `native` → `isomorphic` fallback, selectable via `GIT_BACKEND`; per-`repoRoot` serialization queue |
-| Safety | Ignores `meta/password.json` and `meta/logins.json`; preserves pre-reset head in refs for forward travel |
+| Safety | Ignores `metadata/password.json` and `metadata/logins.json`; preserves pre-reset head in refs for forward travel |
 | Conflict handling | Reverse-merge revert; `409` naming blocking file and both versions |
-| Conversation history | `~/hist/onscreen-agent.json` with checkpoint recovery |
+| Conversation history | `~/history/onscreen-agent.json` with checkpoint recovery |
 
 ### 4.11 Human interface and ritual — `L0`
 
@@ -354,7 +354,7 @@ Layer tags: **L0** firmware browser · **L1** group customware · **L2** user cu
 | Admin views | dashboard, agent, files, time_travel, modules |
 | Public shells | `/login` (public even when login disabled), `/enter` (recovery-safe launcher), `/logout`, `/share/space/<token>` |
 | Visual system | Shadowless glass treatment, semantic tokens, stationary hover hitboxes, shared dialog/button/popover/card primitives, icon-color selector |
-| Login hooks | `first_login` (once per user, marker in `~/meta/login_hooks.json`) and `any_login` (from `/login`) |
+| Login hooks | `first_login` (once per user, marker in `~/metadata/login_hooks.json`) and `any_login` (from `/login`) |
 
 ### 4.12 Server transport and API — `SRV`
 

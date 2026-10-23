@@ -26,8 +26,8 @@ This surface owns:
 
 Current persistence paths:
 
-- config: `~/conf/admin-chat.yaml`
-- history: `~/hist/admin-chat.json`
+- config: `~/config/admin-chat.yaml`
+- history: `~/history/admin-chat.json`
 
 Current stored config fields are written in YAML as:
 
@@ -46,7 +46,7 @@ Current stored config fields are written in YAML as:
 Important persistence rules:
 
 - `api_key` is browser-owned user config and should be stored encrypted at rest with `space.utils.userCrypto` whenever that session is unlocked
-- encrypted admin API keys are stored as `userCrypto:`-prefixed strings in `~/conf/admin-chat.yaml`
+- encrypted admin API keys are stored as `userCrypto:`-prefixed strings in `~/config/admin-chat.yaml`
 - when the runtime cannot currently decrypt an existing encrypted `api_key`, load should surface the field as blank plus locked metadata instead of crashing, and save should preserve the stored ciphertext until the user explicitly replaces or clears it from an unlocked session
 - in `SINGLE_USER_APP=true`, legacy `userCrypto:` API-key payloads from older non-single-user builds must also load as blank locked metadata instead of being treated as plaintext, and save should keep that stored ciphertext until the user explicitly replaces or clears it
 

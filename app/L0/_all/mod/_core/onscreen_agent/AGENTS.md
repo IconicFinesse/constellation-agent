@@ -38,14 +38,14 @@ This module owns:
 
 Current persistence paths:
 
-- config: `~/conf/onscreen-agent.yaml`
+- config: `~/config/onscreen-agent.yaml`
 - browser UI state: `sessionStorage["space.onscreenAgent.uiState"]` with `localStorage["space.onscreenAgent.uiState"]` as fallback
-- history: `~/hist/onscreen-agent.json`
+- history: `~/history/onscreen-agent.json`
 
 History write timing:
 
 - the send loop owns the agent run entirely in the browser, so any full-page navigation such as the same-tab `/admin` handoff tears a live turn down and aborts its in-flight request
-- the loop therefore writes `~/hist/onscreen-agent.json` at prompt start, before waiting for the model response, so the submitted user turn survives a teardown that happens before the reply settles
+- the loop therefore writes `~/history/onscreen-agent.json` at prompt start, before waiting for the model response, so the submitted user turn survives a teardown that happens before the reply settles
 - while a reply streams, `history-persistence.js` gates throttled checkpoints (`ONSCREEN_AGENT_HISTORY_CHECKPOINT_INTERVAL_MS`) and builds the on-disk snapshot from the pending turn plus the partial assistant text, flagged settled and suffixed with `ONSCREEN_AGENT_HISTORY_INTERRUPTED_SUFFIX` so a reload shows readable history instead of a stuck streaming bubble
 - checkpoints never mutate live `history` or assistant message state; turn-boundary writes still persist the final settled history as the authoritative record
 
@@ -63,7 +63,7 @@ Current config fields include:
 Config encryption rules:
 
 - the overlay `api_key` is browser-owned user config and should be stored encrypted at rest with `space.utils.userCrypto` whenever that session is unlocked
-- encrypted overlay API keys are stored as `userCrypto:`-prefixed strings in `~/conf/onscreen-agent.yaml`
+- encrypted overlay API keys are stored as `userCrypto:`-prefixed strings in `~/config/onscreen-agent.yaml`
 - when the runtime cannot currently decrypt an existing encrypted `api_key`, load should surface the field as blank plus locked metadata instead of crashing, and save should preserve the stored ciphertext until the user explicitly replaces or clears it from an unlocked session
 - in `SINGLE_USER_APP=true`, legacy `userCrypto:` API-key payloads from older non-single-user builds must also load as blank locked metadata instead of being treated as plaintext, and save should keep that stored ciphertext until the user explicitly replaces or clears it
 
@@ -79,12 +79,12 @@ Current browser UI state fields include:
 Legacy compatibility:
 
 - `display_mode` is the canonical persisted mode field for browser UI state
-- browser UI state writes are owner-tagged with the current username and must stay browser-local; avatar moves, edge-hide changes, compact/full mode changes, viewport re-clamps, and history-height resizes must not rewrite `~/conf/onscreen-agent.yaml`
+- browser UI state writes are owner-tagged with the current username and must stay browser-local; avatar moves, edge-hide changes, compact/full mode changes, viewport re-clamps, and history-height resizes must not rewrite `~/config/onscreen-agent.yaml`
 - browser UI state loads from `sessionStorage` first, then `localStorage`, then legacy config fields as a migration fallback when browser storage is still empty
 - `storage.js` still accepts legacy `collapsed` values when older browser state or configs are loaded
 - `storage.js` also normalizes numeric coordinate scalars before the overlay store applies `agent_x` and `agent_y`, and it normalizes `hidden_edge` through the shared config helper before the store trusts the peeking state
-- when `~/conf/onscreen-agent.yaml` is missing, `storage.js` may restore only browser UI state whose `owner` matches the current username; otherwise it treats that load as first-run state instead of restoring browser-global overlay position data, and `store.js` places the visible compact overlay box with its full width centered while its bottom edge targets whichever is lower on screen: `7em` above the viewport bottom or `90%` of viewport height before the first UI-state write
-- when config is rewritten, overlay position and display state fields must not be written back into `~/conf/onscreen-agent.yaml`
+- when `~/config/onscreen-agent.yaml` is missing, `storage.js` may restore only browser UI state whose `owner` matches the current username; otherwise it treats that load as first-run state instead of restoring browser-global overlay position data, and `store.js` places the visible compact overlay box with its full width centered while its bottom edge targets whichever is lower on screen: `7em` above the viewport bottom or `90%` of viewport height before the first UI-state write
+- when config is rewritten, overlay position and display state fields must not be written back into `~/config/onscreen-agent.yaml`
 
 Current defaults:
 

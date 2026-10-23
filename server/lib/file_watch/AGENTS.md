@@ -37,7 +37,7 @@ Current rules:
 Current default handlers:
 
 - `group_index` over `group.yaml` files in `L0` and `L1`
-- `user_index` over `user.yaml`, `meta/logins.json`, and `meta/password.json` in `L2`
+- `user_index` over `user.yaml`, `metadata/logins.json`, and `metadata/password.json` in `L2`
 
 ### Index Contract
 
@@ -48,7 +48,7 @@ Current default handlers:
 - stores per-path metadata instead of booleans: directory flag, byte size, and last modified time
 - excludes `.git` directories and their contents so per-owner local history metadata is not exposed as app files and does not create watchdog churn
 - startup scans only `L0`, `L1`, and the logical app or layer root entries; it must not enumerate `L2/<user>` roots
-- auth first touch loads only `L2/<user>/user.yaml`, `meta/password.json`, and `meta/logins.json` plus their ancestor metadata; it must not scan the full user tree
+- auth first touch loads only `L2/<user>/user.yaml`, `metadata/password.json`, and `metadata/logins.json` plus their ancestor metadata; it must not scan the full user tree
 - full `L2/<user>` shards are loaded only when file, module, extension, app-fetch, quota, or mutation behavior needs user-owned files beyond auth state
 - replicated startup snapshots and normal deltas include `L0`, `L1` group shards, layer roots, derived auth or group shards, and tiny `file_index_meta` version markers for changed L2 shards; full lazy `L2/<user>` file-index shards stay local to the primary or requesting worker and are transferred through explicit lazy-shard payloads
 - workers keep loaded L2 shards locally, mark them stale from replicated invalidation/version notices, and pull the full shard again only when a later request needs a missing or stale shard
@@ -89,7 +89,7 @@ Rules:
 - ordinary file updates should remove or upsert only the exact path-index entry; subtree removal is reserved for directory sync, directory replacement, directory deletion, and full rescans
 - watcher cleanup is only needed for deleted paths and directory syncs; ordinary file upserts must not scan the directory-watcher map
 - when `CUSTOMWARE_WATCHDOG=false`, those exact logical-path mutation reports remain the only freshness path inside the running process because `fs.watch`, config watching, and the reconcile timer are intentionally disabled
-- incremental `user_index` rebuilds rely on concrete changed auth or profile file paths, so mutation publishers must include `user.yaml`, `meta/password.json`, and `meta/logins.json` when those files are created or rewritten
+- incremental `user_index` rebuilds rely on concrete changed auth or profile file paths, so mutation publishers must include `user.yaml`, `metadata/password.json`, and `metadata/logins.json` when those files are created or rewritten
 - periodic full rescans are a backstop for missed external or out-of-process changes in already-loaded index scope, are scheduled from the previous run's completion time, default to 5 minutes, and may be disabled with `reconcileIntervalMs <= 0`
 - full rescans should rebuild indexes asynchronously and yield to the event loop so the primary stays responsive during larger walks
 - full rescans must build `file_index` shards directly in one pass over the scanned roots, and incremental publishes should patch only the changed shard entries instead of rebuilding every shard
