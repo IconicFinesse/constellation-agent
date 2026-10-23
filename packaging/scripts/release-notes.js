@@ -14,7 +14,7 @@ const SYSTEM_PROMPT_PATH = path.join(
   "openrouter-system-prompt.md"
 );
 const PACKAGE_JSON_PATH = path.join(__dirname, "..", "..", "package.json");
-const DEFAULT_REPOSITORY_SLUG = "agent0ai/space-agent";
+const DEFAULT_REPOSITORY_SLUG = "IconicFinesse/constellation-agent";
 
 function writeOutput(name, value) {
   const outputPath = process.env.GITHUB_OUTPUT;

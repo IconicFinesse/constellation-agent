@@ -6,7 +6,7 @@
   "author": "Jan Tomasek",
   "repository": {
     "type": "git",
-    "url": "https://github.com/agent0ai/space-agent.git"
+    "url": "https://github.com/IconicFinesse/constellation-agent.git"
   },
   "main": "packaging/desktop/main.js",
   "scripts": {
@@ -37,7 +37,7 @@
     "npmRebuild": false,
     "publish": {
       "provider": "github",
-      "owner": "agent0ai",
+      "owner": "IconicFinesse",
       "repo": "constellation-agent",
       "releaseType": "release"
     },

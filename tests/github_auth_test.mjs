@@ -9,7 +9,7 @@ import {
 } from "../server/lib/git/shared.js";
 
 test("github remotes use SPACE_GITHUB_TOKEN", () => {
-  const remoteUrl = "https://github.com/agent0ai/space-agent.git";
+  const remoteUrl = "https://github.com/IconicFinesse/constellation-agent.git";
   const env = {
     GH_TOKEN: "gh-token",
     GITHUB_TOKEN: "github-token",
@@ -25,7 +25,7 @@ test("github remotes use SPACE_GITHUB_TOKEN", () => {
 });
 
 test("github remotes do not send auth when SPACE_GITHUB_TOKEN is missing", () => {
-  const remoteUrl = "https://github.com/agent0ai/space-agent.git";
+  const remoteUrl = "https://github.com/IconicFinesse/constellation-agent.git";
   const env = {
     GH_TOKEN: "gh-token",
     GITHUB_TOKEN: "github-token",
@@ -37,7 +37,7 @@ test("github remotes do not send auth when SPACE_GITHUB_TOKEN is missing", () =>
 });
 
 test("supervisor injects git authorization header only when github token is configured", () => {
-  const remoteUrl = "https://github.com/agent0ai/space-agent.git";
+  const remoteUrl = "https://github.com/IconicFinesse/constellation-agent.git";
   const args = buildGitAuthConfigArgs(remoteUrl, {
     SPACE_GITHUB_TOKEN: "secret-token"
   });
