@@ -12,6 +12,12 @@ const {
   resolvePackagedDesktopUserDataPath
 } = require("./server_storage_paths");
 const {
+  CONNECTION_MODE,
+  normalizeSavedConnections,
+  readConnectionRequestFromEnv,
+  resolveConnectionConfig
+} = require("./connection_mode");
+const {
   cleanupDesktopUpdaterArtifacts,
   writeDesktopUpdaterInstallMarker
 } = require("./updater_artifacts");
@@ -44,6 +50,9 @@ const DESKTOP_BROWSER_HOST_EVENT_CHANNEL = "space-desktop:browser-host-event";
 const DESKTOP_BROWSER_NAVIGATE_CHANNEL = "space-desktop:browser-view-navigate";
 const DESKTOP_BROWSER_RELOAD_CHANNEL = "space-desktop:browser-view-reload";
 const DESKTOP_BROWSER_UPDATE_CHANNEL = "space-desktop:browser-view-update";
+const DESKTOP_CONNECTION_CHOOSE_CHANNEL = "space-desktop:connection-choose";
+const DESKTOP_CONNECTION_LIST_SAVED_CHANNEL = "space-desktop:connection-list-saved";
+const DESKTOP_CONNECTION_STATUS_CHANNEL = "space-desktop:connection-status";
 const DESKTOP_FRAME_PRELOAD_PATH = path.join(__dirname, "frame-preload.js");
 const DESKTOP_FRAME_INJECT_REGISTER_CHANNEL = "space-desktop:frame-inject-register";
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
@@ -54,6 +63,8 @@ const DESKTOP_UPDATE_FAILURE_STATUS_LIMIT = 120;
 const AUTH_DATA_DIR_ENV_NAME = "SPACE_AUTH_DATA_DIR";
 
 let serverRuntime;
+let connectionConfig = resolveConnectionConfig({});
+let desktopChooserWindow;
 let mainWindow;
 let isQuitting = false;
 let updateStatusClearTimer = null;
@@ -772,6 +783,71 @@ function reloadDesktopBrowserView(browserId) {
   entry.view.webContents.reload();
 }
 
+function isConnectedMode() {
+  return connectionConfig?.mode === CONNECTION_MODE.CONNECTED && Boolean(connectionConfig.origin);
+}
+
+function resolveDesktopBaseUrl() {
+  if (isConnectedMode()) {
+    return connectionConfig.url;
+  }
+
+  return String(serverRuntime?.browserUrl || "");
+}
+
+function resolveDesktopConnectionsFilePath() {
+  return path.join(app.getPath("userData"), "connections.json");
+}
+
+function loadSavedConnectionRecords() {
+  try {
+    const raw = fs.readFileSync(resolveDesktopConnectionsFilePath(), "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.connections) ? parsed.connections : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveConnectionRecord(config) {
+  if (!config || !config.origin) {
+    return;
+  }
+
+  try {
+    const records = loadSavedConnectionRecords();
+    const existing = records.find(
+      (entry) => String(entry?.origin || "").trim() === config.origin
+    );
+    if (existing) {
+      return;
+    }
+
+    const next = [
+      ...records,
+      {
+        label: config.label || config.origin,
+        url: config.url,
+        origin: config.origin
+      }
+    ];
+    const file = resolveDesktopConnectionsFilePath();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ connections: next }, null, 2), { mode: 0o600 });
+    console.log(`[space-desktop] Pinned connected server origin: ${config.origin}`);
+  } catch (error) {
+    console.warn("[space-desktop] Could not persist the connected server record.", error);
+  }
+}
+
+function rememberConnectedServerOrigin() {
+  if (!isConnectedMode()) {
+    return;
+  }
+
+  saveConnectionRecord(connectionConfig);
+}
+
 function createDesktopRuntimeParamOverrides() {
   const overrides = {};
 
@@ -816,6 +892,10 @@ function applyPackagedDesktopStorageOverrides() {
 }
 
 function resolveDesktopLaunchPath() {
+  if (isConnectedMode()) {
+    return "";
+  }
+
   return serverRuntime?.runtimeParams?.get?.("SINGLE_USER_APP", false) ? "/enter" : "/";
 }
 
@@ -833,6 +913,10 @@ function normalizeDesktopNavigationUrl(value) {
 }
 
 function resolveDesktopAppOrigin() {
+  if (isConnectedMode()) {
+    return connectionConfig.origin;
+  }
+
   try {
     return new URL(serverRuntime?.browserUrl || "").origin;
   } catch {
@@ -871,7 +955,7 @@ function revertDesktopMainWindowToSafeUrl(blockedUrl = "") {
 
   const safeUrl = rememberDesktopSafeMainWindowUrl()
     || normalizeDesktopNavigationUrl(lastSafeMainWindowUrl)
-    || normalizeDesktopNavigationUrl(`${serverRuntime?.browserUrl || ""}${resolveDesktopLaunchPath()}`);
+    || normalizeDesktopNavigationUrl(`${resolveDesktopBaseUrl()}${resolveDesktopLaunchPath()}`);
   if (!safeUrl) {
     return;
   }
@@ -1052,6 +1136,8 @@ function getDesktopRuntimeInfo() {
   return {
     platform: process.platform,
     isBundledApp: app.isPackaged,
+    connectionMode: isConnectedMode() ? CONNECTION_MODE.CONNECTED : CONNECTION_MODE.STANDALONE,
+    connectedOrigin: isConnectedMode() ? connectionConfig.origin : "",
     canCheckForUpdates,
     updateStatus: desktopUpdateState
   };
@@ -1231,7 +1317,7 @@ function reportDesktopUpdateFailure(message, error) {
 }
 
 function shouldEnableDesktopAutoUpdate() {
-  return app.isPackaged;
+  return app.isPackaged && !isConnectedMode();
 }
 
 function loadDesktopAutoUpdater() {
@@ -1882,6 +1968,116 @@ async function loadCreateAgentServer() {
   return serverModule.createAgentServer;
 }
 
+function shouldShowConnectionChooser() {
+  if (readConnectionRequestFromEnv()) {
+    return false;
+  }
+
+  return app.isPackaged || String(process.env.SPACE_DESKTOP_SHOW_CHOOSER || "").trim() === "1";
+}
+
+function openConnectionChooser() {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (pick) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      desktopChooserWindow = null;
+      resolve(pick);
+    };
+
+    const chooser = new BrowserWindow({
+      width: 520,
+      height: 760,
+      minWidth: 460,
+      minHeight: 620,
+      backgroundColor: "#040a12",
+      title: "Open Constellation Agent",
+      autoHideMenuBar: true,
+      webPreferences: {
+        preload: path.join(__dirname, "preload.js"),
+        contextIsolation: true,
+        nodeIntegration: false
+      }
+    });
+    desktopChooserWindow = chooser;
+
+    ipcMain.removeHandler(DESKTOP_CONNECTION_LIST_SAVED_CHANNEL);
+    ipcMain.handle(DESKTOP_CONNECTION_LIST_SAVED_CHANNEL, () => {
+      return normalizeSavedConnections(loadSavedConnectionRecords());
+    });
+
+    ipcMain.removeAllListeners(DESKTOP_CONNECTION_CHOOSE_CHANNEL);
+    ipcMain.on(DESKTOP_CONNECTION_CHOOSE_CHANNEL, (event, payload = {}) => {
+      if (event.sender !== chooser.webContents) {
+        return;
+      }
+
+      const mode = String(payload?.mode || "").trim();
+      if (mode === CONNECTION_MODE.STANDALONE) {
+        finish({ mode: CONNECTION_MODE.STANDALONE });
+        chooser.close();
+        return;
+      }
+
+      const resolved = resolveConnectionConfig({
+        mode: CONNECTION_MODE.CONNECTED,
+        url: String(payload?.url || ""),
+        label: String(payload?.label || ""),
+        savedConnections: loadSavedConnectionRecords()
+      });
+
+      if (resolved.error) {
+        chooser.webContents.send(DESKTOP_CONNECTION_STATUS_CHANNEL, { error: resolved.error });
+        return;
+      }
+
+      if (payload?.save !== false) {
+        saveConnectionRecord(resolved);
+      }
+
+      finish(resolved);
+      chooser.close();
+    });
+
+    chooser.once("closed", () => finish(null));
+
+    chooser.webContents.on("did-finish-load", () => {
+      const screenshotPath = String(process.env.SPACE_DESKTOP_CHOOSER_E2E_SCREENSHOT || "").trim();
+      if (screenshotPath) {
+        setTimeout(() => {
+          chooser.webContents
+            .capturePage()
+            .then((image) => {
+              fs.writeFileSync(screenshotPath, image.toPNG());
+              console.log(`[E2E] CHOOSER_SCREENSHOT ${screenshotPath}`);
+              app.exit(0);
+            })
+            .catch((error) => {
+              console.log(`[E2E] CHOOSER_SCREENSHOT_FAILED ${String(error && error.message ? error.message : error)}`);
+              app.exit(1);
+            });
+        }, 900);
+        return;
+      }
+
+      const scriptedPick = String(process.env.SPACE_DESKTOP_CHOOSER_E2E_PICK || "").trim();
+      if (scriptedPick) {
+        setTimeout(() => {
+          chooser.webContents
+            .executeJavaScript(`window.__spaceChooserPick(${JSON.stringify(scriptedPick)})`)
+            .catch((error) => console.warn("[space-desktop] Scripted chooser pick failed.", error));
+        }, 400);
+      }
+    });
+
+    chooser.loadFile(path.join(__dirname, "connect.html"));
+  });
+}
+
 function createWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     showMainWindow();
@@ -1979,6 +2175,67 @@ function createWindow() {
   });
   mainWindow.webContents.on("did-finish-load", () => {
     rememberDesktopSafeMainWindowUrl();
+    if (!isConnectedMode() && String(process.env.SPACE_DESKTOP_E2E_EXIT_AFTER_LOAD || "").trim() === "1") {
+      const finishUrl = normalizeDesktopNavigationUrl(mainWindow?.webContents?.getURL?.() || "");
+      const finishTitle = String(mainWindow?.webContents?.getTitle?.() || "");
+      const expectedOrigin = resolveDesktopAppOrigin();
+      mainWindow.webContents
+        .executeJavaScript(
+          "Boolean(window.spaceDesktop && window.spaceDesktop.browser && window.spaceDesktop.browser.available === true)"
+        )
+        .then((bridgeAvailable) => {
+          const ok = Boolean(bridgeAvailable) && Boolean(expectedOrigin) && finishUrl.startsWith(expectedOrigin);
+          console.log(
+            `[E2E] ${ok ? "PASS" : "FAIL"} standalone-window origin=${finishUrl} pinned=${expectedOrigin} title=${JSON.stringify(finishTitle)} preloadBridge=${bridgeAvailable === true}`
+          );
+          setTimeout(() => app.exit(ok ? 0 : 1), 250);
+        })
+        .catch((error) => {
+          console.log(`[E2E] FAIL standalone-window bridge check error=${String(error && error.message ? error.message : error)}`);
+          setTimeout(() => app.exit(1), 250);
+        });
+    }
+    if (isConnectedMode()) {
+      console.log(`[space-desktop] Connected main window loaded: ${normalizeDesktopNavigationUrl(mainWindow?.webContents?.getURL?.() || "")}`);
+      rememberConnectedServerOrigin();
+      if (String(process.env.SPACE_DESKTOP_E2E_EXIT_AFTER_LOAD || "").trim() === "1") {
+        const finishUrl = normalizeDesktopNavigationUrl(mainWindow?.webContents?.getURL?.() || "");
+        const finishTitle = String(mainWindow?.webContents?.getTitle?.() || "");
+        const expectedOrigin = String(connectionConfig?.origin || "");
+        setTimeout(() => {
+          mainWindow.webContents
+            .executeJavaScript(
+              `JSON.stringify({
+                bridge: Boolean(window.spaceDesktop && window.spaceDesktop.browser && window.spaceDesktop.browser.available === true),
+                runtimeTag: (function(){ const el = document.querySelector("x-context[data-runtime]"); return el ? String(el.getAttribute("data-runtime") || "") : ""; })()
+              })`
+            )
+            .then((probeJson) => {
+              let probe = { bridge: false, runtimeTag: "" };
+              try {
+                probe = JSON.parse(String(probeJson || ""));
+              } catch {
+                probe = { bridge: false, runtimeTag: "" };
+              }
+              const liveUrl = normalizeDesktopNavigationUrl(mainWindow?.webContents?.getURL?.() || finishUrl);
+              const isLauncherShell = /\/(enter|login)(?:[?#]|$)/u.test(liveUrl);
+              const tagOk = isLauncherShell ? true : probe.runtimeTag === "app";
+              const ok = probe.bridge === true
+                && tagOk
+                && Boolean(expectedOrigin)
+                && liveUrl.startsWith(expectedOrigin);
+              console.log(
+                `[E2E] ${ok ? "PASS" : "FAIL"} connected-window origin=${liveUrl} pinned=${expectedOrigin} title=${JSON.stringify(finishTitle)} preloadBridge=${probe.bridge === true} runtimeTag=${JSON.stringify(probe.runtimeTag)}`
+              );
+              setTimeout(() => app.exit(ok ? 0 : 1), 250);
+            })
+            .catch((error) => {
+              console.log(`[E2E] FAIL connected-window bridge check error=${String(error && error.message ? error.message : error)}`);
+              setTimeout(() => app.exit(1), 250);
+            });
+        }, 1800);
+      }
+    }
     desktopPageTitle = normalizeDesktopWindowTitle(mainWindow?.webContents?.getTitle?.() || desktopPageTitle);
     refreshDesktopWindowTitle();
     flushDesktopRendererLogs();
@@ -1990,7 +2247,7 @@ function createWindow() {
     }
   });
 
-  lastSafeMainWindowUrl = normalizeDesktopNavigationUrl(`${serverRuntime.browserUrl}${resolveDesktopLaunchPath()}`);
+  lastSafeMainWindowUrl = normalizeDesktopNavigationUrl(`${resolveDesktopBaseUrl()}${resolveDesktopLaunchPath()}`);
   mainWindow.loadURL(lastSafeMainWindowUrl);
   return mainWindow;
 }
@@ -2036,14 +2293,51 @@ async function stopServerRuntime() {
   }
 }
 
+async function resolveDesktopConnectionForLaunch() {
+  const request = readConnectionRequestFromEnv();
+  if (!request) {
+    if (shouldShowConnectionChooser()) {
+      const pick = await openConnectionChooser();
+      if (pick && pick.mode === CONNECTION_MODE.CONNECTED && pick.origin) {
+        console.log(`[space-desktop] Chooser selected connected: ${pick.origin}`);
+        return pick;
+      }
+
+      console.log("[space-desktop] Chooser did not select a remote server; using standalone mode.");
+      return resolveConnectionConfig({});
+    }
+
+    return resolveConnectionConfig({});
+  }
+
+  const resolved = resolveConnectionConfig({
+    mode: request.mode,
+    url: request.url,
+    savedConnections: loadSavedConnectionRecords()
+  });
+
+  if (resolved.error) {
+    console.warn(`[space-desktop] Connected mode unavailable: ${resolved.error} Falling back to standalone mode.`);
+    return resolveConnectionConfig({});
+  }
+
+  console.log(`[space-desktop] Connected mode requested: ${resolved.origin}`);
+  return resolved;
+}
+
 async function startDesktop() {
   await app.whenReady();
   await cleanupStaleDesktopUpdaterArtifacts();
-  applyPackagedDesktopStorageOverrides();
-  const runtimeParamOverrides = createDesktopRuntimeParamOverrides();
-  const createAgentServer = await loadCreateAgentServer();
-  serverRuntime = await createAgentServer(createDesktopServerOptions(runtimeParamOverrides));
-  await serverRuntime.listen();
+  connectionConfig = await resolveDesktopConnectionForLaunch();
+
+  if (!isConnectedMode()) {
+    applyPackagedDesktopStorageOverrides();
+    const runtimeParamOverrides = createDesktopRuntimeParamOverrides();
+    const createAgentServer = await loadCreateAgentServer();
+    serverRuntime = await createAgentServer(createDesktopServerOptions(runtimeParamOverrides));
+    await serverRuntime.listen();
+  }
+
   createWindow();
   configureDesktopAutoUpdate();
 

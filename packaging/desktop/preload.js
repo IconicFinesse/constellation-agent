@@ -22,6 +22,9 @@ const DESKTOP_BROWSER_HOST_EVENT_CHANNEL = "space-desktop:browser-host-event";
 const DESKTOP_BROWSER_NAVIGATE_CHANNEL = "space-desktop:browser-view-navigate";
 const DESKTOP_BROWSER_RELOAD_CHANNEL = "space-desktop:browser-view-reload";
 const DESKTOP_BROWSER_UPDATE_CHANNEL = "space-desktop:browser-view-update";
+const DESKTOP_CONNECTION_CHOOSE_CHANNEL = "space-desktop:connection-choose";
+const DESKTOP_CONNECTION_LIST_SAVED_CHANNEL = "space-desktop:connection-list-saved";
+const DESKTOP_CONNECTION_STATUS_CHANNEL = "space-desktop:connection-status";
 
 const browserEnvelopeListeners = new Map();
 const browserHostEventListeners = new Set();
@@ -174,6 +177,32 @@ contextBridge.exposeInMainWorld("spaceDesktop", {
     },
     update(payload = {}) {
       ipcRenderer.send(DESKTOP_BROWSER_UPDATE_CHANNEL, normalizeBrowserViewPayload(payload));
+    }
+  },
+  connection: {
+    choose(payload = {}) {
+      ipcRenderer.send(DESKTOP_CONNECTION_CHOOSE_CHANNEL, {
+        label: normalizeText(payload.label),
+        mode: normalizeText(payload.mode),
+        save: payload.save !== false,
+        url: normalizeText(payload.url)
+      });
+    },
+    listSaved() {
+      return ipcRenderer.invoke(DESKTOP_CONNECTION_LIST_SAVED_CHANNEL);
+    },
+    onStatus(listener) {
+      if (typeof listener !== "function") {
+        return () => {};
+      }
+
+      const handler = (_event, payload = {}) => {
+        listener(payload);
+      };
+      ipcRenderer.on(DESKTOP_CONNECTION_STATUS_CHANNEL, handler);
+      return () => {
+        ipcRenderer.removeListener(DESKTOP_CONNECTION_STATUS_CHANNEL, handler);
+      };
     }
   }
 });

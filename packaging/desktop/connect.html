@@ -1,0 +1,166 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Open Constellation Agent</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: 1.25rem;
+        padding: 1.75rem;
+        color: rgba(239, 245, 255, 0.92);
+        background:
+          radial-gradient(circle at top, rgba(49, 90, 184, 0.22), transparent 42%),
+          linear-gradient(180deg, #07101b, #040a12 72%);
+        font: 500 14px/1.5 "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      }
+      h1 { margin: 0 0 0.25rem; font-size: 1.15rem; letter-spacing: 0.01em; }
+      .subtle { margin: 0; color: rgba(239, 245, 255, 0.62); font-size: 0.9rem; }
+      section { display: grid; gap: 0.75rem; align-content: start; }
+      .card {
+        display: grid; gap: 0.35rem; width: 100%; padding: 0.9rem 1rem;
+        border: 1px solid rgba(148, 188, 255, 0.22); border-radius: 10px;
+        color: inherit; text-align: left; background: rgba(10, 20, 33, 0.72); cursor: pointer;
+      }
+      .card:hover { border-color: rgba(148, 188, 255, 0.5); background: rgba(14, 27, 44, 0.85); }
+      .card.primary { border-color: rgba(121, 237, 216, 0.5); }
+      .card strong { font-size: 0.98rem; }
+      .card span { color: rgba(239, 245, 255, 0.62); font-size: 0.85rem; overflow-wrap: anywhere; }
+      .helper { color: rgba(239, 245, 255, 0.5); font-size: 0.82rem; }
+      .muted { margin: 0; color: rgba(239, 245, 255, 0.5); font-size: 0.85rem; }
+      form { display: grid; gap: 0.5rem; }
+      label { display: grid; gap: 0.25rem; font-size: 0.85rem; color: rgba(239, 245, 255, 0.72); }
+      input {
+        width: 100%; padding: 0.6rem 0.7rem; border-radius: 8px;
+        border: 1px solid rgba(148, 188, 255, 0.25); background: rgba(4, 10, 18, 0.8);
+        color: inherit; font: inherit;
+      }
+      input:focus { outline: 1px solid rgba(121, 237, 216, 0.6); border-color: transparent; }
+      button.connect {
+        padding: 0.65rem 1rem; border-radius: 8px; border: 1px solid transparent;
+        color: #04101d; background: linear-gradient(135deg, #94bcff, #79edd8); font: inherit; font-weight: 700; cursor: pointer;
+      }
+      button.connect:hover { filter: brightness(1.05); }
+      #status { min-height: 1.25rem; color: #ffb4a8; font-size: 0.85rem; }
+      footer { color: rgba(239, 245, 255, 0.45); font-size: 0.8rem; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Open Constellation Agent</h1>
+      <p class="subtle">Run locally on this computer, or connect to your own server.</p>
+    </header>
+
+    <section>
+      <button id="standalone" type="button" class="card primary">
+        <strong>Standalone</strong>
+        <span>Default. Starts a private local server on this computer.</span>
+      </button>
+
+      <div>
+        <p class="subtle">Saved servers</p>
+        <div class="subtle" id="saved">
+          <p class="muted">No saved servers yet.</p>
+        </div>
+      </div>
+
+      <form id="add-server" autocomplete="off">
+        <p class="subtle" style="margin:0;">Add a server</p>
+        <label>Name (optional)<input id="server-label" name="label" type="text" placeholder="My server" spellcheck="false" /></label>
+        <label>Server URL<input id="server-url" name="url" type="url" placeholder="https://constellation.example.com" spellcheck="false" /></label>
+        <button id="connect" type="submit" class="connect">Connect</button>
+        <p class="helper">Remote servers must use https (http is allowed only for localhost development).</p>
+      </form>
+
+      <p id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <footer>
+      Connections are saved on this computer; the origin is pinned on first connect.
+    </footer>
+
+    <script>
+      (function () {
+        const API = window.spaceDesktop && window.spaceDesktop.connection;
+        const savedEl = document.getElementById("saved");
+        const statusEl = document.getElementById("status");
+        const urlInput = document.getElementById("server-url");
+        const labelInput = document.getElementById("server-label");
+
+        function setStatus(message) {
+          statusEl.textContent = String(message || "").trim();
+        }
+
+        function pickStandalone() {
+          setStatus("");
+          API?.choose?.({ mode: "standalone" });
+        }
+
+        function pickRemote(url, label, save) {
+          setStatus("");
+          const value = String(url || "").trim();
+          if (!value) {
+            setStatus("Enter a server URL.");
+            return;
+          }
+          API?.choose?.({ mode: "connected", url: value, label: String(label || "").trim(), save: save !== false });
+        }
+
+        function renderSaved(saved) {
+          savedEl.textContent = "";
+          if (!Array.isArray(saved) || !saved.length) {
+            const empty = document.createElement("p");
+            empty.className = "muted";
+            empty.textContent = "No saved servers yet.";
+            savedEl.appendChild(empty);
+            return;
+          }
+          saved.forEach((connection) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "card";
+            const strong = document.createElement("strong");
+            strong.textContent = connection.label || connection.origin;
+            const span = document.createElement("span");
+            span.textContent = connection.origin;
+            button.append(strong, span);
+            button.addEventListener("click", () => pickRemote(connection.url, connection.label, false));
+            savedEl.appendChild(button);
+          });
+        }
+
+        async function loadSaved() {
+          try {
+            const saved = await API?.listSaved?.();
+            renderSaved(saved);
+          } catch {
+            renderSaved([]);
+          }
+        }
+
+        document.getElementById("standalone").addEventListener("click", pickStandalone);
+        document.getElementById("add-server").addEventListener("submit", (event) => {
+          event.preventDefault();
+          pickRemote(urlInput.value, labelInput.value, true);
+        });
+        API?.onStatus?.((payload) => {
+          setStatus(payload && payload.error ? payload.error : "");
+        });
+
+        window.__spaceChooserPick = (pick) => {
+          const value = String(pick || "").trim();
+          if (/^https?:\/\//i.test(value)) {
+            pickRemote(value, "", true);
+            return;
+          }
+          pickStandalone();
+        };
+
+        loadSaved();
+      }());
+    </script>
+  </body>
+</html>
