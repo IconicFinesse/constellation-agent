@@ -15,8 +15,7 @@ const EXAMPLE_MANIFEST_PATTERN = "mod/_core/dashboard_welcome/examples/*/space.y
 const EXAMPLE_ORDER = Object.freeze([
   "daily-news",
   "crypto-dashboard",
-  "retro-arcade",
-  "agent-zero-videos"
+  "retro-arcade"
 ]);
 const EXAMPLE_ORDER_INDEX = new Map(EXAMPLE_ORDER.map((id, index) => [id, index]));
 

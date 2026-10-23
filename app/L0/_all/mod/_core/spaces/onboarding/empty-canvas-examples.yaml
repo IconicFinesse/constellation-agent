@@ -23,21 +23,6 @@ examples:
         "retro-arcade/snake-game.yaml",
         "retro-arcade/retro-marquee.yaml"
       ])
-  - text: Agent Zero Videos
-    kind: widget
-    icon: smart_display
-    color: "#ff5a4f"
-    code: |
-      const currentSpace = helpers.getSpaceRuntime().current
-      const spacesRuntime = helpers.getSpacesRuntime()
-      const shouldRenameSpace = currentSpace && !String(currentSpace.title || "").trim()
-      if (shouldRenameSpace && currentSpace?.id) {
-        await spacesRuntime.saveSpaceMeta({ id: currentSpace.id, title: example.text, refresh: false })
-      }
-      await helpers.installOnboardingExampleWidgets([
-        "agent-zero-videos/yt-video-list.yaml",
-        "agent-zero-videos/yt-video-player.yaml"
-      ])
   - text: Rickroll me
     kind: widget
     icon: play_circle
