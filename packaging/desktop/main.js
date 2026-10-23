@@ -12,6 +12,11 @@ const {
   resolvePackagedDesktopUserDataPath
 } = require("./server_storage_paths");
 const {
+  CONNECTION_MODE,
+  readConnectionRequestFromEnv,
+  resolveConnectionConfig
+} = require("./connection_mode");
+const {
   cleanupDesktopUpdaterArtifacts,
   writeDesktopUpdaterInstallMarker
 } = require("./updater_artifacts");
@@ -54,6 +59,7 @@ const DESKTOP_UPDATE_FAILURE_STATUS_LIMIT = 120;
 const AUTH_DATA_DIR_ENV_NAME = "SPACE_AUTH_DATA_DIR";
 
 let serverRuntime;
+let connectionConfig = resolveConnectionConfig({});
 let mainWindow;
 let isQuitting = false;
 let updateStatusClearTimer = null;
@@ -772,6 +778,63 @@ function reloadDesktopBrowserView(browserId) {
   entry.view.webContents.reload();
 }
 
+function isConnectedMode() {
+  return connectionConfig?.mode === CONNECTION_MODE.CONNECTED && Boolean(connectionConfig.origin);
+}
+
+function resolveDesktopBaseUrl() {
+  if (isConnectedMode()) {
+    return connectionConfig.url;
+  }
+
+  return String(serverRuntime?.browserUrl || "");
+}
+
+function resolveDesktopConnectionsFilePath() {
+  return path.join(app.getPath("userData"), "connections.json");
+}
+
+function loadSavedConnectionRecords() {
+  try {
+    const raw = fs.readFileSync(resolveDesktopConnectionsFilePath(), "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.connections) ? parsed.connections : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberConnectedServerOrigin() {
+  if (!isConnectedMode()) {
+    return;
+  }
+
+  try {
+    const records = loadSavedConnectionRecords();
+    const existing = records.find(
+      (entry) => String(entry?.origin || "").trim() === connectionConfig.origin
+    );
+    if (existing) {
+      return;
+    }
+
+    const next = [
+      ...records,
+      {
+        label: connectionConfig.label || connectionConfig.origin,
+        url: connectionConfig.url,
+        origin: connectionConfig.origin
+      }
+    ];
+    const file = resolveDesktopConnectionsFilePath();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ connections: next }, null, 2), { mode: 0o600 });
+    console.log(`[space-desktop] Pinned connected server origin: ${connectionConfig.origin}`);
+  } catch (error) {
+    console.warn("[space-desktop] Could not persist the connected server record.", error);
+  }
+}
+
 function createDesktopRuntimeParamOverrides() {
   const overrides = {};
 
@@ -816,6 +879,10 @@ function applyPackagedDesktopStorageOverrides() {
 }
 
 function resolveDesktopLaunchPath() {
+  if (isConnectedMode()) {
+    return "";
+  }
+
   return serverRuntime?.runtimeParams?.get?.("SINGLE_USER_APP", false) ? "/enter" : "/";
 }
 
@@ -833,6 +900,10 @@ function normalizeDesktopNavigationUrl(value) {
 }
 
 function resolveDesktopAppOrigin() {
+  if (isConnectedMode()) {
+    return connectionConfig.origin;
+  }
+
   try {
     return new URL(serverRuntime?.browserUrl || "").origin;
   } catch {
@@ -871,7 +942,7 @@ function revertDesktopMainWindowToSafeUrl(blockedUrl = "") {
 
   const safeUrl = rememberDesktopSafeMainWindowUrl()
     || normalizeDesktopNavigationUrl(lastSafeMainWindowUrl)
-    || normalizeDesktopNavigationUrl(`${serverRuntime?.browserUrl || ""}${resolveDesktopLaunchPath()}`);
+    || normalizeDesktopNavigationUrl(`${resolveDesktopBaseUrl()}${resolveDesktopLaunchPath()}`);
   if (!safeUrl) {
     return;
   }
@@ -1052,6 +1123,8 @@ function getDesktopRuntimeInfo() {
   return {
     platform: process.platform,
     isBundledApp: app.isPackaged,
+    connectionMode: isConnectedMode() ? CONNECTION_MODE.CONNECTED : CONNECTION_MODE.STANDALONE,
+    connectedOrigin: isConnectedMode() ? connectionConfig.origin : "",
     canCheckForUpdates,
     updateStatus: desktopUpdateState
   };
@@ -1231,7 +1304,7 @@ function reportDesktopUpdateFailure(message, error) {
 }
 
 function shouldEnableDesktopAutoUpdate() {
-  return app.isPackaged;
+  return app.isPackaged && !isConnectedMode();
 }
 
 function loadDesktopAutoUpdater() {
@@ -1979,6 +2052,30 @@ function createWindow() {
   });
   mainWindow.webContents.on("did-finish-load", () => {
     rememberDesktopSafeMainWindowUrl();
+    if (isConnectedMode()) {
+      console.log(`[space-desktop] Connected main window loaded: ${normalizeDesktopNavigationUrl(mainWindow?.webContents?.getURL?.() || "")}`);
+      rememberConnectedServerOrigin();
+      if (String(process.env.SPACE_DESKTOP_E2E_EXIT_AFTER_LOAD || "").trim() === "1") {
+        const finishUrl = normalizeDesktopNavigationUrl(mainWindow?.webContents?.getURL?.() || "");
+        const finishTitle = String(mainWindow?.webContents?.getTitle?.() || "");
+        const expectedOrigin = String(connectionConfig?.origin || "");
+        mainWindow.webContents
+          .executeJavaScript(
+            "Boolean(window.spaceDesktop && window.spaceDesktop.browser && window.spaceDesktop.browser.available === true)"
+          )
+          .then((bridgeAvailable) => {
+            const ok = Boolean(bridgeAvailable) && Boolean(expectedOrigin) && finishUrl.startsWith(expectedOrigin);
+            console.log(
+              `[E2E] ${ok ? "PASS" : "FAIL"} connected-window origin=${finishUrl} pinned=${expectedOrigin} title=${JSON.stringify(finishTitle)} preloadBridge=${bridgeAvailable === true}`
+            );
+            setTimeout(() => app.exit(ok ? 0 : 1), 250);
+          })
+          .catch((error) => {
+            console.log(`[E2E] FAIL connected-window bridge check error=${String(error && error.message ? error.message : error)}`);
+            setTimeout(() => app.exit(1), 250);
+          });
+      }
+    }
     desktopPageTitle = normalizeDesktopWindowTitle(mainWindow?.webContents?.getTitle?.() || desktopPageTitle);
     refreshDesktopWindowTitle();
     flushDesktopRendererLogs();
@@ -1990,7 +2087,7 @@ function createWindow() {
     }
   });
 
-  lastSafeMainWindowUrl = normalizeDesktopNavigationUrl(`${serverRuntime.browserUrl}${resolveDesktopLaunchPath()}`);
+  lastSafeMainWindowUrl = normalizeDesktopNavigationUrl(`${resolveDesktopBaseUrl()}${resolveDesktopLaunchPath()}`);
   mainWindow.loadURL(lastSafeMainWindowUrl);
   return mainWindow;
 }
@@ -2036,14 +2133,40 @@ async function stopServerRuntime() {
   }
 }
 
+function resolveDesktopConnectionForLaunch() {
+  const request = readConnectionRequestFromEnv();
+  if (!request) {
+    return resolveConnectionConfig({});
+  }
+
+  const resolved = resolveConnectionConfig({
+    mode: request.mode,
+    url: request.url,
+    savedConnections: loadSavedConnectionRecords()
+  });
+
+  if (resolved.error) {
+    console.warn(`[space-desktop] Connected mode unavailable: ${resolved.error} Falling back to standalone mode.`);
+    return resolveConnectionConfig({});
+  }
+
+  console.log(`[space-desktop] Connected mode requested: ${resolved.origin}`);
+  return resolved;
+}
+
 async function startDesktop() {
   await app.whenReady();
   await cleanupStaleDesktopUpdaterArtifacts();
-  applyPackagedDesktopStorageOverrides();
-  const runtimeParamOverrides = createDesktopRuntimeParamOverrides();
-  const createAgentServer = await loadCreateAgentServer();
-  serverRuntime = await createAgentServer(createDesktopServerOptions(runtimeParamOverrides));
-  await serverRuntime.listen();
+  connectionConfig = resolveDesktopConnectionForLaunch();
+
+  if (!isConnectedMode()) {
+    applyPackagedDesktopStorageOverrides();
+    const runtimeParamOverrides = createDesktopRuntimeParamOverrides();
+    const createAgentServer = await loadCreateAgentServer();
+    serverRuntime = await createAgentServer(createDesktopServerOptions(runtimeParamOverrides));
+    await serverRuntime.listen();
+  }
+
   createWindow();
   configureDesktopAutoUpdate();
 
