@@ -102,7 +102,7 @@ Approved plan v1.0; owner answers recorded in the project's private memory.
 ### Unreleased since `v0.66-fork.7`
 
 `main` carried four commits past the release tag before the rebrand lane merged.
-They ship in `v1.0.0` — First Light, which supersedes the planned `v0.66-fork.8`:
+They shipped in `v1.0.0` — First Light, which superseded the planned `v0.66-fork.8`:
 
 | Commit | Content |
 | --- | --- |
@@ -111,8 +111,14 @@ They ship in `v1.0.0` — First Light, which supersedes the planned `v0.66-fork.
 | `421472f` | saved-server removal in the connection chooser (Lane D) |
 | — | release-note and README regeneration happen at tag time, not before |
 
-`v1.0.0` — First Light is the release that carries these, together with the
-terminology and identity cleanup recorded under *Rebrand follow-ups*.
+Both of these releases shipped. `v1.0.0` — First Light carried them together with
+the terminology and identity cleanup recorded under *Rebrand follow-ups*.
+`v1.1.0` — First Light then spelled out the framework's shorthand directory names
+(`conf`→`config`, `hist`→`history`, `meta`→`metadata`) and the module namespace
+(`mod`→`modules`, across the URL prefix, both L0 trees, the path parsers and the
+test specifiers), adding a legacy read fallback so pre-1.1 installs keep their
+credentials, config, history and installed modules. Every `v1.x` release carries
+the First Light moniker; it changes at a major bump.
 
 ## Phase 3 — what this phase is for
 
@@ -233,8 +239,8 @@ mode) and the first build the owner installed end-to-end: standalone launched,
 the chooser listed both modes, the cloud instance signed in over HTTPS, and the
 embedded browser worked with full `space.browser` capability.
 
-`v1.0.0` — First Light supersedes the planned `v0.66-fork.8`; see *Unreleased
-since `v0.66-fork.7`* above.
+`v1.0.0` and `v1.1.0` — both First Light — superseded the planned `v0.66-fork.8`;
+see *Unreleased since `v0.66-fork.7`* above.
 
 ## Batch history
 

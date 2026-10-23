@@ -125,21 +125,12 @@ the same contract upstream gave its users, now given by this fork.
 
 <!-- WHATS-NEW:START -->
 
-**`v0.66-fork.7`**
-
-- Revise serving infrastructure information
-- Parse fork tags so desktop releases can build
-- Connection chooser with saved servers, standalone default, and preload connection bridge
-- Wire connected mode into main process with remote origin, pinned-origin persistence, and e2e load seam
-- Add connection_mode resolver with standalone default and pinned-origin guard
-- Report first-run account state instead of a credential error
-
 **`v1.0.0`**
 
 - Prepare First Light
 - Remove saved servers from the connection chooser
 
-**Unreleased**
+**`v1.1.0`**
 
 - Prepare First Light continuation
 - Read legacy user-data paths when the new names are absent
