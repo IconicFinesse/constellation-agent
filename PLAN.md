@@ -267,6 +267,28 @@ embedded browser worked with full `space.browser` capability.
 - Optional: post `prs/comment-50.md` goodwill comment as yourself.
 - PR phase stays closed — do not resume upstream PR work from this file.
 
+## Rebrand follow-ups (owner's next session)
+
+Found during the first end-to-end desktop test of `v0.66-fork.7`. These are
+naming and polish items, not defects in shipped behavior.
+
+- **The `space-agent` profile folder persists.** The packaged host deliberately
+  prefers a legacy profile directory that already owns runtime state
+  (`customware/` or `server/data/`) over the current product name, which is what
+  keeps existing installs alive across rebrands. Consequence observed on
+  Windows: the saved-server file resolves to
+  `%APPDATA%\space-agent\connections.json`, not
+  `%APPDATA%\Constellation Agent\`. **A rebrand fix here is a migration, not a
+  rename** — adopt the current-name folder when it already owns runtime state,
+  otherwise move the legacy contents exactly once and record that the move
+  happened, so no install loses its customware or auth data. Contract lives in
+  `packaging/desktop/server_storage_paths.js`.
+- **Remaining "space agent" strings** in window titles, installer metadata, and
+  in-app copy. Owner is working through these.
+- **Chooser polish:** the window comfortably shows about two saved servers
+  before scrolling, and saved servers can only be managed at launch — there is
+  no in-app settings surface for them yet.
+
 ## Check-in contract
 
 - Per lane: completion + orchestrator rerun → report branch, hashes, evidence
