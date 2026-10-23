@@ -38,6 +38,13 @@ Current user storage layout:
 
 `user_files.js` is the canonical helper layer for those files. Do not write them through ad hoc path logic elsewhere.
 
+Pre-v1.1 installs store the verifier, logins, and crypto records under `meta/` and the
+user profile under the legacy `conf/`/`hist/` names. `user_files.js` read helpers resolve
+the current name first and fall back to the legacy name (`listUserReadAbsolutePaths`,
+`resolveUserReadAbsolutePath`), while every write helper targets only the current name.
+No migration runs and no legacy directory is created or modified by a write.
+
+
 ### Session And Login Contract
 
 Current session rules:

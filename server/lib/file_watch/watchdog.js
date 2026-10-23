@@ -543,7 +543,7 @@ function collectProjectSyncTargets(projectPaths = [], currentPathIndex = Object.
 }
 
 function isL2AuthStateProjectPath(projectPath = "") {
-  return /^\/app\/L2\/[^/]+\/(?:user\.yaml|metadata\/(?:logins|password)\.json)$/u.test(
+  return /^\/app\/L2\/[^/]+\/(?:user\.yaml|(?:metadata|meta)\/(?:logins|password)\.json)$/u.test(
     String(projectPath || "")
   );
 }
@@ -1949,10 +1949,15 @@ export function createWatchdog(options = {}) {
       return [];
     }
 
+    // Legacy `meta/` paths are listed alongside the current `metadata/` names so a
+    // pre-v1.1 install still hydrates its auth state. Listing a path that does not
+    // exist is harmless; nothing is created by this sync.
     return [
       `/app/L2/${normalizedUsername}/user.yaml`,
       `/app/L2/${normalizedUsername}/metadata/password.json`,
-      `/app/L2/${normalizedUsername}/metadata/logins.json`
+      `/app/L2/${normalizedUsername}/metadata/logins.json`,
+      `/app/L2/${normalizedUsername}/meta/password.json`,
+      `/app/L2/${normalizedUsername}/meta/logins.json`
     ];
   }
 

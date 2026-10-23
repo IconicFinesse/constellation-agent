@@ -237,6 +237,110 @@ function normalizeAppProjectPath(value, options = {}) {
   return isDirectory ? `${projectPath}/` : projectPath;
 }
 
+// v1.1 renamed several on-disk names one level inside a layer owner:
+// `meta/` -> `metadata/`, `conf/` -> `config/`, `hist/` -> `history/`, and
+// `mod/` -> `modules/`. Existing installs still carry the previous names, so reads
+// resolve a legacy candidate when the new name is absent. Writes always use the new
+// names and nothing is migrated, moved, or deleted.
+//
+// Aliasing is deliberately limited to that one structural slot. Deeper segments are
+// ordinary user content, so a module that happens to contain its own `conf/` or
+// `hist/` directory is never rewritten.
+const LEGACY_OWNER_CHILD_DIRNAMES = Object.freeze({
+  config: "conf",
+  history: "hist",
+  metadata: "meta",
+  modules: "mod"
+});
+const PREFERRED_OWNER_CHILD_DIRNAMES = Object.freeze({
+  conf: "config",
+  hist: "history",
+  meta: "metadata",
+  mod: "modules"
+});
+const ALIASABLE_LAYERS = Object.freeze(new Set(["L0", "L1", "L2"]));
+const OWNER_CHILD_SEGMENT_INDEX = 3;
+
+function splitProjectPathForAliasing(projectPath) {
+  const rawPath = String(projectPath || "");
+  const isDirectory = rawPath.endsWith("/");
+  const normalizedPath = String(
+    normalizeAppProjectPath(rawPath, {
+      allowAppRoot: true,
+      isDirectory
+    }) || ""
+  );
+
+  if (!normalizedPath) {
+    return null;
+  }
+
+  return {
+    isDirectory,
+    segments: stripTrailingSlash(normalizedPath).split("/").filter(Boolean)
+  };
+}
+
+function getAliasableSegmentIndex(segments) {
+  if (segments[0] !== "app" || !ALIASABLE_LAYERS.has(segments[1])) {
+    return -1;
+  }
+
+  return segments.length > OWNER_CHILD_SEGMENT_INDEX ? OWNER_CHILD_SEGMENT_INDEX : -1;
+}
+
+function joinProjectPathSegments(segments, isDirectory) {
+  const joined = `/${segments.join("/")}`;
+  return isDirectory ? `${joined}/` : joined;
+}
+
+// Returns the legacy on-disk variant of a logical project path, if that path has an
+// aliasable structural segment. The list is ordered most-preferred first.
+function listLegacyProjectPathCandidates(projectPath) {
+  const parsedPath = splitProjectPathForAliasing(projectPath);
+
+  if (!parsedPath) {
+    return [];
+  }
+
+  const { isDirectory, segments } = parsedPath;
+  const segmentIndex = getAliasableSegmentIndex(segments);
+  const legacyDirname =
+    segmentIndex >= 0 ? LEGACY_OWNER_CHILD_DIRNAMES[segments[segmentIndex]] : "";
+
+  if (!legacyDirname) {
+    return [];
+  }
+
+  const legacySegments = [...segments];
+  legacySegments[segmentIndex] = legacyDirname;
+
+  return [joinProjectPathSegments(legacySegments, isDirectory)];
+}
+
+// Maps an on-disk legacy path back to the name new code writes and reports.
+function toPreferredProjectPath(projectPath) {
+  const parsedPath = splitProjectPathForAliasing(projectPath);
+
+  if (!parsedPath) {
+    return String(projectPath || "");
+  }
+
+  const { isDirectory, segments } = parsedPath;
+  const segmentIndex = getAliasableSegmentIndex(segments);
+  const preferredDirname =
+    segmentIndex >= 0 ? PREFERRED_OWNER_CHILD_DIRNAMES[segments[segmentIndex]] : "";
+
+  if (!preferredDirname) {
+    return joinProjectPathSegments(segments, isDirectory);
+  }
+
+  const preferredSegments = [...segments];
+  preferredSegments[segmentIndex] = preferredDirname;
+
+  return joinProjectPathSegments(preferredSegments, isDirectory);
+}
+
 function normalizeModuleRequestPath(value) {
   const normalized = normalizePathSegment(value);
 
@@ -294,7 +398,9 @@ function parseModuleExtensionRequestPath(requestPath) {
 }
 
 function parseProjectModuleDirectoryPath(projectPath) {
-  let match = String(projectPath || "").match(/^\/app\/L0\/([^/]+)\/(modules\/[^/]+\/[^/]+)\/$/u);
+  const rawProjectPath = String(projectPath || "");
+  const preferredProjectPath = toPreferredProjectPath(rawProjectPath);
+  let match = preferredProjectPath.match(/^\/app\/L0\/([^/]+)\/(modules\/[^/]+\/[^/]+)\/$/u);
 
   if (match) {
     const ownerId = normalizeEntityId(match[1]);
@@ -313,7 +419,7 @@ function parseProjectModuleDirectoryPath(projectPath) {
     };
   }
 
-  match = String(projectPath || "").match(/^\/app\/L1\/([^/]+)\/(modules\/[^/]+\/[^/]+)\/$/u);
+  match = preferredProjectPath.match(/^\/app\/L1\/([^/]+)\/(modules\/[^/]+\/[^/]+)\/$/u);
 
   if (match) {
     const ownerId = normalizeEntityId(match[1]);
@@ -332,7 +438,7 @@ function parseProjectModuleDirectoryPath(projectPath) {
     };
   }
 
-  match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/(modules\/[^/]+\/[^/]+)\/$/u);
+  match = preferredProjectPath.match(/^\/app\/L2\/([^/]+)\/(modules\/[^/]+\/[^/]+)\/$/u);
 
   if (!match) {
     return null;
@@ -355,7 +461,9 @@ function parseProjectModuleDirectoryPath(projectPath) {
 }
 
 function parseProjectModuleFilePath(projectPath) {
-  let match = String(projectPath || "").match(/^\/app\/L0\/([^/]+)\/(modules\/.+)$/u);
+  const rawProjectPath = String(projectPath || "");
+  const preferredProjectPath = toPreferredProjectPath(rawProjectPath);
+  let match = preferredProjectPath.match(/^\/app\/L0\/([^/]+)\/(modules\/.+)$/u);
 
   if (match) {
     const ownerId = normalizeEntityId(match[1]);
@@ -373,7 +481,7 @@ function parseProjectModuleFilePath(projectPath) {
     };
   }
 
-  match = String(projectPath || "").match(/^\/app\/L1\/([^/]+)\/(modules\/.+)$/u);
+  match = preferredProjectPath.match(/^\/app\/L1\/([^/]+)\/(modules\/.+)$/u);
 
   if (match) {
     const ownerId = normalizeEntityId(match[1]);
@@ -391,7 +499,7 @@ function parseProjectModuleFilePath(projectPath) {
     };
   }
 
-  match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/(modules\/.+)$/u);
+  match = preferredProjectPath.match(/^\/app\/L2\/([^/]+)\/(modules\/.+)$/u);
 
   if (match) {
     const ownerId = normalizeEntityId(match[1]);
@@ -513,7 +621,7 @@ function parseProjectUserConfigPath(projectPath) {
 }
 
 function parseProjectUserLoginsPath(projectPath) {
-  const match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/metadata\/logins\.json$/u);
+  const match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/(?:metadata|meta)\/logins\.json$/u);
 
   if (!match) {
     return null;
@@ -533,7 +641,7 @@ function parseProjectUserLoginsPath(projectPath) {
 }
 
 function parseProjectUserPasswordPath(projectPath) {
-  const match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/metadata\/password\.json$/u);
+  const match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/(?:metadata|meta)\/password\.json$/u);
 
   if (!match) {
     return null;
@@ -634,6 +742,7 @@ export {
   normalizeEntityId,
   parseModuleDirectoryRequestPath,
   normalizeModuleRequestPath,
+  listLegacyProjectPathCandidates,
   listProjectScanRoots,
   parseAppProjectPath,
   parseModuleExtensionRequestPath,
@@ -646,5 +755,6 @@ export {
   parseProjectUserLoginsPath,
   parseProjectUserPasswordPath,
   resolveProjectAbsolutePath,
-  resolveProjectPathFromAbsolute
+  resolveProjectPathFromAbsolute,
+  toPreferredProjectPath
 };

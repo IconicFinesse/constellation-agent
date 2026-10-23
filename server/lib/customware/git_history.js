@@ -30,7 +30,10 @@ const DEFAULT_AUTHOR_EMAIL = "constellation-agent@local";
 const USER_HISTORY_IGNORED_PATHS = [
   "metadata/password.json",
   "metadata/logins.json",
-  "metadata/user_crypto.json"
+  "metadata/user_crypto.json",
+  "meta/password.json",
+  "meta/logins.json",
+  "meta/user_crypto.json"
 ];
 const pendingCommits = new Map();
 let suppressionDepth = 0;

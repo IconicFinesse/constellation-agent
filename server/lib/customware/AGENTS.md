@@ -62,6 +62,27 @@ CLI group-editing rules:
 - `group add` and `user create --groups ...` may create the target writable `L1/<group>/` root automatically before writing membership, including `_admin`
 - those writes must pass the resolved runtime params into `group_files.js` so configured `CUSTOMWARE_PATH` roots are honored
 
+### Legacy Name Compatibility Contract
+
+v1.1 renamed four directories one level inside a layer owner: `meta/` -> `metadata/`,
+`conf/` -> `config/`, `hist/` -> `history/`, and `mod/` -> `modules/`. An install created
+before v1.1 still carries only the old names, so reads must keep working without any
+migration step, data movement, or rewrite.
+
+Rules:
+
+- aliasing applies only to the owner-child segment (`/app/<L0|L1|L2>/<owner>/<child>/`), never to deeper segments, so user content named `conf/` or `hist/` inside a module is untouched
+- reads try the current name first and fall back to the legacy name when the current path does not exist; when both exist the current name wins
+- writes, deletes, copies, and moves always resolve the current name and never create, modify, or remove a legacy directory
+- `layout.js` owns the mapping: `toPreferredProjectPath(...)` maps an on-disk legacy path to the current name for reporting and parsing, and `listLegacyProjectPathCandidates(...)` returns the legacy read candidate for a logical path
+- module discovery parses indexed paths through `toPreferredProjectPath` before matching `/app/<layer>/<owner>/modules/<author>/<repo>/`, so a legacy `mod/` tree lists as `/modules/<author>/<repo>`
+- `parseProjectUserLoginsPath` and `parseProjectUserPasswordPath` accept both `metadata/` and `meta/` because auth state is read back from either name
+- `module_list` returns a bare JSON array of entries; it is not wrapped in an envelope, and frontend consumers test `Array.isArray(result)`
+
+Verification: `tests/legacy_upgrade_path_test.mjs` builds a v1.0.0-shaped tree and asserts
+legacy auth discovery, legacy `~/conf/` and `~/hist/` reads, legacy `mod/` module
+discovery, and that new-name writes leave the legacy directories untouched.
+
 ### Inheritance And Override Contract
 
 Module and extension resolution is layered and rank-based.

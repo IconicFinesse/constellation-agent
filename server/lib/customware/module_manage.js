@@ -14,7 +14,8 @@ import {
   normalizeAppProjectPath,
   parseModuleDirectoryRequestPath,
   parseProjectModuleDirectoryPath,
-  resolveProjectAbsolutePath
+  resolveProjectAbsolutePath,
+  toPreferredProjectPath
 } from "./layout.js";
 import {
   collectProjectPathsFromFileIndexShards,
@@ -695,7 +696,20 @@ async function installModule(options = {}) {
     throw createHttpError("Specify either tag or commit, not both.", 400);
   }
 
-  const targetPathInfo = normalizeModuleTargetPath(options.path, options);
+  // Installs always land on the current directory names. A caller that still spells a
+  // legacy `mod/` target is normalized to `modules/` so no new data is written into a
+  // pre-v1.1 directory. Existing legacy content is never moved or removed here.
+  const requestedTargetPathInfo = normalizeModuleTargetPath(options.path, options);
+  const preferredProjectPath = toPreferredProjectPath(requestedTargetPathInfo.projectPath);
+  const targetPathInfo =
+    preferredProjectPath && preferredProjectPath !== requestedTargetPathInfo.projectPath
+      ? {
+          ...requestedTargetPathInfo,
+          absolutePath: createAbsolutePath(options.projectRoot, preferredProjectPath, options.runtimeParams),
+          appPath: toAppRelativePath(preferredProjectPath),
+          projectPath: preferredProjectPath
+        }
+      : requestedTargetPathInfo;
   const pathIndex = getFileIndexShardValue(
     options.stateSystem,
     targetPathInfo.layer === "L1"

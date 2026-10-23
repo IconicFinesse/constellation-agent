@@ -2,6 +2,7 @@ import fs from "node:fs";
 
 import {
   getAppPathRoots,
+  listLegacyProjectPathCandidates,
   normalizeEntityId,
   resolveProjectAbsolutePath
 } from "../customware/layout.js";
@@ -37,6 +38,31 @@ function buildUserAbsolutePath(projectRoot, username, relativePath = "", runtime
     buildUserProjectPath(username, relativePath),
     runtimeParams
   );
+}
+
+// Writes always target the current names. Reads prefer the current name and fall
+// back to the pre-v1.1 names so an upgraded install keeps working without any
+// migration step or data movement.
+function listUserReadAbsolutePaths(projectRoot, username, relativePath, runtimeParams = null) {
+  const preferredAbsolutePath = buildUserAbsolutePath(projectRoot, username, relativePath, runtimeParams);
+  const legacyProjectPaths = listLegacyProjectPathCandidates(buildUserProjectPath(username, relativePath));
+  const legacyAbsolutePaths = legacyProjectPaths
+    .map((projectPath) => resolveProjectAbsolutePath(projectRoot, projectPath, runtimeParams))
+    .filter((absolutePath) => absolutePath && absolutePath !== preferredAbsolutePath);
+
+  return [preferredAbsolutePath, ...legacyAbsolutePaths];
+}
+
+function resolveUserReadAbsolutePath(projectRoot, username, relativePath, runtimeParams = null) {
+  const candidates = listUserReadAbsolutePaths(projectRoot, username, relativePath, runtimeParams);
+
+  for (const candidatePath of candidates) {
+    if (candidatePath && fs.existsSync(candidatePath)) {
+      return candidatePath;
+    }
+  }
+
+  return candidates[0] || "";
 }
 
 function valueToText(value) {
@@ -95,14 +121,14 @@ function hasAnyPasswordUser(projectRoot, runtimeParams = null) {
       continue;
     }
 
-    const passwordPath = buildUserAbsolutePath(
+    const passwordPaths = listUserReadAbsolutePaths(
       projectRoot,
       entry.name,
       `${USER_META_DIRNAME}/${USER_PASSWORD_FILENAME}`,
       runtimeParams
     );
 
-    if (fs.existsSync(passwordPath)) {
+    if (passwordPaths.some((passwordPath) => passwordPath && fs.existsSync(passwordPath))) {
       return true;
     }
   }
@@ -111,7 +137,7 @@ function hasAnyPasswordUser(projectRoot, runtimeParams = null) {
 }
 
 function readUserConfig(projectRoot, username, runtimeParams = null) {
-  const filePath = buildUserAbsolutePath(projectRoot, username, USER_CONFIG_FILENAME, runtimeParams);
+  const filePath = resolveUserReadAbsolutePath(projectRoot, username, USER_CONFIG_FILENAME, runtimeParams);
   const sourceText = readTextFile(filePath, "");
   return sourceText ? parseSimpleYaml(sourceText) : {};
 }
@@ -124,7 +150,7 @@ function writeUserConfig(projectRoot, username, config, runtimeParams = null) {
 }
 
 function readUserPasswordVerifier(projectRoot, username, runtimeParams = null) {
-  const filePath = buildUserAbsolutePath(
+  const filePath = resolveUserReadAbsolutePath(
     projectRoot,
     username,
     `${USER_META_DIRNAME}/${USER_PASSWORD_FILENAME}`,
@@ -148,7 +174,7 @@ function writeUserPasswordVerifier(projectRoot, username, verifier, runtimeParam
 }
 
 function readUserLogins(projectRoot, username, runtimeParams = null) {
-  const filePath = buildUserAbsolutePath(
+  const filePath = resolveUserReadAbsolutePath(
     projectRoot,
     username,
     `${USER_META_DIRNAME}/${USER_LOGINS_FILENAME}`,
@@ -172,7 +198,7 @@ function writeUserLogins(projectRoot, username, logins, runtimeParams = null) {
 }
 
 function readUserCryptoRecord(projectRoot, username, runtimeParams = null) {
-  const filePath = buildUserAbsolutePath(
+  const filePath = resolveUserReadAbsolutePath(
     projectRoot,
     username,
     `${USER_META_DIRNAME}/${USER_CRYPTO_FILENAME}`,
@@ -218,11 +244,13 @@ export {
   buildUserProjectPath,
   ensureUserStructure,
   hasAnyPasswordUser,
+  listUserReadAbsolutePaths,
   normalizeUsername,
   readUserConfig,
   readUserCryptoRecord,
   readUserLogins,
   readUserPasswordVerifier,
+  resolveUserReadAbsolutePath,
   writeUserConfig,
   writeUserCryptoRecord,
   writeUserLogins,

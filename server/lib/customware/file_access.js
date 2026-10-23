@@ -8,6 +8,7 @@ import {
   recordAppPathMutations
 } from "./git_history.js";
 import {
+  listLegacyProjectPathCandidates,
   normalizeAppProjectPath,
   normalizeEntityId,
   parseAppProjectPath,
@@ -603,6 +604,34 @@ function resolveExistingProjectPath(pathIndex, inputPath) {
   };
 }
 
+// Reads prefer the current v1.1 names and fall back to the pre-v1.1 names that an
+// existing install still carries on disk. Writes, deletes, copies, and moves keep
+// resolving through resolveExistingProjectPath so they never touch legacy paths.
+function resolveReadableProjectPathWithLegacyFallback(pathIndex, inputPath) {
+  const preferredResolution = resolveExistingProjectPath(pathIndex, inputPath);
+
+  if (preferredResolution.exists) {
+    return preferredResolution;
+  }
+
+  const legacyCandidates = listLegacyProjectPathCandidates(
+    preferredResolution.projectPath || normalizeAppProjectPath(inputPath, {
+      allowAppRoot: true,
+      isDirectory: true
+    })
+  );
+
+  for (const legacyCandidate of legacyCandidates) {
+    const legacyResolution = resolveExistingProjectPath(pathIndex, legacyCandidate);
+
+    if (legacyResolution.exists) {
+      return legacyResolution;
+    }
+  }
+
+  return preferredResolution;
+}
+
 function createAbsolutePath(projectRoot, projectPath, runtimeParams) {
   return resolveProjectAbsolutePath(projectRoot, projectPath, runtimeParams);
 }
@@ -769,7 +798,7 @@ function normalizeReadRequests(options = {}) {
       throw createHttpError("File path must not be empty.", 400);
     }
 
-    const resolvedPath = resolveExistingProjectPath(
+    const resolvedPath = resolveReadableProjectPathWithLegacyFallback(
       pathIndex,
       resolveUserShorthandPath(requestedPath, accessController.username)
     );
@@ -832,7 +861,7 @@ function resolveReadableExistingAppPath(options = {}) {
     throw createHttpError("Path must not be empty.", 400);
   }
 
-  const resolvedPath = resolveExistingProjectPath(
+  const resolvedPath = resolveReadableProjectPathWithLegacyFallback(
     pathIndex,
     resolveUserShorthandPath(requestedPath, accessController.username)
   );
