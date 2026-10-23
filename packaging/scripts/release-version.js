@@ -3,6 +3,10 @@
 const { execFileSync } = require("node:child_process");
 
 const RELEASE_TAG_PATTERN = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?$/u;
+// Fork releases use `vX.Y-fork.N`, where N is the fork release ordinal. It maps
+// to the semver patch so each fork release stays distinct and monotonic for the
+// desktop updater, while upstream-shaped `vX.Y.Z` tags keep their exact meaning.
+const FORK_TAG_PATTERN = /^v?(\d+)\.(\d+)-fork\.(\d+)$/u;
 
 function stripTagRefPrefix(value) {
   return String(value || "").trim().replace(/^refs\/tags\//u, "");
@@ -10,6 +14,25 @@ function stripTagRefPrefix(value) {
 
 function parseReleaseVersion(value) {
   const normalized = stripTagRefPrefix(value);
+  const forkMatch = FORK_TAG_PATTERN.exec(normalized);
+
+  if (forkMatch) {
+    const major = Number(forkMatch[1]);
+    const minor = Number(forkMatch[2]);
+    const forkOrdinal = Number(forkMatch[3]);
+
+    return {
+      rawValue: value,
+      releaseTag: normalized.startsWith("v") ? normalized : `v${normalized}`,
+      forkOrdinal,
+      major,
+      minor,
+      patch: forkOrdinal,
+      releaseVersion: `${major}.${minor}.${forkOrdinal}`,
+      semver: `${major}.${minor}.${forkOrdinal}`
+    };
+  }
+
   const match = RELEASE_TAG_PATTERN.exec(normalized);
 
   if (!match) {
