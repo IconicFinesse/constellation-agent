@@ -4,7 +4,7 @@
 
 `_core/agent/` owns the routed browser page for basic agent information and personal agent settings.
 
-It provides the first-party `#/agent` route, keeps the page UI and persistence local to the module, reuses the public login-shell astronaut asset for the informational card, and lets the current user edit their personal prompt-include file at `~/config/personality.system.include.md`.
+It provides the first-party `#/agent` route, keeps the page UI and persistence local to the module, reuses the public login-shell character asset for the informational card, and lets the current user edit their personal prompt-include file at `~/config/personality.system.include.md`.
 
 Documentation is top priority for this module. After any change under `_core/agent/`, update this file and any affected parent docs in the same session.
 
@@ -34,8 +34,8 @@ Current UI and persistence contract:
 
 - the route has no standalone page header; the two cards own the full visible layout
 - the route should rely on its inner shell width and card spacing instead of extra page-root horizontal padding, so it stays aligned with the shared routed column
-- the first card is informational and should keep the floating astronaut asset from the login shell via `/pages/res/astronaut_no_bg.webp`
-- that floating astronaut should stay shadowless so the page matches the shared glass direction
+- the first card is informational and should keep the floating character asset (wave pose) from the login shell via `/pages/res/astronaut_no_bg.webp`; the legacy filename is a stable path, not an art description
+- that floating character should stay shadowless so the page matches the shared glass direction
 - the first card should explain Constellation Agent as a browser-first runtime that can reshape the live workspace and scale from personal use to shared group use; it should not foreground implementation paths or prompt-include filenames
 - the first card does not show current-user identity text and ends with one compact external repo action that links to `https://github.com/IconicFinesse/constellation-agent`
 - the second card owns the personality textarea and should load or save the exact file body from `~/config/personality.system.include.md`
@@ -51,7 +51,7 @@ Current UI and persistence contract:
 - keep implementation changes inside this module unless a stable cross-module contract truly changes
 - keep the avatar animation local here; do not patch public-shell or overlay motion just to tune this route
 - keep personality persistence as a plain text include file, not YAML
-- if the route path, panel-manifest path, onscreen menu item, astronaut asset path, or personality include path changes, update this file, `/app/AGENTS.md`, and the matching supplemental docs under `_core/documentation/docs/`
+- if the route path, panel-manifest path, onscreen menu item, character asset path, or personality include path changes, update this file, `/app/AGENTS.md`, and the matching supplemental docs under `_core/documentation/docs/`
 
 ## Verification
 

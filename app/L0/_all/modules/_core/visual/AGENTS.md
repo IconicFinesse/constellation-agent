@@ -61,9 +61,9 @@ Actions and forms:
 
 Resources:
 
-- `res/` is the canonical home for reusable authenticated-app artwork such as the overlay chat astronaut, admin chat avatars, shared placeholder helmets, and staged engineer variants that are not yet wired into runtime UI
+- `res/` is the canonical home for reusable authenticated-app artwork: the overlay chat character, the admin chat avatars, and the browser-frame placeholder character. Only wired artwork lives here; unpromoted variants were removed in the artwork rebrand
 - repo-owned authenticated app modules should reference shared images from `/modules/_core/visual/res/...` instead of keeping image files in feature-local module folders
-- public or pre-auth shells that live outside the authenticated app module tree, including `/login` and `/enter`, keep their own mirrored astronaut asset under `server/pages/res/`
+- public or pre-auth shells that live outside the authenticated app module tree, including `/login` and `/enter`, keep their own mirrored character asset under `server/pages/res/`
 
 Conversation and surfaces:
 
