@@ -34,6 +34,26 @@ honestly provide, contract decisions now and content decisions from use.
 The fork began at upstream commit `10f4ffd` (tag `baseline-2026-06-08`, the v0.66
 era). Everything below diverges from that point.
 
+### `v1.1.3` — First Light
+
+Two readability corrections on surfaces that were technically correct but read
+too small in use.
+
+- **The Windows icon fills its taskbar slot.** The head artwork is wider than it
+  is tall, so fitting it to the icon square filled the width and left it looking
+  small beside uniform neighbours. The small entries (16-64px) now fill by height
+  and let a few pixels of the dark cloak fall outside the frame, which is
+  invisible at that size and reads ~13% larger in the same slot. The 128 and
+  256px plated entries are unchanged.
+- **The draggable avatar is larger.** The overlay avatar moves from 72px to 88px
+  on desktop and 64px to 78px on narrow viewports. The character inside the
+  source image occupies only about 60% of its canvas width, so the previous size
+  rendered a smaller figure than the box implied; the larger box restores the
+  intended presence without dominating the panel. The panel-width reserves now
+  derive from the avatar size plus gap plus margin instead of hardcoded pixel
+  budgets, so the extra size cannot crowd the panel against the viewport edge,
+  and the hidden-edge peek geometry follows the new size automatically.
+
 ### `v1.1.2` — First Light
 
 Windows icon correction after the v1.1.1 artwork pass.

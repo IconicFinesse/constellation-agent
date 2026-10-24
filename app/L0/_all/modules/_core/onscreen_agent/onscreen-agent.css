@@ -4,12 +4,13 @@
   z-index: 2147482000;
   pointer-events: none;
   color-scheme: dark;
-  --onscreen-agent-avatar-size: 72px;
-  --onscreen-agent-compact-panel-width: min(22rem, calc(100vw - 132px));
+  --onscreen-agent-avatar-size: 88px;
+  --onscreen-agent-panel-reserve: calc(var(--onscreen-agent-avatar-size) + var(--onscreen-agent-gap) + 48px);
+  --onscreen-agent-compact-panel-width: min(22rem, calc(100vw - var(--onscreen-agent-panel-reserve)));
   --onscreen-agent-gap: 12px;
   --onscreen-agent-mode-transition-duration: 260ms;
   --onscreen-agent-mode-transition-ease: cubic-bezier(0.2, 0.9, 0.25, 1);
-  --onscreen-agent-panel-width: min(34rem, calc(100vw - 132px));
+  --onscreen-agent-panel-width: min(34rem, calc(100vw - var(--onscreen-agent-panel-reserve)));
   --onscreen-agent-side-shift-duration: 280ms;
   --onscreen-agent-side-shift-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --onscreen-agent-history-offset: 12px;
@@ -1077,10 +1078,12 @@
 
 @media (max-width: 720px) {
   .onscreen-agent-root {
-    --onscreen-agent-avatar-size: 64px;
-    --onscreen-agent-compact-panel-width: min(calc(100vw - 96px), 20rem);
+    --onscreen-agent-avatar-size: 78px;
+    --onscreen-agent-compact-panel-reserve: calc(var(--onscreen-agent-avatar-size) + var(--onscreen-agent-gap) + 22px);
+    --onscreen-agent-compact-panel-width: min(calc(100vw - var(--onscreen-agent-compact-panel-reserve)), 20rem);
     --onscreen-agent-gap: 10px;
-    --onscreen-agent-panel-width: min(calc(100vw - 112px), 26rem);
+    --onscreen-agent-panel-reserve: calc(var(--onscreen-agent-avatar-size) + var(--onscreen-agent-gap) + 38px);
+    --onscreen-agent-panel-width: min(calc(100vw - var(--onscreen-agent-panel-reserve)), 26rem);
     --onscreen-agent-ui-bubble-anchor-y: 22px;
     --onscreen-agent-ui-bubble-offset-above: 44px;
     --onscreen-agent-ui-bubble-offset-below: 44px;

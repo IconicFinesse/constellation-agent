@@ -67,7 +67,7 @@ const HISTORY_DIALOG_ELEMENT_ID = "onscreen-agent-history-dialog";
 const RAW_DIALOG_ELEMENT_ID = "onscreen-agent-raw-dialog";
 const SETTINGS_DIALOG_ELEMENT_ID = "onscreen-agent-settings-dialog";
 const VIEWPORT_VISIBILITY_CHECK_INTERVAL_MS = 2000;
-const DEFAULT_AVATAR_SIZE_PX = 72;
+const DEFAULT_AVATAR_SIZE_PX = 88;
 const HIDDEN_COMPOSER_STATUS_TEXTS = new Set([
   "Loading onscreen agent...",
   "Loading default system prompt..."

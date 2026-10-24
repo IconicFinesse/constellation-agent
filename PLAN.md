@@ -9,7 +9,7 @@ check-in points, open decisions.
 Working evidence lives in the maintainer's local checkout: paths under
 `fixes/`, `prs/`, `worktrees/`, and `local/` are not tracked in this repository.
 
-Updated: 2026-10-24 — **Artwork rebrand shipped in `v1.1.1`; the Windows icon correction (Star-Shaper head, installer shell refresh) ships in `v1.1.2`. The next line is `v1.2` for the owner's larger changes. Avatar state artwork is parked.**
+Updated: 2026-10-24 — **Artwork line closed: `v1.1.1` rebrand, `v1.1.2` Windows icons, `v1.1.3` icon fill and avatar size. The next line is `v1.2` for the owner's larger changes. Avatar state artwork is parked.**
 
 ## Phase status
 
@@ -17,7 +17,7 @@ Updated: 2026-10-24 — **Artwork rebrand shipped in `v1.1.1`; the Windows icon 
 | --- | --- |
 | 1 — bug squash | **COMPLETE 2026-10-22** — last fixes released in `v0.66-fork.6` |
 | 2 — parked ladder | **DEFERRED** by owner decision; no further bug work until new reports arrive |
-| 3 — features, ideas, improvements | **OPEN** — artwork shipped in `v1.1.1`, Windows icon correction in `v1.1.2`; next release line is `v1.2` when the planned changes are ready |
+| 3 — features, ideas, improvements | **OPEN** — image work closed across `v1.1.1`/`v1.1.2`/`v1.1.3`; next release line is `v1.2` when the planned changes are ready |
 
 Nothing in `fixes/` or `prs/` requires action. The upstream PR phase closed
 with the rebrand; six staged bodies remain only as reference.
