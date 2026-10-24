@@ -137,11 +137,6 @@ the same contract upstream gave its users, now given by this fork.
 
 <!-- WHATS-NEW:START -->
 
-**`v1.0.0`**
-
-- Prepare First Light
-- Remove saved servers from the connection chooser
-
 **`v1.1.0`**
 
 - Prepare First Light continuation
@@ -149,7 +144,7 @@ the same contract upstream gave its users, now given by this fork.
 - Rename the mod namespace to modules
 - Spell out user home directory names
 
-**Unreleased**
+**`v1.1.1`**
 
 - Promote the detailed figure to the large-size icon tier
 - Rebuild OG card and README banner art; drop stale rasters and add README illustrations
