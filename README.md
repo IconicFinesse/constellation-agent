@@ -26,6 +26,10 @@ Constellation Agent takes that base and works on what it takes to run it for rea
 read-only filesystems, absent system binaries, plain-HTTP LAN hosts, mislabeled
 provider transports, and packaged desktop builds.
 
+<p align="center">
+  <img src="./.github/brand/readme-hero.webp" alt="Constellation Agent standing on a planet ledge beneath a star field" width="640" />
+</p>
+
 ## Built on Space Agent
 
 Most of what makes this project worth running is upstream work, and it is credited
@@ -60,6 +64,10 @@ is retained in [`LICENSE`](./LICENSE).
 ## What this fork adds
 
 Only claims that are true today:
+
+<p align="center">
+  <img src="./.github/brand/readme-features.webp" alt="Constellation Agent arranging floating interface panels" width="720" />
+</p>
 
 ### Hardening for hosts that actually exist
 
@@ -97,6 +105,10 @@ The recurring shape of the bugs is the point:
 The fork is not a pull-request staging area. [`PROJECT-THESIS.md`](./PROJECT-THESIS.md)
 records the scope decision and [`FORK.md`](./FORK.md) records the divergence policy,
 provenance, and baseline tag.
+
+<p align="center">
+  <img src="./.github/brand/readme-docs.webp" alt="Constellation Agent reading in a library" width="420" />
+</p>
 
 ### An additive namespace rule
 
@@ -156,6 +168,10 @@ git history, and exploring items are labelled as ambition rather than commitment
 Constellation Agent is MIT-licensed and runs from source. There are no prebuilt
 binaries published yet — release artifacts are a separate, unfinished step, and this
 section will say so until it is done.
+
+<p align="center">
+  <img src="./.github/brand/readme-selfhost.webp" alt="Constellation Agent exploring a cave with a lantern" width="420" />
+</p>
 
 ```bash
 git clone https://github.com/IconicFinesse/constellation-agent.git
