@@ -97,6 +97,10 @@ space_agent_install_missing_exe_${SpaceUpdaterInstallUniqueId}:
   !insertmacro WriteSpaceUpdaterLog "Installer could not verify $INSTDIR\${APP_EXECUTABLE_FILENAME} after file copy."
 
 space_agent_install_done_${SpaceUpdaterInstallUniqueId}:
+  ; Windows caches file and pinned-item icons per path. Without an explicit
+  ; shell notification, Explorer can keep showing the previous release's icon
+  ; after an in-place update, which reads as a failed rebrand.
+  System::Call 'shell32::SHChangeNotify(i 0x8000000, i 0, i 0, i 0)'
   !undef SpaceUpdaterInstallUniqueId
 !macroend
 

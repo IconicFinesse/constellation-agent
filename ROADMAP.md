@@ -34,6 +34,23 @@ honestly provide, contract decisions now and content decisions from use.
 The fork began at upstream commit `10f4ffd` (tag `baseline-2026-06-08`, the v0.66
 era). Everything below diverges from that point.
 
+### `v1.1.2` — First Light
+
+Windows icon correction after the v1.1.1 artwork pass.
+
+- **The Windows icon set uses the Star-Shaper head.** Small entries (16-64px)
+  carry the head cut out on transparency, because a floating head reads at taskbar
+  size where the plated tile did not; the 16 and 24px entries get a rim-light pass
+  derived from the artwork's own edge so the dark hood stays legible on a dark
+  taskbar. The 128 and 256px entries keep the rounded navy plate for the
+  downloaded-file and shortcut views.
+- **Installer now refreshes the shell icon cache.** A `SHChangeNotify` call after
+  file copy stops Explorer from showing the previous release's icon on an in-place
+  update.
+
+Windows jump-list entries pinned before this release keep their cached artwork
+until the item is re-pinned; that cache is shell state, not application state.
+
 ### `v1.1.1` — First Light
 
 A patch release that lands the artwork rebrand without waiting for the larger
