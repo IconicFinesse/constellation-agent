@@ -34,6 +34,27 @@ honestly provide, contract decisions now and content decisions from use.
 The fork began at upstream commit `10f4ffd` (tag `baseline-2026-06-08`, the v0.66
 era). Everything below diverges from that point.
 
+### `v1.1.1` — First Light
+
+A patch release that lands the artwork rebrand without waiting for the larger
+`v1.2` line.
+
+- **The product has its own face.** Every upstream image was replaced: page
+  favicons and PWA icons, the Linux/Windows/macOS packaging icons, the README
+  banner and Open Graph card, and the character art on the login, enter, admin,
+  onscreen, and browser-frame surfaces. No HTML, manifest, or packaging wiring
+  changed — filenames and paths are load-bearing, so only the bytes moved.
+- **Icons split by size tier.** The detailed painterly render is the master at
+  128px and above; below that the flat tile carries the mark, because detail
+  collapses at 32px and 16px. Both are the same character, so the silhouette
+  holds across the crossover instead of changing with fidelity.
+- **README gained real illustrations** — hero, features, self-host, and docs
+  images drawn from the new set, plus a rebuilt banner that keeps its starfield
+  and animation.
+- **Release titles drop the product-name prefix.** They now read
+  `v1.1.1 — First Light` and are set by the release tooling rather than edited
+  by hand after publishing.
+
 ### `v1.1.0` — First Light
 
 The framework's shorthand names are spelled out, and nothing that already

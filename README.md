@@ -124,9 +124,9 @@ editing it is allowed when a seam genuinely cannot express the change.
 
 ### Its own release line
 
-Releases are tagged `vX.Y.Z` from this repository. Every `v1.x` release
-carries the **First Light** moniker — `v1.0.0` introduced it and `v1.1.0`
-continues it; the moniker changes only at a major version bump. Earlier fork
+Releases are tagged `vX.Y.Z` from this repository. Release titles read `vX.Y.Z — First Light`:
+the moniker applies to every `v1.x` release and changes only at a major
+version bump. Earlier fork
 builds used `v0.66-fork.N`; those tags stay valid, and because `1.0.0` sorts
 above `0.66.7` an existing install updates forward cleanly. Downstream instances
 (a container test instance, an UmbrelOS VM) update by git pull or release against
@@ -148,6 +148,13 @@ the same contract upstream gave its users, now given by this fork.
 - Read legacy user-data paths when the new names are absent
 - Rename the mod namespace to modules
 - Spell out user home directory names
+
+**Unreleased**
+
+- Promote the detailed figure to the large-size icon tier
+- Rebuild OG card and README banner art; drop stale rasters and add README illustrations
+- Replace astronaut artwork with constellation character across shells and app
+- Adopt flat constellation icon across page, desktop, and brand surfaces
 
 _Newest releases only. The full per-release record lives in [`ROADMAP.md`](./ROADMAP.md). Generated from `baseline-2026-06-08..HEAD` by `packaging/scripts/whats-new.js`._
 <!-- WHATS-NEW:END -->

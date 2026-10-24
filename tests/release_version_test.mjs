@@ -64,6 +64,18 @@ test("bare and prefixed fork versions normalize to semver", () => {
   assert.equal(normalizeBuildVersion("0.66-fork.7"), "0.66.7");
 });
 
+test("release names carry the major-version moniker, not the product name", () => {
+  assert.equal(parseReleaseVersion("v1.1.1").releaseName, "v1.1.1 — First Light");
+  assert.equal(parseReleaseVersion("v1.1.0").releaseName, "v1.1.0 — First Light");
+  assert.equal(parseReleaseVersion("v1.0.0").releaseName, "v1.0.0 — First Light");
+  assert.equal(parseReleaseVersion("refs/tags/v1.1.1").releaseName, "v1.1.1 — First Light");
+
+  // No moniker assigned to a future major yet, and pre-moniker fork tags never
+  // had one: both fall back to the bare tag rather than inventing a title.
+  assert.equal(parseReleaseVersion("v2.0.0").releaseName, "v2.0.0");
+  assert.equal(parseReleaseVersion("v0.66-fork.7").releaseName, "v0.66-fork.7");
+});
+
 test("unparseable input is still rejected", () => {
   assert.equal(parseReleaseVersion("v0.66-fork"), null);
   assert.equal(parseReleaseVersion("v0.66-fork."), null);

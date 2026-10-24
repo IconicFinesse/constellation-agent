@@ -8,6 +8,18 @@ const RELEASE_TAG_PATTERN = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?$/u;
 // desktop updater, while upstream-shaped `vX.Y.Z` tags keep their exact meaning.
 const FORK_TAG_PATTERN = /^v?(\d+)\.(\d+)-fork\.(\d+)$/u;
 
+// Release titles are `vX.Y.Z — <Moniker>`. The moniker is a major-version
+// property, not a tag property: every v1.x release is "First Light" and it
+// changes only at a major bump. A future major gets its own entry here; until
+// one is assigned that major falls back to the bare tag, which is also what
+// pre-moniker fork tags (v0.66-fork.N) resolve to.
+const MAJOR_MONIKERS = Object.freeze({ 1: "First Light" });
+
+function resolveReleaseName(releaseTag, major) {
+  const moniker = MAJOR_MONIKERS[major];
+  return moniker ? `${releaseTag} — ${moniker}` : releaseTag;
+}
+
 function stripTagRefPrefix(value) {
   return String(value || "").trim().replace(/^refs\/tags\//u, "");
 }
@@ -21,9 +33,12 @@ function parseReleaseVersion(value) {
     const minor = Number(forkMatch[2]);
     const forkOrdinal = Number(forkMatch[3]);
 
+    const forkTag = normalized.startsWith("v") ? normalized : `v${normalized}`;
+
     return {
       rawValue: value,
-      releaseTag: normalized.startsWith("v") ? normalized : `v${normalized}`,
+      releaseTag: forkTag,
+      releaseName: resolveReleaseName(forkTag, major),
       forkOrdinal,
       major,
       minor,
@@ -43,9 +58,12 @@ function parseReleaseVersion(value) {
   const minor = Number(match[2] || "0");
   const patch = Number(match[3] || "0");
 
+  const plainTag = normalized.startsWith("v") ? normalized : `v${normalized}`;
+
   return {
     rawValue: value,
-    releaseTag: normalized.startsWith("v") ? normalized : `v${normalized}`,
+    releaseTag: plainTag,
+    releaseName: resolveReleaseName(plainTag, major),
     major,
     minor,
     patch,

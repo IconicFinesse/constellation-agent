@@ -9,7 +9,7 @@ check-in points, open decisions.
 Working evidence lives in the maintainer's local checkout: paths under
 `fixes/`, `prs/`, `worktrees/`, and `local/` are not tracked in this repository.
 
-Updated: 2026-10-24 — **Artwork rebrand COMPLETE on branch `rebrand/artwork-pass`, awaiting merge. Release line sits at `v1.1.0` with the proof gates recorded below. Avatar state artwork is parked. No other lane is active.**
+Updated: 2026-10-24 — **Artwork rebrand merged to `main` (`329a4e7`) and released as `v1.1.1` — First Light. The next line is `v1.2` for the owner's larger changes. Avatar state artwork is parked.**
 
 ## Phase status
 
@@ -17,7 +17,7 @@ Updated: 2026-10-24 — **Artwork rebrand COMPLETE on branch `rebrand/artwork-pa
 | --- | --- |
 | 1 — bug squash | **COMPLETE 2026-10-22** — last fixes released in `v0.66-fork.6` |
 | 2 — parked ladder | **DEFERRED** by owner decision; no further bug work until new reports arrive |
-| 3 — features, ideas, improvements | **OPEN** — release line at `v1.1.0`; rebrand lanes closed. Artwork lane complete on `rebrand/artwork-pass`, awaiting merge |
+| 3 — features, ideas, improvements | **OPEN** — artwork rebrand shipped in `v1.1.1`; next release line is `v1.2` when the planned changes are ready |
 
 Nothing in `fixes/` or `prs/` requires action. The upstream PR phase closed
 with the rebrand; six staged bodies remain only as reference.
@@ -324,7 +324,7 @@ through in the `rebrand/terminology-cleanup` session.
   snapshots; editing them would invalidate existing eval baselines. The live
   system prompt already reads `you are a browser runtime operator`.
 
-### Shipped: artwork rebrand (branch `rebrand/artwork-pass`, two-tier icons)
+### Shipped: artwork rebrand (released in `v1.1.1`; two-tier icons)
 
 Owner-supplied Constellation Agent artwork replaced every upstream asset. The pass
 was byte-level: existing filenames and paths were kept, so no HTML, JS, manifest,
