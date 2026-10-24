@@ -34,6 +34,26 @@ honestly provide, contract decisions now and content decisions from use.
 The fork began at upstream commit `10f4ffd` (tag `baseline-2026-06-08`, the v0.66
 era). Everything below diverges from that point.
 
+### `v1.1.4` — First Light
+
+Second pass on the two surfaces from `v1.1.3`. The first pass moved the numbers;
+this one fixes the reasons the numbers were not enough.
+
+- **The Windows icon fills past the slot.** `v1.1.3` sized the artwork to the icon
+  height, but a dark hood on a dark taskbar still loses its silhouette beside
+  bright circular app icons, so it reads small however tall it is. The 24-64px
+  entries now render at 112% and are clipped by the frame, and every small entry
+  carries a rim-light pass derived from its own edge instead of only the 16 and
+  24px entries. The figure now touches the slot edges the way neighbouring app
+  icons do. The 128 and 256px plated entries are unchanged.
+- **The overlay avatar grows to its intended size.** `v1.1.3` raised the box from
+  72 to 88px, but the source artwork carried a wide transparent margin, so most
+  of that box was empty air and the visible character barely changed. The asset
+  is now re-framed so the figure fills the canvas height, and the box moves to
+  120px on desktop and 96px on narrow viewports. Combined, the visible character
+  grows by roughly half rather than a fifth. Panel-width reserves keep deriving
+  from the avatar size, so the larger box cannot crowd the panel.
+
 ### `v1.1.3` — First Light
 
 Two readability corrections on surfaces that were technically correct but read

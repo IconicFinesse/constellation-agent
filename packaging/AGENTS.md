@@ -96,7 +96,7 @@ That same root build config disables `npmRebuild` for desktop packaging. Package
 
 `packaging/resources/` holds shared packaging resources, including the canonical source artwork that desktop packaging can derive platform icons from.
 
-`packaging/platforms/` holds OS-specific packaging assets and metadata, including derived app icons such as the Windows `.ico` file and the Linux icon-size set. The Windows `.ico` carries the Star-Shaper head: transparent entries at 16-64px (16 and 24 get a rim-light pass derived from the artwork's own edge so the dark hood stays legible on a dark taskbar) and the rounded navy plate at 128-256px for the downloaded-file and shortcut views; all entries are generated from the single owner-supplied head PNG, never hand-edited per size.
+`packaging/platforms/` holds OS-specific packaging assets and metadata, including derived app icons such as the Windows `.ico` file and the Linux icon-size set. The Windows `.ico` carries the Star-Shaper head: transparent entries at 16-64px, where 24-64 render at 112% and are clipped by the frame so the figure touches the slot edges like neighbouring app icons, and every small entry carries a rim-light pass derived from its own edge because a dark hood loses its silhouette on a dark taskbar however tall it is; the rounded navy plate stays at 128-256px for the downloaded-file and shortcut views. All entries are generated from the single owner-supplied head PNG, never hand-edited per size.
 
 Native hosts should remain thin:
 

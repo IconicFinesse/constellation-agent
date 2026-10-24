@@ -4,7 +4,7 @@
   z-index: 2147482000;
   pointer-events: none;
   color-scheme: dark;
-  --onscreen-agent-avatar-size: 88px;
+  --onscreen-agent-avatar-size: 120px;
   --onscreen-agent-panel-reserve: calc(var(--onscreen-agent-avatar-size) + var(--onscreen-agent-gap) + 48px);
   --onscreen-agent-compact-panel-width: min(22rem, calc(100vw - var(--onscreen-agent-panel-reserve)));
   --onscreen-agent-gap: 12px;
@@ -1078,7 +1078,7 @@
 
 @media (max-width: 720px) {
   .onscreen-agent-root {
-    --onscreen-agent-avatar-size: 78px;
+    --onscreen-agent-avatar-size: 96px;
     --onscreen-agent-compact-panel-reserve: calc(var(--onscreen-agent-avatar-size) + var(--onscreen-agent-gap) + 22px);
     --onscreen-agent-compact-panel-width: min(calc(100vw - var(--onscreen-agent-compact-panel-reserve)), 20rem);
     --onscreen-agent-gap: 10px;
