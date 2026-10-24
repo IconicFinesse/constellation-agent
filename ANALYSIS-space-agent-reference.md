@@ -4,6 +4,14 @@
 **Date:** 2026-10-22
 **Method:** DOX contract reading, source-tree enumeration, and README self-description cross-checked against implementation. See Appendix A for verification levels.
 
+> **Freshness note (2026-10-24):** this analysis is anchored to `v0.66-fork.3`
+> (`c803b76`). The repository has since moved to `v1.1.4` (`90ad219`) across
+> thirteen releases, so treat version-specific figures here as historical.
+> The structural findings it rests on — layer-ranked module resolution, the
+> `L0`/`L1`/`L2` split, `_core` as an author segment rather than a runtime class —
+> were re-verified against the tree at `v1.1.4` and still hold. Re-anchor the
+> concrete counts before quoting them as current.
+
 ---
 
 ## 1. Thesis

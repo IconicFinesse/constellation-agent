@@ -103,9 +103,24 @@ Under that model there are exactly two structural rules. They are equally bindin
 
 ### 3.1 The namespace rule
 
-> **New capabilities live in `app/L0/_all/modules/constellation/<repo>/` — additive, tracked, never inside `_core`.**
+> **New fork capabilities live in `app/L0/_all/modules/constellation/<repo>/` — additive, tracked, and created there from 2026-10-24 forward. Inherited modules stay in `_core/`.**
 
 Not because a reviewer is watching. Because additive namespaces are simply better engineering.
+
+**Shipping happens only at `L0`.** The entire shipped app is `L0`. Every module in the download — inherited or ours — is a *Shipped Module*, and the resolver treats them identically: `createReadableOwnerScopes` ranks readable roots `L0` group → `L1` group → `L2` user, then matches by layer, owner, and path. Nothing in `file_access.js`, `layout.js`, or `module_manage.js` inspects an author segment, so `_core` and `constellation` are the same runtime class. The split is for human legibility and provenance, not for behavior.
+
+**Two sibling trees under `app/L0/_all/modules/`:**
+
+- `_core/` — the 26 inherited upstream modules. Jan's by origin, fork-modified in content.
+- `constellation/` — fork-original modules. Ours.
+
+The split exists so "what did we build versus what did Jan build" is answerable from the tree alone. As of `v1.1.4` the `constellation/` directory does not exist yet; the first fork-built module creates it.
+
+**The rule is prospective.** All *new* fork work and new modules from 2026-10-24 forward go in `constellation/`. The `fork.1`–`fork.6` bug fixes and rebrand edits already inside `_core/` stay there — grandfathered, not relocated. So `_core` is Jan's by origin and fork-modified in content, while the clean-folder answer applies from that date forward rather than retroactively.
+
+**Where users put modules.** Users create modules in `L1` (group) and `L2` (user) — gitignored runtime layers. The project never creates or ships a module inside `L1`/`L2`.
+
+**Admin modules.** `L0` has a second module root, `app/L0/_admin/modules/`, which currently holds one inherited module (`overlay_agent`). Fork-built admin modules go inside that existing tree — they do not get a separate admin namespace.
 
 **Why `L0` and not `L1`/`L2`:** `app/L1/` and `app/L2/` are fully gitignored — zero tracked files. They are runtime customware, deployment state belonging to a running instance's groups and users. Anything placed there does not ship, does not version, and does not survive a fresh clone. It is the right home for a *user's* customizations and the wrong home for *our* features. A tracked `L0` author namespace is versioned, packaged with desktop builds, routable as `#/constellation/<repo>/...`, and still fully seam-capable.
 
@@ -302,6 +317,8 @@ Every competing product delivers agent transparency as a dashboard over an opaqu
 **Why it was chosen:** it is a genuine upgrade rather than a new surface bolted on. It makes an existing architectural advantage legible, which is the cheapest kind of value to add and the most durable. It also pays for itself immediately — a user who can read the agent's memory can correct it, and a corrected memory is worth more than a longer context window.
 
 **Frontend/backend placement:** entirely browser-side. The files exist; the file APIs exist; the prompt-include assembly exists. The module reads them, explains them, and offers corrections as file writes. **No new server authority is required for any of it.**
+
+**This is a new build, not a modification.** The inherited `_core/memory` module is a contract document plus a `SKILL.md` teaching the `~/memory/*.include.md` convention over plain text — 43K of documentation and no code to expand. There is nothing to grow there. The surface is built as a new fork-original module in the `constellation/` namespace (§3.1), reading through the existing plain-text memory system rather than replacing or reimplementing it.
 
 **The part that is contract, and the part that is content:**
 

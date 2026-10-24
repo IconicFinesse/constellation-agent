@@ -112,13 +112,17 @@ provenance, and baseline tag.
 
 ### An additive namespace rule
 
-> New capabilities live in `app/L0/_all/modules/constellation/<repo>/` — additive, tracked,
-> never inside inherited `_core`.
+> New fork capabilities live in `app/L0/_all/modules/constellation/<repo>/` — additive, tracked,
+> and created there from 2026-10-24 forward. Inherited modules stay in `_core/`; earlier
+> fork fixes there are grandfathered.
 
-This keeps upstream pulls cheap, keeps provenance legible (`modules/constellation/...` is
-ours, `modules/_core/...` is inherited), and means a module can be replaced wholesale
-without touching the firmware beneath it. Extending the framework is preferred;
-editing it is allowed when a seam genuinely cannot express the change.
+The two trees sit side by side under `app/L0/_all/modules/`: `_core/` holds the inherited
+upstream modules and `constellation/` holds ours, so "what did we build versus what did we
+inherit" is answerable from the tree alone. The resolver treats them as the same runtime
+class — the split is for provenance, not for behavior. It keeps upstream pulls cheap and
+means a module can be replaced wholesale without touching the firmware beneath it.
+Extending the framework is preferred; editing it is allowed when a seam genuinely cannot
+express the change.
 
 `app/L1` and `app/L2` are gitignored runtime state, so fork code is never placed there.
 
