@@ -137,13 +137,13 @@ the same contract upstream gave its users, now given by this fork.
 
 <!-- WHATS-NEW:START -->
 
-**`v1.1.2`**
-
-- Rebuild Windows icons around the Star-Shaper head
-
 **`v1.1.3`**
 
 - Fill the Windows icon slot and enlarge the overlay avatar
+
+**`v1.1.4`**
+
+- Fill the icon past the slot and give the avatar real presence
 
 _Newest releases only. The full per-release record lives in [`ROADMAP.md`](./ROADMAP.md). Generated from `baseline-2026-06-08..HEAD` by `packaging/scripts/whats-new.js`._
 <!-- WHATS-NEW:END -->
