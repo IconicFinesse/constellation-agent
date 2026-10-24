@@ -95,59 +95,46 @@ Fact 6 is why the fork is now the product rather than the staging area.
 
 ---
 
-## 3. One Repo, One Product, One Namespace Rule
+## 3. One Repo, One Product, One Placement Rule
 
 There is one repository, one `main`, one history. No dual maintenance, no cherry-picking between parallel projects. Upstream is a git remote, nothing more.
 
 Under that model there are exactly two structural rules. They are equally binding.
 
-### 3.1 The namespace rule
+### 3.1 The module-placement rule
 
-> **New fork capabilities live in `app/L0/_all/modules/constellation/<repo>/` — additive, tracked, and created there from 2026-10-24 forward. Inherited modules stay in `_core/`.**
+> **Shipped Modules live in `app/L0/_all/modules/_core/` — inherited and fork-built alike, one tree. The project never creates or ships a module inside `L1`/`L2`.**
 
-Not because a reviewer is watching. Because additive namespaces are simply better engineering.
+Not because a reviewer is watching. Because one obvious default beats two.
 
-**Shipping happens only at `L0`.** The entire shipped app is `L0`. Every module in the download — inherited or ours — is a *Shipped Module*, and the resolver treats them identically: `createReadableOwnerScopes` ranks readable roots `L0` group → `L1` group → `L2` user, then matches by layer, owner, and path. Nothing in `file_access.js`, `layout.js`, or `module_manage.js` inspects an author segment, so `_core` and `constellation` are the same runtime class. The split is for human legibility and provenance, not for behavior.
+**Shipping happens only at `L0`.** The entire shipped app is `L0`. Every module in the download — inherited or fork-built — is a *Shipped Module*, and the resolver treats them identically: `createReadableOwnerScopes` ranks readable roots `L0` group → `L1` group → `L2` user, then matches by layer, owner, and path. Nothing in `file_access.js`, `layout.js`, or `module_manage.js` inspects an author segment, so there was never a runtime distinction to be had between a module Jan wrote and one we wrote. `_core` is a folder name, not a runtime class.
 
-**Two sibling trees under `app/L0/_all/modules/`:**
+**Why one tree.** The default framework stays light, and the few shipped modules this project makes belong in the default location alongside everything else rather than in a second root that exists only to separate them. It also gives one mental model at every layer: when a module is built for a user inside a C-A chat session, it lands in that user's own `_core` folder under `L2`. `_core` is the natural default there, and the project's own modules follow the same convention one layer up.
 
-- `_core/` — the 26 inherited upstream modules. Jan's by origin, fork-modified in content.
-- `constellation/` — fork-original modules. Ours.
-
-The split exists so "what did we build versus what did Jan build" is answerable from the tree alone. As of `v1.1.4` the `constellation/` directory does not exist yet; the first fork-built module creates it.
-
-**The rule is prospective.** All *new* fork work and new modules from 2026-10-24 forward go in `constellation/`. The `fork.1`–`fork.6` bug fixes and rebrand edits already inside `_core/` stay there — grandfathered, not relocated. So `_core` is Jan's by origin and fork-modified in content, while the clean-folder answer applies from that date forward rather than retroactively.
+**Provenance is not a folder question.** Whether a module is Constellation-original or inherited is answered by git history and by the module's own `AGENTS.md`, which every fork-built module carries and which marks it Constellation-original. The tree will not say it, so the module has to.
 
 **Where users put modules.** Users create modules in `L1` (group) and `L2` (user) — gitignored runtime layers. The project never creates or ships a module inside `L1`/`L2`.
 
 **Admin modules.** `L0` has a second module root, `app/L0/_admin/modules/`, which currently holds one inherited module (`overlay_agent`). Fork-built admin modules go inside that existing tree — they do not get a separate admin namespace.
 
-**Why `L0` and not `L1`/`L2`:** `app/L1/` and `app/L2/` are fully gitignored — zero tracked files. They are runtime customware, deployment state belonging to a running instance's groups and users. Anything placed there does not ship, does not version, and does not survive a fresh clone. It is the right home for a *user's* customizations and the wrong home for *our* features. A tracked `L0` author namespace is versioned, packaged with desktop builds, routable as `#/constellation/<repo>/...`, and still fully seam-capable.
-
-**Why not `_core`:** three practical reasons, none of them about permission.
-
-1. **Merges.** Every `_core` edit is a future conflict against upstream. Additive code never conflicts. We still want to pull upstream fixes; this keeps that cheap.
-2. **Blame.** Our edits scattered through inherited code makes "is this bug ours or inherited?" needlessly expensive.
-3. **Upgrades.** A module can be replaced wholesale without touching the firmware beneath it. That is the difference between an upgradeable product and a fork that decays.
-
-A namespace also keeps provenance legible: `modules/constellation/...` is obviously ours, `modules/_core/...` is obviously inherited. Someone reading the tree in two years can tell instantly which work is which.
+**History.** A separate `modules/constellation/` namespace was drafted and briefly ratified, then considered and dropped on 2026-10-24 after hands-on testing — the owner's call. Nothing was committed under it, so the shipped tree is unaffected by the change.
 
 ### 3.2 The modularity rule
 
-> **A constellation module is self-contained and independently removable.**
+> **A Shipped Module is self-contained and independently removable.**
 
-The namespace rule keeps our work separable from inherited work. The modularity rule keeps our work separable *from itself*, because iteration speed is the scarcest resource a small project has and coupling is what destroys it.
+The placement rule decides where a module lives. The modularity rule keeps our work separable *from itself*, because iteration speed is the scarcest resource a small project has and coupling is what destroys it.
 
 Binding form:
 
-- **A module may depend on firmware seams and on the published runtime surface (`space.api`, `space.current`, `space.spaces`, `space.chat`, `space.browser`, `space.utils.*`). It may not import another constellation module's internals.**
-- **A module may be deleted, disabled, or replaced without breaking any other constellation module.** If removing module A breaks module B, the dependency is the defect — fix the dependency or expose a seam between them, exactly as `_core` does for its own consumers.
+- **A module may depend on firmware seams and on the published runtime surface (`space.api`, `space.current`, `space.spaces`, `space.chat`, `space.browser`, `space.utils.*`). It may not import another Shipped Module's internals.**
+- **A module may be deleted, disabled, or replaced without breaking any other Shipped Module.** If removing module A breaks module B, the dependency is the defect — fix the dependency or expose a seam between them, exactly as `_core` does for its own consumers.
 - **Cross-module coordination goes through a seam or the runtime surface**, never through a shared mutable helper file in some `common/` directory. A `common/` directory is undeclared coupling with better manners.
 - **Each module ships its own `AGENTS.md`** stating purpose, owned seams, its external dependencies, and what it does when a dependency is missing.
 
 The payoff is concrete: faster iteration (build and test one module without loading the world), safe deletion (a bad idea can be removed cleanly instead of rotting in place), and honest ownership (every piece says what it needs).
 
-This mirrors the inherited architecture on purpose. `_core` proves the discipline works at scale; our modules should be held to the same standard rather than to a looser one because we wrote them.
+This mirrors the inherited architecture on purpose. `_core` proves the discipline works at scale, and the modules we add there are held to the same standard rather than to a looser one because we wrote them.
 
 ### 3.3 The framework principle
 
@@ -163,7 +150,7 @@ Editing `_core` directly is **allowed**. Nothing forbids it. It is the option yo
 
 ## 4. What This Permits Immediately
 
-- **Features as modules** in `constellation/<repo>/` — routes, widgets, panels, skills, prompt extensions — without touching `_core`.
+- **Features as Shipped Modules** in `app/L0/_all/modules/_core/<repo>/` — routes, widgets, panels, skills, prompt extensions — self-contained and independently removable under §3.2.
 - **Default-on behavior** via `ext/js/` hooks and `ext/html/` adapters composed at existing shell seams, since `L0/_all` is readable by every user on the instance.
 - **Our own skills** as `SKILL.md` packs under the module's `ext/skills/`, subject to the same discovery rules as first-party packs.
 - **Direct `_core` work** where a seam cannot carry it, with a comment explaining the choice.
@@ -260,11 +247,11 @@ A useful fourth question for anything that survives: **does it strengthen the wo
 
 Cheap now, expensive later, and each exercises the model end to end.
 
-#### 8.1 Project legibility surface — `constellation/status`
+#### 8.1 Project legibility surface — `status`
 
-A module at `#/constellation/status` showing project version, applied fixes, divergence inventory versus `baseline-2026-06-08`, and gate status. It proves the namespace rule works end to end: a tracked module, a real route, a panel manifest, and a seam extension — none of it touching `_core`. It also makes the project's identity visible *in the product* rather than only in `FORK.md`.
+A Shipped Module at `app/L0/_all/modules/_core/status/` and the route `#/status`, showing project version, applied fixes, divergence inventory versus `baseline-2026-06-08`, and gate status. It proves the module mechanism works end to end: a tracked module, a real route, a panel manifest, and a seam extension. It also makes the project's identity visible *in the product* rather than only in `FORK.md`.
 
-This is also the reference implementation of §3.2: the first module doubles as the worked example of what a self-contained constellation module looks like, including its `AGENTS.md`.
+This is also the reference implementation of §3.2: the first module doubles as the worked example of what a self-contained Shipped Module looks like, including its `AGENTS.md` marking it Constellation-original.
 
 #### 8.2 DOX integrity gate — automate the existing pre-tag procedure
 
@@ -318,7 +305,7 @@ Every competing product delivers agent transparency as a dashboard over an opaqu
 
 **Frontend/backend placement:** entirely browser-side. The files exist; the file APIs exist; the prompt-include assembly exists. The module reads them, explains them, and offers corrections as file writes. **No new server authority is required for any of it.**
 
-**This is a new build, not a modification.** The inherited `_core/memory` module is a contract document plus a `SKILL.md` teaching the `~/memory/*.include.md` convention over plain text — 43K of documentation and no code to expand. There is nothing to grow there. The surface is built as a new fork-original module in the `constellation/` namespace (§3.1), reading through the existing plain-text memory system rather than replacing or reimplementing it.
+**This is a new build, not a modification.** The inherited `_core/memory` module is a contract document plus a `SKILL.md` teaching the `~/memory/*.include.md` convention over plain text — 43K of documentation and no code to expand. There is nothing to grow there. The surface is built as a new Shipped Module in `app/L0/_all/modules/_core/` (§3.1), carrying its own `AGENTS.md` marking it Constellation-original, and reading through the existing plain-text memory system rather than replacing or reimplementing it.
 
 **The part that is contract, and the part that is content:**
 
@@ -343,6 +330,6 @@ Why not bare use first: findings without a memory surface reduce to "I wish it r
 
 ## 9. The One-Line Version
 
-**Build Constellation as a workspace with an agent resident in it: add in `constellation/`, keep every module self-contained, extend before editing, and freeze contracts before content.**
+**Build Constellation as a workspace with an agent resident in it: add in `_core/`, keep every module self-contained, extend before editing, and freeze contracts before content.**
 
 We keep upstream's bones because they are good bones. We keep the fork badge because the lineage is honest. We stop asking permission for our own project.

@@ -230,16 +230,19 @@ point, not a detail to erase.
 ### Repository and governance
 
 - Fork charter with provenance, baseline tag, and divergence policy (`FORK.md`).
-- Binding project thesis, namespace rule, and modularity rule (`PROJECT-THESIS.md`).
+- Binding project thesis, module-placement rule, and modularity rule (`PROJECT-THESIS.md`).
+- One module tree: Shipped Modules live in `app/L0/_all/modules/_core/`, inherited and
+  fork-built alike (placement rule considered and settled 2026-10-24).
 - Dual MIT notice; upstream attribution retained throughout.
 
 ## Selected
 
-Owner-approved for the features phase. The two thesis features are additive
-modules under `app/L0/_all/modules/constellation/`, self-contained under the
-modularity rule; the connected-mode lane is desktop-packaging work under
-`packaging/desktop/`. None of the three requires new server authority. Full
-descriptions in `PROJECT-THESIS.md` §1.3, §8.4 and §8.5.
+Owner-approved for the features phase. The two thesis features are Shipped
+Modules under `app/L0/_all/modules/_core/`, self-contained under the modularity
+rule and each carrying an `AGENTS.md` that marks it Constellation-original; the
+connected-mode lane is desktop-packaging work under `packaging/desktop/`. None
+of the three requires new server authority. Full descriptions in
+`PROJECT-THESIS.md` §1.3, §8.4 and §8.5.
 
 ### Connected mode — the desktop app pointed at a remote server
 

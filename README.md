@@ -110,19 +110,23 @@ provenance, and baseline tag.
   <img src="./.github/brand/readme-docs.webp" alt="Constellation Agent reading in a library" width="420" />
 </p>
 
-### An additive namespace rule
+### One module tree
 
-> New fork capabilities live in `app/L0/_all/modules/constellation/<repo>/` — additive, tracked,
-> and created there from 2026-10-24 forward. Inherited modules stay in `_core/`; earlier
-> fork fixes there are grandfathered.
+> Shipped Modules live in `app/L0/_all/modules/_core/` — inherited and fork-built alike, one tree.
 
-The two trees sit side by side under `app/L0/_all/modules/`: `_core/` holds the inherited
-upstream modules and `constellation/` holds ours, so "what did we build versus what did we
-inherit" is answerable from the tree alone. The resolver treats them as the same runtime
-class — the split is for provenance, not for behavior. It keeps upstream pulls cheap and
-means a module can be replaced wholesale without touching the firmware beneath it.
-Extending the framework is preferred; editing it is allowed when a seam genuinely cannot
-express the change.
+There is no second root for our modules. The default framework stays light, and the few
+shipped modules this project makes sit in the default location alongside the rest. It also
+gives one mental model at every layer: a module built for a user inside a chat session lands
+in that user's own `_core` folder under `L2`, so `_core` is the natural default location there
+too.
+
+Provenance is not a folder question. Whether a module is Constellation-original or inherited
+is answered by git history and by the module's own `AGENTS.md`, which every fork-built module
+carries and which says so. The tree will not tell you, so the module has to.
+
+Modules stay self-contained and independently removable, which keeps upstream pulls cheap —
+a module can be replaced wholesale without touching the firmware beneath it. Extending the
+framework is preferred; editing it is allowed when a seam genuinely cannot express the change.
 
 `app/L1` and `app/L2` are gitignored runtime state, so fork code is never placed there.
 

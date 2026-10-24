@@ -7,11 +7,14 @@ Fork of [agent0ai/space-agent](https://github.com/agent0ai/space-agent) under [I
 **Constellation Agent is its own project.** Full decision record:
 [`PROJECT-THESIS.md`](PROJECT-THESIS.md).
 
-One sentence: *build Constellation as its own product — add in
-`constellation/`, extend before editing, and freeze contracts before content.*
+One sentence: *build Constellation as its own product — add in `_core/`, extend
+before editing, and freeze contracts before content.*
 
-- New capabilities live in `app/L0/_all/modules/constellation/<repo>/`: additive,
-  tracked, shippable. Not in the gitignored `L1`/`L2` runtime layers.
+- Shipped Modules live in `app/L0/_all/modules/_core/<repo>/`: one tree, inherited
+  and fork-built alike, tracked and shippable. Not in the gitignored `L1`/`L2`
+  runtime layers.
+- Provenance is not a folder question: git history and each fork-built module's
+  own `AGENTS.md` say which modules are Constellation-original.
 - Prefer extending the framework over editing inherited `_core` code. Direct
   `_core` work is allowed when a seam cannot carry it — leave a comment why.
 - Upstream (`agent0ai/space-agent`) is a permanent remote and a source of free
@@ -34,10 +37,10 @@ One sentence: *build Constellation as its own product — add in
 
 ## Divergence Policy
 
-- Primary development home: new features as modules under
-  `app/L0/_all/modules/constellation/<repo>/`. Inherited firmware (`_core`),
-  `server/`, `commands/`, `packaging/`, and `tests/` are worked on directly
-  when a feature genuinely belongs there.
+- Primary development home: new features as Shipped Modules under
+  `app/L0/_all/modules/_core/<repo>/`. The rest of inherited firmware
+  (`server/`, `commands/`, `packaging/`, `tests/`) is worked on directly when a
+  feature genuinely belongs there.
 - Runtime data (`L1/`, `L2/`, `server/data/`) is user state: never hand-patched,
   never committed. Generated only through live use or deliberate test fixtures.
 - Prefer changes that stay merge-friendly: additive modules/skills over deep
