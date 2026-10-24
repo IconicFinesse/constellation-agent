@@ -137,16 +137,13 @@ the same contract upstream gave its users, now given by this fork.
 
 <!-- WHATS-NEW:START -->
 
-**`v1.1.1`**
-
-- Promote the detailed figure to the large-size icon tier
-- Rebuild OG card and README banner art; drop stale rasters and add README illustrations
-- Replace astronaut artwork with constellation character across shells and app
-- Adopt flat constellation icon across page, desktop, and brand surfaces
-
 **`v1.1.2`**
 
 - Rebuild Windows icons around the Star-Shaper head
+
+**`v1.1.3`**
+
+- Fill the Windows icon slot and enlarge the overlay avatar
 
 _Newest releases only. The full per-release record lives in [`ROADMAP.md`](./ROADMAP.md). Generated from `baseline-2026-06-08..HEAD` by `packaging/scripts/whats-new.js`._
 <!-- WHATS-NEW:END -->
