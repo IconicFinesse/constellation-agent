@@ -9,10 +9,7 @@ check-in points, open decisions.
 Working evidence lives in the maintainer's local checkout: paths under
 `fixes/`, `prs/`, `worktrees/`, and `local/` are not tracked in this repository.
 
-Updated: 2026-10-23 03:45 MST — **Phase 3 Lane 1 (connected mode) COMPLETE
-AND RELEASED at `v0.66-fork.7`; Lane 2 (saved-server removal) merged and
-awaiting the next release.** No lane is active. Bug-fix phase closed at
-`v0.66-fork.6`.
+Updated: 2026-10-24 — **Artwork rebrand COMPLETE on branch `rebrand/artwork-pass`, awaiting merge. Release line sits at `v1.1.0` with the proof gates recorded below. Avatar state artwork is parked. No other lane is active.**
 
 ## Phase status
 
@@ -20,7 +17,7 @@ awaiting the next release.** No lane is active. Bug-fix phase closed at
 | --- | --- |
 | 1 — bug squash | **COMPLETE 2026-10-22** — last fixes released in `v0.66-fork.6` |
 | 2 — parked ladder | **DEFERRED** by owner decision; no further bug work until new reports arrive |
-| 3 — features, ideas, improvements | **OPEN** — Lane 1 (connected mode) shipped in `v0.66-fork.7`; Lane 2 (saved-server removal) merged, awaiting release; no lane active |
+| 3 — features, ideas, improvements | **OPEN** — release line at `v1.1.0`; rebrand lanes closed. Artwork lane complete on `rebrand/artwork-pass`, awaiting merge |
 
 Nothing in `fixes/` or `prs/` requires action. The upstream PR phase closed
 with the rebrand; six staged bodies remain only as reference.
@@ -327,54 +324,72 @@ through in the `rebrand/terminology-cleanup` session.
   snapshots; editing them would invalidate existing eval baselines. The live
   system prompt already reads `you are a browser runtime operator`.
 
-### Outstanding: artwork (mapped, not yet replaced)
+### Shipped: artwork rebrand (branch `rebrand/artwork-pass`)
 
-Every asset below is still upstream artwork. Icons are a separate pass from the
-terminology sweep; this list is the marker set so the replacement does not miss
-a surface. The new `constellation-agent-icon*` files already sit beside their
-`space-agent-icon*` counterparts.
+Owner-supplied Constellation Agent artwork replaced every upstream asset. The pass
+was byte-level: existing filenames and paths were kept, so no HTML, JS, manifest,
+or electron-builder wiring changed.
 
-**Page identity** (wired into all six server pages and the PWA manifest):
+**Identity master.** The flat hooded figure on a rounded navy tile is the single
+icon source; every size derives from it.
 
-- `server/pages/res/favicon.ico`
-- `server/pages/res/favicon-16x16.png`
-- `server/pages/res/favicon-32x32.png`
-- `server/pages/res/apple-touch-icon.png`
-- `server/pages/res/android-chrome-192x192.png`
-- `server/pages/res/android-chrome-512x512.png`
+- Page identity: `favicon.ico` (16/24/32/48/256 via `icotool`),
+  `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png` (180,
+  flattened navy because iOS needs opaque), `android-chrome-192x192.png` and
+  `android-chrome-512x512.png` (full-bleed navy so the Android mask cannot
+  double-round the tile).
+- Desktop: `packaging/platforms/windows/icon.ico` (16/24/32/48/64/128/256) and
+  `packaging/platforms/linux/icons/` `16x16` through `512x512` plus `icon.png`.
+- Packaging and brand: `packaging/resources/icons/source/constellation-agent-icon.png`
+  (1024 master; `build.mac.icon` already pointed here) with its `-256`/`-512` webp
+  twins, and `.github/brand/icon-256.png` + `icon-512.png` regenerated from the
+  same master, retiring the earlier pre-fix iteration.
 
-**Desktop packaging** (wired into electron-builder):
+**Character art.** Poses from the owner's set, normalized onto square canvases so
+the existing `transform-origin: 52% 56%` float geometry stays valid.
 
-- `packaging/platforms/windows/icon.ico`
-- `packaging/platforms/linux/icons/` — `16x16`, `24x24`, `32x32`, `48x48`,
-  `64x64`, `128x128`, `256x256`, `512x512`, plus `icon.png`
+- `/enter` and `/login` floating figure: wave pose
+  (`server/pages/res/astronaut_no_bg.webp`).
+- Agent first card inherits that asset.
+- Onscreen draggable button: flat full-body
+  (`chat/overlay/astronaut_no_bg.webp`).
+- Onscreen and admin assistant avatars: photo head icon
+  (`helmet_no_bg_256.webp`, 256 square).
+- Admin empty state: meditating pose (`chat/admin/astronaut_no_bg.png` + `.webp`).
+- Browser-frame placeholder: painterly full-body
+  (`engineer/astronaut_red_no_bg.png`, 777x1057 contract kept).
 
-**Superseded sources** (replace, do not layer over):
+Filenames keep their upstream `astronaut`/`helmet` spellings: those are
+load-bearing path contracts referenced by code and docs. Only pixels changed.
 
-- `packaging/resources/icons/source/space-agent-icon.png`
-- `packaging/resources/icons/source/space-agent-icon-256.webp`
-- `packaging/resources/icons/source/space-agent-icon-512.webp`
+**Social and README.** `server/pages/res/readme-banner.webp` (the live Open Graph
+image, 1200x630) is rebuilt from the aurora back-view with a feathered gradient
+wash and the wordmark on the open side. `.github/readme-banner-thin.svg` keeps its
+starfield and animation but now floats the flat character and carries an embedded
+`Constellation`/`Agent` wordmark in place of the old outlined `Space Agent` paths.
+New README illustrations live in `.github/brand/`: `readme-hero.webp`,
+`readme-features.webp`, `readme-selfhost.webp`, `readme-docs.webp`.
 
-**Astronaut visual identity:**
+**Removed**, all confirmed zero-reference: `space-agent-icon{,-256,-512}.*`,
+`server/pages/res/astronaut_green_bg.png`, `server/pages/res/astronaut_no_bg.png`,
+`chat/admin/helmet_no_bg.png`, `engineer/helmet_red_no_bg.png`,
+`engineer/helmet_red_256.webp`, `engineer/astronaut_red_512h.webp`,
+`.github/thumbnail.webp`, `.github/readme-banner.png`,
+`.github/readme-banner.webp`, `.github/readme-banner-thin.webp`,
+`.github/readme-try-live-now.svg`.
 
-- `server/pages/res/astronaut_no_bg.png`, `astronaut_no_bg.webp`,
-  `astronaut_green_bg.png`
-- `app/L0/_all/modules/_core/visual/res/chat/overlay/astronaut_no_bg.webp`
-- `app/L0/_all/modules/_core/visual/res/chat/admin/astronaut_no_bg.png` and `.webp`
-- `app/L0/_all/modules/_core/visual/res/engineer/astronaut_red_no_bg.png` and
-  `astronaut_red_512h.webp`
+**Kept deliberately.** `.github/brand/social-card.svg`'s `Built on Space Agent`
+line is the honest upstream attribution this project requires, not a rebrand
+leftover. It stays.
 
-**Unreferenced GitHub assets** (safe to drop whenever the artwork pass runs):
+### Parked: avatar state artwork
 
-- `.github/thumbnail.webp`
-- `.github/readme-banner.png`
-- `.github/readme-banner.webp`
-- `.github/readme-banner-thin.webp`
-- `.github/readme-try-live-now.svg`
-
-`.github/readme-banner-thin.svg` is the one that is actually referenced from the
-README. Note `server/pages/res/readme-banner.webp` is a *different* file with the
-same basename and is the live Open Graph image — do not confuse the two.
+The owner's set carries idle (meditating), working (reading starbook), error (arms
+crossed), and loading (leap) poses. Idle is live on the admin empty state. Wiring
+the rest as live agent states is parked by owner decision: it needs a smooth
+cross-fade design pass first, because snapping between stills would look worse
+than the single avatar it replaces. The three non-idle poses are alpha-repaired
+and staged, so a later lane starts from clean art.
 
 ### Outstanding: polish
 

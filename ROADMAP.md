@@ -287,6 +287,13 @@ the reason it is not yet Selected.
   two agents acting for two users in a shared group layer is a permissions problem
   rather than an architecture problem. The server would not need to know they exist.
   *Not selected yet:* same isolation-audit dependency as L1 team capability.
+- **Agent avatar states.** The artwork set carries idle, working, error, and
+  loading poses; only idle is wired today (the admin empty state). Making the
+  avatar reflect live agent state needs a transition design first: cross-fades
+  or motion that reads as one continuous character rather than four stills
+  swapping. *Not selected yet:* parked by owner decision until that design
+  direction exists, because a snapping swap would be worse than one stable
+  avatar.
 - **Local-first, provider-agnostic inference.** Browser-side model runtimes plus
   browser-owned API keys plus `CUSTOMWARE_PATH` could produce a genuinely private
   deployment. *Not selected yet:* largely already possible; the gap is packaging and
