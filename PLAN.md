@@ -324,20 +324,25 @@ through in the `rebrand/terminology-cleanup` session.
   snapshots; editing them would invalidate existing eval baselines. The live
   system prompt already reads `you are a browser runtime operator`.
 
-### Shipped: artwork rebrand (branch `rebrand/artwork-pass`)
+### Shipped: artwork rebrand (branch `rebrand/artwork-pass`, two-tier icons)
 
 Owner-supplied Constellation Agent artwork replaced every upstream asset. The pass
 was byte-level: existing filenames and paths were kept, so no HTML, JS, manifest,
 or electron-builder wiring changed.
 
-**Identity master.** The flat hooded figure on a rounded navy tile is the single
-icon source; every size derives from it.
+**Identity, split by size tier.** The detailed painterly render (`Individual 3`)
+is the canonical master and drives every surface at 128px and above. Below that,
+detail collapses into a blob — measured, not assumed: at 32px and 16px the flat
+tile is the only mark that still reads — so the flat tile (`Individual 2`) serves
+the small tier. Both are the same character (hooded figure, glowing eyes,
+constellation), so only fidelity changes across the crossover at roughly
+96-128px, never the silhouette.
 
-- Page identity: `favicon.ico` (16/24/32/48/256 via `icotool`),
-  `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png` (180,
-  flattened navy because iOS needs opaque), `android-chrome-192x192.png` and
-  `android-chrome-512x512.png` (full-bleed navy so the Android mask cannot
-  double-round the tile).
+- Page identity: `favicon.ico` (small tier for 16/24/32/48, detailed for the 256
+  entry), `favicon-16x16.png` and `favicon-32x32.png` (flat tile),
+  `apple-touch-icon.png` (180) and the `android-chrome-192/512` pair (detailed
+  figure on full-bleed navy, sized inside the mask-safe zone so a circular
+  Android mask cannot clip the figure).
 - Desktop: `packaging/platforms/windows/icon.ico` (16/24/32/48/64/128/256) and
   `packaging/platforms/linux/icons/` `16x16` through `512x512` plus `icon.png`.
 - Packaging and brand: `packaging/resources/icons/source/constellation-agent-icon.png`
@@ -351,8 +356,9 @@ the existing `transform-origin: 52% 56%` float geometry stays valid.
 - `/enter` and `/login` floating figure: wave pose
   (`server/pages/res/astronaut_no_bg.webp`).
 - Agent first card inherits that asset.
-- Onscreen draggable button: flat full-body
-  (`chat/overlay/astronaut_no_bg.webp`).
+- Onscreen draggable button: detailed full-body
+  (`chat/overlay/astronaut_no_bg.webp`), verified legible at its real 72px
+  display size before the swap.
 - Onscreen and admin assistant avatars: photo head icon
   (`helmet_no_bg_256.webp`, 256 square).
 - Admin empty state: meditating pose (`chat/admin/astronaut_no_bg.png` + `.webp`).
