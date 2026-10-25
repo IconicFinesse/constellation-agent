@@ -59,7 +59,7 @@ Current behaviors:
 
 - `Download ZIP` always exports the current `~/spaces/<spaceId>/` folder through the authenticated backend `folder_download` endpoint, with a `HEAD` preflight for inline errors and the real ZIP download handed off to the browser as an attachment
 - `Upload ZIP` always validates through the backend import endpoint; if the current space already has meaningful content, the modal asks whether to overwrite that current space or keep it and import as a new `imported-N` space
-- imported destinations ignore the incoming archive id or title for naming; non-overwrite imports are always installed as `imported-1`, `imported-2`, and so on
+- imported destinations ignore the incoming archive id for the destination folder name, so non-overwrite imports are always installed as `imported-1`, `imported-2`, and so on, while the archive manifest title is kept as the visible space title and only falls back to that generated destination id when the archive title is blank or missing
 - when `CLOUD_SHARE_URL` resolves to a base URL, the same native spaces dialog shows the hosted-share panel first, fetches the current space ZIP from the authenticated backend `folder_download` endpoint, uploads it to that receiver, returns the share link in an inline copy field, and keeps any hosted-share errors inside that panel while logging the underlying exception to the console
 - the hosted-share branch can optionally encrypt the ZIP in the browser with a password before upload, using the same public `share-crypto` helper as the public share-open page
 - local ZIP export and import stay available even when hosted sharing is disabled or the remote receiver rejects uploads

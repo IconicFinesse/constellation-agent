@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import zlib from "node:zlib";
 
+import { parseSimpleYaml } from "../app/L0/_all/modules/_core/framework/js/yaml-lite.js";
 import { startServer } from "../server/server.js";
 import { createProvisionedUserCryptoRecord } from "../server/pages/res/user-crypto.js";
 
@@ -229,6 +230,90 @@ async function importArchive(baseUrl, cookie, archiveBytes) {
   });
 }
 
+// Imports through the public HTTP surface so the assertions cover the archive
+// manifest, the installed manifest and the API response in one flow.
+async function importTitledArchive(baseUrl, archiveBytes, query = "") {
+  return requestJson(baseUrl, "/api/space_import" + query, {
+    body: archiveBytes,
+    headers: {
+      "content-type": "application/zip"
+    },
+    method: "POST"
+  });
+}
+
+// Builds a titled space archive. `title: undefined` omits the key entirely, and
+// `title: ""` or a whitespace-only value exercise the fallback chain.
+function buildTitledSpaceEntries(options = {}) {
+  const prefix = String(options.prefix || "");
+  const manifestLines = ["id: demo-space", "schema: space/v1"];
+
+  if (options.title !== undefined) {
+    manifestLines.push("title: " + JSON.stringify(options.title));
+  }
+
+  if (Array.isArray(options.layoutOrder)) {
+    manifestLines.push("layout_order:");
+
+    for (const widgetId of options.layoutOrder) {
+      manifestLines.push("  - " + widgetId);
+    }
+  }
+
+  const entries = [
+    {
+      data: manifestLines.join("\n") + "\n",
+      name: prefix + "space.yaml"
+    }
+  ];
+
+  for (const widgetName of options.widgetNames || ["hello"]) {
+    entries.push({
+      data: "renderer: html\ntitle: " + widgetName + "\n",
+      name: prefix + "widgets/" + widgetName + ".yaml"
+    });
+  }
+
+  for (const extraEntry of options.extraEntries || []) {
+    entries.push({
+      ...extraEntry,
+      name: prefix + extraEntry.name
+    });
+  }
+
+  return entries;
+}
+
+async function readInstalledManifest(customwarePath, username, spaceId) {
+  const manifestSource = await fs.readFile(
+    path.join(customwarePath, "L2", username, "spaces", spaceId, "space.yaml"),
+    "utf8"
+  );
+
+  return parseSimpleYaml(manifestSource);
+}
+
+// Auth keys are read from process.env, so point them at a tmpdir to keep a run
+// from writing into the repository tree.
+async function useTemporaryAuthDataDir(testContext, prefix) {
+  const authDataDir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  const previousAuthDataDir = process.env.SPACE_AUTH_DATA_DIR;
+
+  process.env.SPACE_AUTH_DATA_DIR = authDataDir;
+
+  testContext.after(async () => {
+    if (previousAuthDataDir === undefined) {
+      delete process.env.SPACE_AUTH_DATA_DIR;
+    } else {
+      process.env.SPACE_AUTH_DATA_DIR = previousAuthDataDir;
+    }
+
+    await fs.rm(authDataDir, { force: true, recursive: true });
+  });
+
+  return authDataDir;
+}
+
 function assertInvalidArchiveRejection(result, label) {
   const message = String(result.body?.error || "");
 
@@ -396,4 +481,290 @@ test("space_import installs valid archives and rejects invalid archives with an 
   );
 
   assertInvalidArchiveRejection(symlinkResult, "symlink archive");
+});
+
+test("space_import keeps the archive title on a normal import", async (testContext) => {
+  const customwarePath = await fs.mkdtemp(path.join(os.tmpdir(), "space-import-title-customware-"));
+
+  await useTemporaryAuthDataDir(testContext, "space-import-title-auth-");
+
+  const runtime = await createRuntime({
+    CUSTOMWARE_PATH: customwarePath,
+    SINGLE_USER_APP: "true"
+  });
+
+  testContext.after(async () => {
+    await runtime.close();
+    await fs.rm(customwarePath, { force: true, recursive: true });
+  });
+
+  const importResult = await importTitledArchive(
+    runtime.browserUrl,
+    buildZipArchive(buildTitledSpaceEntries({ title: "Lab Probe" }))
+  );
+
+  assert.equal(importResult.status, 200, `titled import failed: ${JSON.stringify(importResult.body)}`);
+  assert.equal(importResult.body?.spaceId, "imported-1");
+
+  // The archive manifest title must survive into the API response instead of the
+  // generated destination id becoming the visible title.
+  assert.equal(importResult.body?.title, "Lab Probe");
+
+  const installedManifest = await readInstalledManifest(customwarePath, "user", "imported-1");
+
+  assert.equal(installedManifest.title, "Lab Probe");
+  assert.equal(installedManifest.id, "imported-1");
+
+  // The destination id stays a fresh generated id and is not required to equal
+  // the title.
+  assert.notEqual(installedManifest.id, installedManifest.title);
+});
+
+test("space_import keeps the archive title across repeated imports and derives unique ids", async (testContext) => {
+  const customwarePath = await fs.mkdtemp(path.join(os.tmpdir(), "space-import-repeat-customware-"));
+
+  await useTemporaryAuthDataDir(testContext, "space-import-repeat-auth-");
+
+  const runtime = await createRuntime({
+    CUSTOMWARE_PATH: customwarePath,
+    SINGLE_USER_APP: "true"
+  });
+
+  testContext.after(async () => {
+    await runtime.close();
+    await fs.rm(customwarePath, { force: true, recursive: true });
+  });
+
+  const archiveBytes = buildZipArchive(buildTitledSpaceEntries({ title: "Repeated Title" }));
+  const firstImport = await importTitledArchive(runtime.browserUrl, archiveBytes);
+  const secondImport = await importTitledArchive(runtime.browserUrl, archiveBytes);
+
+  assert.equal(firstImport.status, 200, `first import failed: ${JSON.stringify(firstImport.body)}`);
+  assert.equal(secondImport.status, 200, `second import failed: ${JSON.stringify(secondImport.body)}`);
+  assert.equal(firstImport.body?.spaceId, "imported-1");
+  assert.equal(secondImport.body?.spaceId, "imported-2");
+  assert.equal(firstImport.body?.title, "Repeated Title");
+  assert.equal(secondImport.body?.title, "Repeated Title");
+
+  const firstManifest = await readInstalledManifest(customwarePath, "user", "imported-1");
+  const secondManifest = await readInstalledManifest(customwarePath, "user", "imported-2");
+
+  assert.equal(firstManifest.title, "Repeated Title");
+  assert.equal(secondManifest.title, "Repeated Title");
+  assert.notEqual(firstManifest.id, secondManifest.id);
+});
+
+test("space_import falls back to the destination id when the archive title is blank or missing", async (testContext) => {
+  const customwarePath = await fs.mkdtemp(path.join(os.tmpdir(), "space-import-fallback-customware-"));
+
+  await useTemporaryAuthDataDir(testContext, "space-import-fallback-auth-");
+
+  const runtime = await createRuntime({
+    CUSTOMWARE_PATH: customwarePath,
+    SINGLE_USER_APP: "true"
+  });
+
+  testContext.after(async () => {
+    await runtime.close();
+    await fs.rm(customwarePath, { force: true, recursive: true });
+  });
+
+  // Missing key, an explicitly empty string, and a whitespace-only value all
+  // fall through to the destination id, so the stored title is never empty.
+  const fallbackCases = [
+    { expectedTitle: "imported-1", label: "missing title", title: undefined },
+    { expectedTitle: "imported-2", label: "empty title", title: "" },
+    { expectedTitle: "imported-3", label: "whitespace title", title: "   " }
+  ];
+
+  for (const fallbackCase of fallbackCases) {
+    const importResult = await importTitledArchive(
+      runtime.browserUrl,
+      buildZipArchive(buildTitledSpaceEntries({ title: fallbackCase.title }))
+    );
+
+    assert.equal(
+      importResult.status,
+      200,
+      `${fallbackCase.label} import failed: ${JSON.stringify(importResult.body)}`
+    );
+    assert.equal(importResult.body?.spaceId, fallbackCase.expectedTitle);
+    assert.equal(
+      importResult.body?.title,
+      fallbackCase.expectedTitle,
+      `${fallbackCase.label} must fall back to the destination id`
+    );
+
+    const installedManifest = await readInstalledManifest(
+      customwarePath,
+      "user",
+      fallbackCase.expectedTitle
+    );
+
+    assert.equal(installedManifest.title, fallbackCase.expectedTitle);
+    assert.notEqual(String(installedManifest.title || "").trim(), "");
+  }
+});
+
+test("space_import replace mode keeps preserving the archive title", async (testContext) => {
+  const customwarePath = await fs.mkdtemp(path.join(os.tmpdir(), "space-import-replace-customware-"));
+
+  await useTemporaryAuthDataDir(testContext, "space-import-replace-auth-");
+
+  const runtime = await createRuntime({
+    CUSTOMWARE_PATH: customwarePath,
+    SINGLE_USER_APP: "true"
+  });
+
+  testContext.after(async () => {
+    await runtime.close();
+    await fs.rm(customwarePath, { force: true, recursive: true });
+  });
+
+  const initialImport = await importTitledArchive(
+    runtime.browserUrl,
+    buildZipArchive(buildTitledSpaceEntries({ title: "Initial Title" }))
+  );
+
+  assert.equal(initialImport.status, 200, `seed import failed: ${JSON.stringify(initialImport.body)}`);
+  assert.equal(initialImport.body?.spaceId, "imported-1");
+
+  const replaceResult = await importTitledArchive(
+    runtime.browserUrl,
+    buildZipArchive(buildTitledSpaceEntries({ title: "Replacement Title" })),
+    "?mode=replace&spaceId=imported-1"
+  );
+
+  assert.equal(replaceResult.status, 200, `replace import failed: ${JSON.stringify(replaceResult.body)}`);
+  assert.equal(replaceResult.body?.spaceId, "imported-1");
+  assert.equal(replaceResult.body?.title, "Replacement Title");
+
+  const replacedManifest = await readInstalledManifest(customwarePath, "user", "imported-1");
+
+  assert.equal(replacedManifest.title, "Replacement Title");
+  assert.equal(replacedManifest.id, "imported-1");
+});
+
+test("guest cloud-share clone keeps the archive title with guest users enabled", async (testContext) => {
+  const customwarePath = await fs.mkdtemp(path.join(os.tmpdir(), "space-clone-title-customware-"));
+
+  await useTemporaryAuthDataDir(testContext, "space-clone-title-auth-");
+
+  // Guest users and hosted cloud shares must both be enabled for the anonymous
+  // clone endpoint to reach the guest-clone install path.
+  const runtime = await createRuntime({
+    ALLOW_GUEST_USERS: "true",
+    CLOUD_SHARE_ALLOWED: "true",
+    CUSTOMWARE_PATH: customwarePath
+  });
+
+  testContext.after(async () => {
+    await runtime.close();
+    await fs.rm(customwarePath, { force: true, recursive: true });
+  });
+
+  const archiveBytes = buildZipArchive(buildTitledSpaceEntries({ title: "Guest Probe" }));
+  const shareCreateResult = await requestJson(runtime.browserUrl, "/api/cloud_share_create", {
+    body: archiveBytes,
+    headers: {
+      "content-type": "application/zip"
+    },
+    method: "POST"
+  });
+
+  assert.equal(
+    shareCreateResult.status,
+    200,
+    `hosted share creation failed: ${JSON.stringify(shareCreateResult.body)}`
+  );
+
+  const shareToken = shareCreateResult.body?.shareToken;
+
+  assert.match(String(shareToken || ""), /^[A-Za-z0-9]{8}$/u);
+
+  const cloneResult = await requestJson(
+    runtime.browserUrl,
+    "/api/cloud_share_clone?token=" + encodeURIComponent(shareToken),
+    {
+      body: archiveBytes,
+      headers: {
+        "content-type": "application/zip"
+      },
+      method: "POST"
+    }
+  );
+
+  assert.equal(cloneResult.status, 200, `guest clone failed: ${JSON.stringify(cloneResult.body)}`);
+  assert.match(String(cloneResult.body?.username || ""), /^guest_/u);
+  assert.equal(cloneResult.body?.spaceId, "imported-1");
+
+  // The clone response does not carry the title, so the installed manifest is the
+  // contract surface the guest clone path must satisfy.
+  const clonedManifest = await readInstalledManifest(
+    customwarePath,
+    cloneResult.body.username,
+    "imported-1"
+  );
+
+  assert.equal(clonedManifest.title, "Guest Probe");
+  assert.equal(clonedManifest.id, "imported-1");
+});
+
+test("space_import keeps space content intact alongside the preserved title", async (testContext) => {
+  const customwarePath = await fs.mkdtemp(path.join(os.tmpdir(), "space-import-content-customware-"));
+
+  await useTemporaryAuthDataDir(testContext, "space-import-content-auth-");
+
+  const runtime = await createRuntime({
+    CUSTOMWARE_PATH: customwarePath,
+    SINGLE_USER_APP: "true"
+  });
+
+  testContext.after(async () => {
+    await runtime.close();
+    await fs.rm(customwarePath, { force: true, recursive: true });
+  });
+
+  const thumbnailBytes = Buffer.from("RIFF0000WEBPthumbnail-bytes", "utf8");
+  const importResult = await importTitledArchive(
+    runtime.browserUrl,
+    buildZipArchive(
+      buildTitledSpaceEntries({
+        extraEntries: [
+          {
+            data: thumbnailBytes,
+            name: "thumbnail.webp",
+            stored: true
+          }
+        ],
+        layoutOrder: ["hello", "extra"],
+        title: "Content Probe",
+        widgetNames: ["hello", "extra"]
+      })
+    )
+  );
+
+  assert.equal(importResult.status, 200, `content import failed: ${JSON.stringify(importResult.body)}`);
+
+  const installedRoot = path.join(customwarePath, "L2", "user", "spaces", "imported-1");
+  const widgetFiles = await fs.readdir(path.join(installedRoot, "widgets"));
+
+  assert.deepEqual(widgetFiles.sort(), ["extra.yaml", "hello.yaml"]);
+
+  const installedManifest = await readInstalledManifest(customwarePath, "user", "imported-1");
+
+  assert.equal(installedManifest.title, "Content Probe");
+  assert.equal(installedManifest.schema, "space/v1");
+  assert.deepEqual(installedManifest.layout_order, ["hello", "extra"]);
+
+  // Thumbnail bytes land next to the installed space untouched.
+  const installedThumbnail = await fs.readFile(path.join(installedRoot, "thumbnail.webp"));
+
+  assert.deepEqual(installedThumbnail, thumbnailBytes);
+
+  const dataStat = await fs.stat(path.join(installedRoot, "data"));
+  const assetsStat = await fs.stat(path.join(installedRoot, "assets"));
+
+  assert.equal(dataStat.isDirectory(), true);
+  assert.equal(assetsStat.isDirectory(), true);
 });
