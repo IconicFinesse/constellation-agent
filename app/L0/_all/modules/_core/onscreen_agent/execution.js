@@ -1,5 +1,8 @@
 import { ONSCREEN_SKILL_LOAD_HOOK_KEY } from "./skills.js";
-import { ONSCREEN_AGENT_EXECUTION_SEPARATOR } from "./turn-boundary.js";
+import {
+  ONSCREEN_AGENT_EXECUTION_SEPARATOR,
+  stripTrailingExecutionArtifacts
+} from "./turn-boundary.js";
 import {
   appendExecutionTextBlock,
   formatExecutionLogArgs,
@@ -727,6 +730,12 @@ function formatExecutionResultLines(result) {
     lines.push(`error: ${flattenExecutionMessageValue(result.error.text)}`);
   }
 
+  if (Array.isArray(result?.removedArtifactLines) && result.removedArtifactLines.length) {
+    lines.push(
+      `note: removed trailing non-JavaScript line${result.removedArtifactLines.length > 1 ? "s" : ""}: ${result.removedArtifactLines.join(", ")}`
+    );
+  }
+
   return lines;
 }
 
@@ -783,8 +792,24 @@ export function createExecutionContext(options = {}) {
       const restoreConsole = patchConsole(targetWindow, logs);
       const previousSkillLoadHook = targetWindow[ONSCREEN_SKILL_LOAD_HOOK_KEY];
       const normalizedCode = normalizeExecutionSource(code);
-      const runnableCode = `${normalizedCode}\n//# sourceURL=${buildSourceUrl(runId)}`;
-      const compileError = tryCreateAsyncRunner(runnableCode);
+      let runnableCode = `${normalizedCode}\n//# sourceURL=${buildSourceUrl(runId)}`;
+      let compileError = tryCreateAsyncRunner(runnableCode);
+      let removedArtifactLines = [];
+
+      if (compileError) {
+        const stripped = stripTrailingExecutionArtifacts(normalizedCode);
+
+        if (stripped.removed.length) {
+          const strippedRunnableCode = `${stripped.code}\n//# sourceURL=${buildSourceUrl(runId)}`;
+          const strippedCompileError = tryCreateAsyncRunner(strippedRunnableCode);
+
+          if (!strippedCompileError) {
+            runnableCode = strippedRunnableCode;
+            compileError = null;
+            removedArtifactLines = stripped.removed.map((line) => line.trim()).filter(Boolean);
+          }
+        }
+      }
 
       let result;
       let error = compileError || null;
@@ -833,6 +858,7 @@ export function createExecutionContext(options = {}) {
         error: error ? createExecutionError(error) : null,
         loadedSkills,
         logs,
+        removedArtifactLines,
         result,
         resultText:
           error || result === undefined
