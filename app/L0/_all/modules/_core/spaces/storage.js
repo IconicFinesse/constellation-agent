@@ -2,6 +2,7 @@ import {
   DEFAULT_WIDGET_POSITION,
   SPACE_ASSETS_DIR,
   SPACE_DATA_DIR,
+  SPACE_ID_MAX_LENGTH,
   SPACE_SCRIPTS_DIR,
   SPACE_MANIFEST_FILE,
   SPACE_WIDGET_FILE_EXTENSION,
@@ -64,6 +65,35 @@ function slugifySegment(value, fallback = "item") {
     .replace(/^-+|-+$/gu, "");
 
   return slug || fallback;
+}
+
+// One rule for every derived id: ids become single filesystem path components,
+// so a derived id is hard-cut to SPACE_ID_MAX_LENGTH and then re-trimmed with the
+// same dash rule slugifySegment already applies. Display titles are untouched.
+// Ids read back from disk are NOT clamped — an install created before the cap may
+// legitimately carry a longer id and must stay reachable.
+function clampDerivedId(value) {
+  return String(value || "")
+    .slice(0, SPACE_ID_MAX_LENGTH)
+    .replace(/^-+|-+$/gu, "");
+}
+
+function deriveWidgetId(value) {
+  return clampDerivedId(normalizeWidgetId(value, "widget")) || "widget";
+}
+
+// Widget ids derived from user-supplied text (an explicit id, name, or title) go
+// through the cap. A fallback id that came from an existing on-disk widget record
+// is already a real directory name and is returned unchanged and uncapped, so
+// widgets written before the cap stay reachable.
+function resolveWidgetIdForWrite(options = {}, fallbackId = "widget") {
+  const derivedSource = String(options.widgetId || options.id || options.name || options.title || "").trim();
+
+  if (!derivedSource) {
+    return normalizeWidgetId(fallbackId, "widget");
+  }
+
+  return deriveWidgetId(derivedSource);
 }
 
 function normalizeOptionalSpaceId(value) {
@@ -479,7 +509,10 @@ function serializeManifest(spaceRecord) {
 }
 
 function normalizeWidgetRecord(rawWidget, fallback = {}) {
-  const widgetId = normalizeWidgetId(rawWidget?.id || fallback.id || rawWidget?.name || "widget");
+  // An id that came from an on-disk widget record must survive uncapped so widgets
+  // written before the cap stay reachable; only a name-derived id is clamped.
+  const onDiskWidgetId = rawWidget?.id || fallback.id;
+  const widgetId = onDiskWidgetId ? normalizeWidgetId(onDiskWidgetId) : deriveWidgetId(rawWidget?.name || "widget");
   const name = String(rawWidget?.name || rawWidget?.title || fallback.name || formatTitleFromId(widgetId) || "Untitled Widget").trim();
   const sizeSource =
     rawWidget?.size ??
@@ -1243,7 +1276,11 @@ async function spaceExists(spaceId) {
 }
 
 async function createUniqueSpaceId(baseId) {
-  const normalizedBaseId = normalizeSpaceId(baseId, "space");
+  // Single choke point for every new space id: explicit id, title-derived id, and
+  // duplicate/copy bases all funnel here. Collision suffixes are appended after this
+  // cut, so 64 + "-N" stays far below NAME_MAX. Ids read back from disk never pass
+  // through this clamp and therefore stay reachable.
+  const normalizedBaseId = clampDerivedId(normalizeSpaceId(baseId, "space")) || "space";
   let nextId = normalizedBaseId;
   let suffix = 2;
 
@@ -1551,7 +1588,7 @@ export function createWidgetSource(options = {}) {
         (options.html !== undefined ? createHtmlRendererSource(options.html) : undefined)
     },
     {
-      id: normalizeWidgetId(options.widgetId || options.id || options.name || options.title || "widget"),
+      id: resolveWidgetIdForWrite(options),
       name: String(options.name || options.title || "Untitled Widget").trim() || "Untitled Widget",
       rendererSource: createDefaultRendererSource()
     }
@@ -1561,7 +1598,7 @@ export function createWidgetSource(options = {}) {
 }
 
 export function previewWidgetRecord(options = {}, fallback = {}) {
-  const widgetFallbackId = normalizeWidgetId(options.widgetId || options.id || options.name || options.title || fallback.id || "widget");
+  const widgetFallbackId = resolveWidgetIdForWrite(options, fallback.id || "widget");
 
   if (options.source !== undefined) {
     const parsedWidget = parseWidgetSource(options.source, {
@@ -2054,7 +2091,7 @@ export async function upsertWidget(options = {}) {
   }
 
   const currentSpace = cloneSpaceRecord(await readSpace(spaceId));
-  const widgetFallbackId = normalizeWidgetId(options.widgetId || options.id || options.name || options.title || "widget");
+  const widgetFallbackId = resolveWidgetIdForWrite(options);
   const existingWidget = currentSpace.widgets[widgetFallbackId] || null;
   const widgetRecord = validateWidgetRendererSourceForWrite(
     previewWidgetRecord(options, {
@@ -2129,9 +2166,7 @@ export async function upsertWidgets(options = {}) {
       requestedWidget && typeof requestedWidget === "object" && !Array.isArray(requestedWidget)
         ? requestedWidget
         : {};
-    const widgetFallbackId = normalizeWidgetId(
-      widgetOptions.widgetId || widgetOptions.id || widgetOptions.name || widgetOptions.title || "widget"
-    );
+    const widgetFallbackId = resolveWidgetIdForWrite(widgetOptions);
     const existingWidget = nextSpace.widgets[widgetFallbackId] || null;
     const widgetRecord = validateWidgetRendererSourceForWrite(
       previewWidgetRecord(widgetOptions, {

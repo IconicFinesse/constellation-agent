@@ -587,7 +587,7 @@ async function resolveIsomorphicCommit(git, repoOptions, revision) {
   const value = String(revision || "").trim();
 
   if (!value) {
-    throw new Error("A valid Git commit hash is required.");
+    throw createIsomorphicHistoryError("A valid Git commit hash is required.", 400);
   }
 
   try {
@@ -603,7 +603,9 @@ async function resolveIsomorphicCommit(git, repoOptions, revision) {
       ref: value
     });
   } catch {
-    throw new Error("Git history commit not found: " + value);
+    // Well-formed hash that the repository does not know: a missing resource, not a
+    // server fault. The shared rethrow helper preserves this statusCode.
+    throw createIsomorphicHistoryError("Git history commit not found: " + value, 404);
   }
 }
 

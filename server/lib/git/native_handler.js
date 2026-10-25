@@ -18,6 +18,12 @@ import {
 
 const nativeLocalHistoryRepoQueues = new Map();
 
+function createGitHistoryError(message, statusCode = 500) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
 function createGitError(args, stderr, stdout) {
   const message = String(stderr || stdout || "git command failed").trim();
   return new Error(`git ${args.join(" ")} failed: ${message}`);
@@ -248,7 +254,9 @@ async function resolveHistoryCommit(repoRoot, commitHash) {
   const revision = await tryReadGitAsync(repoRoot, ["rev-parse", "--verify", `${commitHash}^{commit}`]);
 
   if (!revision) {
-    throw new Error(`Git history commit not found: ${commitHash}`);
+    // A well-formed hash the repository does not know is a missing resource, not a
+    // server fault; the API rethrow helper preserves this statusCode.
+    throw createGitHistoryError(`Git history commit not found: ${commitHash}`, 404);
   }
 
   return revision;

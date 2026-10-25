@@ -36,6 +36,105 @@ function createHttpError(message, statusCode) {
   return error;
 }
 
+// NAME_MAX on every filesystem this app targets is 255 bytes for one path
+// component. The kernel reports EINVAL for an over-long component; Node maps
+// that to ENAMETOOLONG.
+const FILESYSTEM_NAME_MAX_BYTES = 255;
+
+// Filesystem failures that are caused by the caller's request map to a client
+// status. Anything not listed here (EMFILE, ENFILE, EIO, ...) is genuinely
+// server-side and keeps its raw 500.
+const FILESYSTEM_ERROR_STATUS = Object.freeze({
+  EACCES: 403,
+  ENAMETOOLONG: 400,
+  ENOSPC: 507,
+  EPERM: 403
+});
+
+function toComparableAbsolutePath(value) {
+  const normalizedValue = String(value || "").trim();
+  return normalizedValue ? path.resolve(normalizedValue) : "";
+}
+
+// A permission failure on the project root itself (or on one of its parents) is
+// operator configuration, not a bad request: it must stay a raw 500 so the
+// operator sees it instead of a client-blamed 403.
+function isOperatorConfigurationFailure(code, errorPath, projectRoot) {
+  if (code !== "EACCES" && code !== "EPERM") {
+    return false;
+  }
+
+  const failingPath = toComparableAbsolutePath(errorPath);
+  const rootPath = toComparableAbsolutePath(projectRoot);
+
+  if (!failingPath || !rootPath) {
+    return false;
+  }
+
+  return failingPath === rootPath || rootPath.startsWith(`${failingPath}${path.sep}`);
+}
+
+// A permission failure on a directory the caller never named (an owner root, a
+// layer root) is operator configuration too, so it must stay a 500. Only
+// failures at or beneath the requested target are the caller's to fix.
+function isRequestTargetFailure(errorPath, requestedAbsolutePath) {
+  const failingPath = toComparableAbsolutePath(errorPath);
+  const targetPath = toComparableAbsolutePath(requestedAbsolutePath);
+
+  if (!failingPath || !targetPath) {
+    return true;
+  }
+
+  return failingPath === targetPath || failingPath.startsWith(`${targetPath}${path.sep}`);
+}
+
+function describeFilesystemTarget(error, requestedPath) {
+  const displayPath = String(requestedPath || "").trim();
+
+  if (displayPath) {
+    return displayPath;
+  }
+
+  return String(error?.path || "unknown path");
+}
+
+function mapFilesystemErrorToHttpError(error, options = {}) {
+  // Already an HTTP error (validation, access control, quota): leave it alone.
+  if (!error || error.statusCode) {
+    return error;
+  }
+
+  const code = String(error.code || "").toUpperCase();
+  const statusCode = FILESYSTEM_ERROR_STATUS[code];
+
+  if (!statusCode) {
+    return error;
+  }
+
+  if (isOperatorConfigurationFailure(code, error.path, options.projectRoot)) {
+    return error;
+  }
+
+  if (!isRequestTargetFailure(error.path, options.requestedAbsolutePath)) {
+    return error;
+  }
+
+  const target = describeFilesystemTarget(error, options.requestedPath);
+  const rawMessage = String(error.message || "").trim();
+  const reason =
+    code === "ENAMETOOLONG"
+      ? `Entry name too long for the filesystem (limit ${FILESYSTEM_NAME_MAX_BYTES} bytes per name): ${target}`
+      : `Filesystem rejected the request for ${target}`;
+  const mappedError = createHttpError(
+    rawMessage ? `${reason} (${rawMessage})` : reason,
+    statusCode
+  );
+
+  mappedError.code = code;
+  mappedError.cause = error;
+  return mappedError;
+}
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value) && !Buffer.isBuffer(value);
 }
@@ -1216,23 +1315,31 @@ function writeAppFiles(options = {}) {
 
   try {
     files = requests.map((request) => {
-      if (request.isDirectory) {
-        fs.mkdirSync(request.absolutePath, { recursive: true });
+      try {
+        if (request.isDirectory) {
+          fs.mkdirSync(request.absolutePath, { recursive: true });
+
+          return {
+            path: request.path
+          };
+        }
+
+        fs.mkdirSync(path.dirname(request.absolutePath), { recursive: true });
+        fs.writeFileSync(request.absolutePath, request.buffer);
+        totalBytesWritten += request.buffer.length;
 
         return {
+          bytesWritten: request.buffer.length,
+          encoding: request.encoding,
           path: request.path
         };
+      } catch (error) {
+        throw mapFilesystemErrorToHttpError(error, {
+          projectRoot: options.projectRoot,
+          requestedAbsolutePath: request.absolutePath,
+          requestedPath: request.path
+        });
       }
-
-      fs.mkdirSync(path.dirname(request.absolutePath), { recursive: true });
-      fs.writeFileSync(request.absolutePath, request.buffer);
-      totalBytesWritten += request.buffer.length;
-
-      return {
-        bytesWritten: request.buffer.length,
-        encoding: request.encoding,
-        path: request.path
-      };
     });
   } catch (error) {
     invalidateQuotaDeltas(options, quotaDeltas);
@@ -1612,9 +1719,17 @@ function copyAppPaths(options = {}) {
 
   try {
     entries = requests.map((request) => {
-      copyAbsolutePath(request.sourceAbsolutePath, request.destinationAbsolutePath, request.isDirectory, {
-        destinationLabel: request.toPath
-      });
+      try {
+        copyAbsolutePath(request.sourceAbsolutePath, request.destinationAbsolutePath, request.isDirectory, {
+          destinationLabel: request.toPath
+        });
+      } catch (error) {
+        throw mapFilesystemErrorToHttpError(error, {
+          projectRoot: options.projectRoot,
+          requestedAbsolutePath: request.destinationAbsolutePath,
+          requestedPath: request.toPath
+        });
+      }
 
       return {
         fromPath: request.fromPath,
@@ -1655,9 +1770,17 @@ function moveAppPaths(options = {}) {
 
   try {
     entries = requests.map((request) => {
-      moveAbsolutePath(request.sourceAbsolutePath, request.destinationAbsolutePath, request.isDirectory, {
-        destinationLabel: request.toPath
-      });
+      try {
+        moveAbsolutePath(request.sourceAbsolutePath, request.destinationAbsolutePath, request.isDirectory, {
+          destinationLabel: request.toPath
+        });
+      } catch (error) {
+        throw mapFilesystemErrorToHttpError(error, {
+          projectRoot: options.projectRoot,
+          requestedAbsolutePath: request.destinationAbsolutePath,
+          requestedPath: request.toPath
+        });
+      }
 
       return {
         fromPath: request.fromPath,
@@ -1775,10 +1898,19 @@ function deleteAppPaths(options = {}) {
 
   try {
     paths = requests.map((request) => {
-      fs.rmSync(request.absolutePath, {
-        force: false,
-        recursive: request.isDirectory
-      });
+      try {
+        fs.rmSync(request.absolutePath, {
+          force: false,
+          recursive: request.isDirectory
+        });
+      } catch (error) {
+        throw mapFilesystemErrorToHttpError(error, {
+          projectRoot: options.projectRoot,
+          requestedAbsolutePath: request.absolutePath,
+          requestedPath: request.path
+        });
+      }
+
       return request.path;
     });
   } catch (error) {
@@ -2132,6 +2264,7 @@ export {
   getAppPathInfo,
   listAppPaths,
   listAppPathsByPatterns,
+  mapFilesystemErrorToHttpError,
   moveAppPath,
   moveAppPaths,
   readAppFile,
