@@ -145,13 +145,19 @@ the same contract upstream gave its users, now given by this fork.
 
 <!-- WHATS-NEW:START -->
 
-**`v1.1.3`**
-
-- Fill the Windows icon slot and enlarge the overlay avatar
-
 **`v1.1.4`**
 
 - Fill the icon past the slot and give the avatar real presence
+
+**`v1.2.0`**
+
+- Ship the reliability line
+- Canonicalize own-user write paths and doctor tool-call boundaries
+- Retry fenced code dumps and surface repeat compile loops
+- Render label-wrapped form controls as readable refs
+- Keep the archive title on imported spaces
+- Cap derived space ids and map filesystem errors
+- Make directory copies work on Node 24 and gate the first-login marker
 
 _Newest releases only. The full per-release record lives in [`ROADMAP.md`](./ROADMAP.md). Generated from `baseline-2026-06-08..HEAD` by `packaging/scripts/whats-new.js`._
 <!-- WHATS-NEW:END -->
