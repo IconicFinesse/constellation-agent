@@ -59,6 +59,8 @@ This scope owns:
 - when prompt file paths change, update `../llm.js` and `../AGENTS.md` in the same session
 - whenever these prompt files change, also update the matching docs under `app/L0/_all/modules/_core/documentation/docs/agent/`
 - whenever these prompt files change, measure token counts with the local tokenizer in the same session
+- `system-prompt.md` carries an `api contracts` section pinning exact runtime shapes: `fileRead` resolves `{ content, encoding, path }` per file and `{ count, files }` for batches, `fileList` resolves `{ paths, access, path }`, `fileWrite` resolves `{ bytesWritten, encoding, path }` per file and `{ count, files }` for batches, write `operation` values are `replace` (default), `append`, `prepend`, `insert`, `~` is the account root and never `~/L2/<username>/...`, string use requires normalizing results first, and a returned payload reporting a failed step is a failed execution
+- the 2026-10-25 `api contracts` addition measured 5440 -> 5666 tokens (+226); the pre-change live prompt is backed up as `system-prompt.backup-before-bug006-api-contracts-2026-10-25.md`
 
 ## Work Guidance
 

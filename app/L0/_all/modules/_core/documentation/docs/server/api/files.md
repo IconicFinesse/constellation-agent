@@ -81,6 +81,10 @@ The current frontend `fileRead(...)` wrapper also coalesces same-tick reads into
 
 `operation` defaults to `replace`. Insert writes accept exactly one anchor through `line`, `before`, or `after`. `line` is a 1-based insertion point, where `1` inserts at the top of the file and the next insertion point after the last line appends at the end. `before` and `after` use the first literal match in the current file. Insert writes require `utf8`; append, prepend, and replace keep the normal `utf8` or `base64` encoding support. Directory writes still use the trailing-slash path form and remain replace-only path creation. Batch writes may set `operation`, `line`, `before`, or `after` per entry, or once at the top level as defaults for every entry in the batch.
 
+The frontend `fileWrite(...)` wrapper normalizes the encoding argument before any request is sent: a lone `{ encoding: "utf8" }` object argument is coerced to its string, omitted or null encodings default to "utf8", and anything richer is rejected with a message naming the accepted forms and pointing write options to the single entry object `{ path, content, operation }`.
+
+`~` already means the session user's own `L2/<username>/` root, so a doubled own-user prefix such as `~/L2/<username>/...` canonicalizes to the plain own-root form; a path naming another user never rewrites that way. Reads fall back to the old doubled nested location when only that copy exists, while writes stay canonical, so bug-era nested duplicates stay readable but never grow.
+
 `fileList(...)` also accepts an options object. Use `access: "write"` or `writableOnly: true` when a browser surface needs server-confirmed writable paths. Use `gitRepositories: true` with writable access to list local-history owner roots without exposing `.git` metadata.
 
 ## Batch Semantics
