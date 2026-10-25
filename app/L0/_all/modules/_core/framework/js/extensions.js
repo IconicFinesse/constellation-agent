@@ -561,25 +561,70 @@ function loadExtensionPaths(extensionPoint, filters, scope) {
 }
 
 /**
- * Call all JS extensions for a given extension point.
+ * Call all JS extensions for a given extension point, keeping the best-effort
+ * behavior every event seam relies on: a failing hook logs and the rest still run.
  *
  * @param {string} extensionPoint
  * @param {...any} data
  * @returns {Promise<void>}
  */
 export async function callJsExtensions(extensionPoint, ...data){
+  await runJsExtensions(extensionPoint, data, { throwOnError: false });
+}
+
+/**
+ * Call all JS extensions for a given extension point and reject when a hook fails.
+ *
+ * Use this only for seams whose caller must know that the work actually succeeded,
+ * such as a first-run marker that must not be written after a failed install. The
+ * first error is rethrown after the remaining hooks have still had their chance to
+ * run, so one broken hook cannot silently disable unrelated contributors.
+ *
+ * @param {string} extensionPoint
+ * @param {...any} data
+ * @returns {Promise<void>}
+ */
+export async function callJsExtensionsChecked(extensionPoint, ...data){
+  await runJsExtensions(extensionPoint, data, { throwOnError: true });
+}
+
+/**
+ * Shared dispatcher for the best-effort and checked JS extension calls.
+ *
+ * @param {string} extensionPoint
+ * @param {any[]} data
+ * @param {{ throwOnError: boolean }} options
+ * @returns {Promise<void>}
+ */
+async function runJsExtensions(extensionPoint, data, { throwOnError }){
   const cacheKey = createExtensionCacheKey(extensionPoint, JS_EXTENSION_SCOPE);
   const cachedExtensions = readCachedValue(JS_CACHE_AREA, cacheKey);
   const extensions =
     cachedExtensions !== undefined
       ? cachedExtensions
       : await loadJsExtensions(extensionPoint);
+  /** @type {any} */
+  let firstError = null;
+
   for(const extension of extensions){
     try{
       await extension.module.default(...data);
     }catch(error){
-      console.error(`Error calling extension: ${extension.path}`, error);
+      // Best-effort callers keep the historical log-and-continue behavior. Checked
+      // callers own the single failure report for their seam, so a hook that fails
+      // cannot produce duplicate diagnostics.
+      if(!throwOnError){
+        console.error(`Error calling extension: ${extension.path}`, error);
+      }
+
+      if(firstError === null){
+        firstError = error;
+      }
     }
+  }
+
+  if(throwOnError && firstError !== null){
+    throw firstError;
   }
 }
 

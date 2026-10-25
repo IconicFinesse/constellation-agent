@@ -1348,8 +1348,30 @@ function normalizeTransferRequests(options = {}, actionType) {
     ensureWritableProjectPath(destinationProjectPath, accessController);
     ensureWritableProjectPath(destinationParentProjectPath, accessController);
 
-    if (hasExistingProjectPathConflict(pathIndex, destinationProjectPath)) {
-      throw createHttpError(`Destination already exists: ${toAppRelativePath(destinationProjectPath)}`, 400);
+    const destinationAbsolutePath = createAbsolutePath(
+      String(options.projectRoot || ""),
+      destinationProjectPath,
+      options.runtimeParams
+    );
+
+    // The index guard refuses anything it already knows about, which is right for
+    // content. A directory copy onto an existing *empty* directory is the one case
+    // the copy contract accepts, and rejecting it here would make the outcome depend
+    // on whether the watchdog happened to rescan a leftover -- a retry dead end. That
+    // decision belongs to the disk-aware copy layer, so the guard defers to it.
+    const isEmptyDirectoryDestination =
+      actionType === "copy" &&
+      resolvedSourcePath.isDirectory &&
+      isEmptyAbsoluteDirectory(destinationAbsolutePath);
+
+    if (!isEmptyDirectoryDestination && hasExistingProjectPathConflict(pathIndex, destinationProjectPath)) {
+      // Copy conflicts report one status whether the index or the disk noticed them,
+      // so a caller never has to guess based on index freshness. Moves keep the
+      // historical status of this shared guard.
+      throw createHttpError(
+        `Destination already exists: ${toAppRelativePath(destinationProjectPath)}`,
+        actionType === "copy" ? 409 : 400
+      );
     }
 
     if (resolvedSourcePath.isDirectory && isDescendantPath(resolvedSourcePath.projectPath, destinationProjectPath)) {
@@ -1366,11 +1388,7 @@ function normalizeTransferRequests(options = {}, actionType) {
       ),
       sourceProjectPath: resolvedSourcePath.projectPath,
       toPath: toAppRelativePath(destinationProjectPath),
-      destinationAbsolutePath: createAbsolutePath(
-        String(options.projectRoot || ""),
-        destinationProjectPath,
-        options.runtimeParams
-      ),
+      destinationAbsolutePath,
       destinationProjectPath
     };
   });
@@ -1410,15 +1428,166 @@ function normalizeTransferRequests(options = {}, actionType) {
   return requests;
 }
 
-function copyAbsolutePath(sourceAbsolutePath, destinationAbsolutePath, isDirectory) {
-  fs.cpSync(sourceAbsolutePath, destinationAbsolutePath, {
-    errorOnExist: true,
-    force: false,
-    recursive: isDirectory
-  });
+// Node 22 and older merged into an existing (even empty) destination directory, but
+// Node 24 throws ERR_FS_CP_EEXIST from cpSync when `errorOnExist` is set. The watchdog
+// path index can be stale for a destination another attempt created on disk, so the
+// disk state -- not only the index -- must decide whether a copy may proceed.
+function readAbsolutePathDiskState(absolutePath) {
+  // Directory destinations arrive with a trailing separator, and lstat() on
+  // "somefile/" reports ENOTDIR instead of telling us that a file is in the way.
+  const statPath = String(absolutePath || "").replace(/[\\/]+$/u, "");
+
+  if (!statPath) {
+    return {
+      exists: false,
+      isDirectory: false
+    };
+  }
+
+  try {
+    const stats = fs.lstatSync(statPath);
+
+    return {
+      exists: true,
+      isDirectory: stats.isDirectory()
+    };
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return {
+        exists: false,
+        isDirectory: false
+      };
+    }
+
+    if (error?.code === "ENOTDIR") {
+      return {
+        exists: true,
+        isDirectory: false
+      };
+    }
+
+    throw error;
+  }
 }
 
-function moveAbsolutePath(sourceAbsolutePath, destinationAbsolutePath, isDirectory) {
+// Guard-side probe only: it decides whether the path-index conflict guard may defer to
+// the disk-aware copy layer. Validation must stay cheap and must not become a new
+// hard failure point, so an unexpected probe error degrades to "unknown" and leaves
+// the historical index guard in charge. The authoritative, strict disk decision lives
+// in prepareCopyDestination(), which runs after quota planning and before any write.
+function isEmptyAbsoluteDirectory(absolutePath) {
+  const statPath = String(absolutePath || "").replace(/[\\/]+$/u, "");
+
+  if (!statPath) {
+    return false;
+  }
+
+  let diskState;
+
+  try {
+    diskState = readAbsolutePathDiskState(statPath);
+  } catch {
+    return false;
+  }
+
+  if (!diskState.exists) {
+    // Nothing on disk to protect: the copy layer creates the destination fresh.
+    return true;
+  }
+
+  if (!diskState.isDirectory) {
+    return false;
+  }
+
+  try {
+    return fs.readdirSync(statPath).length === 0;
+  } catch {
+    return false;
+  }
+}
+
+// A copy destination is only written when it is absent or when it is an empty
+// directory that no content has claimed yet. Everything else is a conflict that the
+// caller must resolve, and the existing content stays untouched.
+function prepareCopyDestination(destinationAbsolutePath, isDirectory, destinationLabel) {
+  const diskState = readAbsolutePathDiskState(destinationAbsolutePath);
+
+  if (!diskState.exists) {
+    return;
+  }
+
+  if (!diskState.isDirectory) {
+    throw createHttpError(`Destination already exists: ${destinationLabel}`, 409);
+  }
+
+  if (!isDirectory) {
+    throw createHttpError(`Destination already exists: ${destinationLabel}`, 409);
+  }
+
+  let entries;
+
+  try {
+    entries = fs.readdirSync(destinationAbsolutePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return;
+    }
+
+    throw error;
+  }
+
+  if (entries.length > 0) {
+    throw createHttpError(`Destination folder is not empty: ${destinationLabel}`, 409);
+  }
+
+  // An empty leftover carries no user content, so replacing it is safe and it stops
+  // being the thing that makes the next copy fail on Node 24.
+  fs.rmdirSync(destinationAbsolutePath);
+}
+
+function removeCreatedCopyDestination(destinationAbsolutePath) {
+  try {
+    fs.rmSync(destinationAbsolutePath, {
+      force: true,
+      recursive: true
+    });
+  } catch {
+    // Removing a partial copy is best-effort; the copy error is what the caller needs.
+  }
+}
+
+function copyAbsolutePath(sourceAbsolutePath, destinationAbsolutePath, isDirectory, options = {}) {
+  const destinationLabel = String(options.destinationLabel || destinationAbsolutePath);
+
+  // Throws before any mutation when the destination holds content or is a file.
+  prepareCopyDestination(destinationAbsolutePath, isDirectory, destinationLabel);
+
+  try {
+    fs.cpSync(sourceAbsolutePath, destinationAbsolutePath, {
+      // Directory merges only happen after the empty-destination check above, so the
+      // strict existence guard is reserved for single-file copies.
+      errorOnExist: !isDirectory,
+      force: false,
+      recursive: isDirectory
+    });
+  } catch (error) {
+    // The destination was absent before this call, so whatever cpSync left behind was
+    // created here; drop it so a failed copy cannot poison the next attempt.
+    removeCreatedCopyDestination(destinationAbsolutePath);
+
+    if (error?.statusCode) {
+      throw error;
+    }
+
+    if (error?.code === "ERR_FS_CP_EEXIST" || error?.code === "EEXIST") {
+      throw createHttpError(`Destination already exists: ${destinationLabel}`, 409);
+    }
+
+    throw error;
+  }
+}
+
+function moveAbsolutePath(sourceAbsolutePath, destinationAbsolutePath, isDirectory, options = {}) {
   try {
     fs.renameSync(sourceAbsolutePath, destinationAbsolutePath);
   } catch (error) {
@@ -1426,7 +1595,8 @@ function moveAbsolutePath(sourceAbsolutePath, destinationAbsolutePath, isDirecto
       throw error;
     }
 
-    copyAbsolutePath(sourceAbsolutePath, destinationAbsolutePath, isDirectory);
+    // The cross-device fallback copies, so it must inherit the same destination protection.
+    copyAbsolutePath(sourceAbsolutePath, destinationAbsolutePath, isDirectory, options);
     fs.rmSync(sourceAbsolutePath, {
       force: false,
       recursive: isDirectory
@@ -1442,7 +1612,9 @@ function copyAppPaths(options = {}) {
 
   try {
     entries = requests.map((request) => {
-      copyAbsolutePath(request.sourceAbsolutePath, request.destinationAbsolutePath, request.isDirectory);
+      copyAbsolutePath(request.sourceAbsolutePath, request.destinationAbsolutePath, request.isDirectory, {
+        destinationLabel: request.toPath
+      });
 
       return {
         fromPath: request.fromPath,
@@ -1483,7 +1655,9 @@ function moveAppPaths(options = {}) {
 
   try {
     entries = requests.map((request) => {
-      moveAbsolutePath(request.sourceAbsolutePath, request.destinationAbsolutePath, request.isDirectory);
+      moveAbsolutePath(request.sourceAbsolutePath, request.destinationAbsolutePath, request.isDirectory, {
+        destinationLabel: request.toPath
+      });
 
       return {
         fromPath: request.fromPath,

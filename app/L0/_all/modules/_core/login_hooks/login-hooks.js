@@ -8,6 +8,11 @@ async function callConfiguredLoginExtensions(...args) {
   return callJsExtensions(...args);
 }
 
+async function callConfiguredLoginExtensionsChecked(...args) {
+  const { callJsExtensionsChecked } = await import("../framework/js/extensions.js");
+  return callJsExtensionsChecked(...args);
+}
+
 function getRuntime() {
   const runtime = globalThis.space;
 
@@ -127,16 +132,26 @@ function buildLoginHookContext({
   };
 }
 
-export async function executeLoginHooksBootstrap({
-  extensionCaller = callConfiguredLoginExtensions,
-  firstLoginExtensionPoint = FIRST_LOGIN_EXTENSION_POINT,
-  anyLoginExtensionPoint = ANY_LOGIN_EXTENSION_POINT,
-  markerPath = LOGIN_HOOKS_STATE_PATH,
-  now = new Date().toISOString(),
-  origin = globalThis.location?.origin || "http://localhost",
-  referrer = globalThis.document?.referrer || "",
-  runtime = getRuntime()
-} = {}) {
+export async function executeLoginHooksBootstrap(options = {}) {
+  const {
+    extensionCaller = callConfiguredLoginExtensions,
+    firstLoginExtensionPoint = FIRST_LOGIN_EXTENSION_POINT,
+    anyLoginExtensionPoint = ANY_LOGIN_EXTENSION_POINT,
+    markerPath = LOGIN_HOOKS_STATE_PATH,
+    now = new Date().toISOString(),
+    origin = globalThis.location?.origin || "http://localhost",
+    referrer = globalThis.document?.referrer || "",
+    runtime = getRuntime()
+  } = options;
+  // The first-login point is checked by default because it gates a durable marker.
+  // A caller that injected `extensionCaller` keeps owning every point, so existing
+  // embedders and tests do not have to know about the checked variant.
+  const firstLoginExtensionCaller =
+    typeof options.firstLoginExtensionCaller === "function"
+      ? options.firstLoginExtensionCaller
+      : Object.prototype.hasOwnProperty.call(options, "extensionCaller")
+        ? extensionCaller
+        : callConfiguredLoginExtensionsChecked;
   const identity = await runtime.api.userSelfInfo();
   const username = String(identity?.username || "").trim();
 
@@ -158,21 +173,33 @@ export async function executeLoginHooksBootstrap({
   let ranAnyLogin = false;
 
   if (isFirstLogin) {
-    await extensionCaller(
-      firstLoginExtensionPoint,
-      buildLoginHookContext({
-        identity,
-        isFirstLogin: true,
-        isLoginNavigation: arrivedFromLogin,
-        markerPath
-      })
-    );
-    await runtime.api.fileWrite(
-      markerPath,
-      buildLoginHooksStateContent({ firstLoginCompletedAt: now }),
-      "utf8"
-    );
-    ranFirstLogin = true;
+    const firstLoginContext = buildLoginHookContext({
+      identity,
+      isFirstLogin: true,
+      isLoginNavigation: arrivedFromLogin,
+      markerPath
+    });
+
+    let firstLoginResolved = false;
+
+    try {
+      // The marker is permanent state: write it only when every first-login hook
+      // resolved, so a failed onboarding install is retried on the next login
+      // instead of being recorded as completed.
+      await firstLoginExtensionCaller(firstLoginExtensionPoint, firstLoginContext);
+      firstLoginResolved = true;
+    } catch (error) {
+      console.error("Login hook failed; first-login marker not written.", error);
+    }
+
+    if (firstLoginResolved) {
+      await runtime.api.fileWrite(
+        markerPath,
+        buildLoginHooksStateContent({ firstLoginCompletedAt: now }),
+        "utf8"
+      );
+      ranFirstLogin = true;
+    }
   }
 
   if (arrivedFromLogin) {
