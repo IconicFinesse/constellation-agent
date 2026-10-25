@@ -103,6 +103,8 @@ Important contracts:
 - `<x-extension id="some/path">` resolves HTML adapters from `modules/<author>/<repo>/ext/html/some/path/*.html`
 - `space.extend(import.meta, ...)` requires a valid module ref and wraps standalone functions only
 - `space.extend(...)` and `callJsExtensions("some/path", ...)` resolve JS hook files from `modules/<author>/<repo>/ext/js/<extension-point>/*.js` or `*.mjs`
+- `callJsExtensions(...)` stays best-effort: a failing hook logs and the remaining hooks still run, which is what modals and lifecycle `/start` and `/end` seams rely on
+- `callJsExtensionsChecked(...)` is the same dispatch but rejects with the first hook error after every hook still had its turn; it never logs on its own, so the caller owns the single failure report. Use it only for a seam whose caller must know the work succeeded, such as a durable marker that must not be written after a failed onboarding install
 - `extensions.js` injects `_core/framework/head/end` into `document.head` on framework-backed pages before the initial HTML extension scan, so layers can contribute head-side HTML without page-shell edits
 - dynamic `<x-extension>` discovery watches the whole `document.documentElement`, not only `body`, so head-side extension seams keep working after bootstrap
 - `_core/framework/initializer.js/initialize` is the shared once-per-page bootstrap seam for framework-backed shells, and its `/end` hook is the imperative fallback when a head-side integration cannot stay declarative

@@ -25,6 +25,7 @@ This scope owns:
 - first-login hook dispatch uses the explicit JS extension point `_core/login_hooks/first_login`
 - repeatable login hook dispatch uses the explicit JS extension point `_core/login_hooks/any_login`
 - first-login hooks run before the marker file is written and before any-login hooks on the same bootstrap
+- the marker is written only when the first-login dispatch resolved: it is checked through `callJsExtensionsChecked`, so a hook that throws leaves no marker, logs one `console.error`, still runs any-login hooks, and retries onboarding on the next login instead of recording a failed onboarding as complete
 - first-login hooks are the supported place for client-owned onboarding side effects; the current first-party example lives in `_core/spaces`, where a spaces-owned hook copies or reuses the initial onboarding space template and rewrites the main-shell default route before the router falls back to `#/dashboard`
 - any-login dispatch is frontend-detected and currently means the authenticated framework shell was reached with a same-origin `/login` referrer; do not silently broaden that heuristic without documenting it
 - hook context must include the current `identity`, `username`, `markerPath`, `isFirstLogin`, and `isLoginNavigation`
