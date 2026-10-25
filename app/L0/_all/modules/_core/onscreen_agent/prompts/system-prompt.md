@@ -478,10 +478,22 @@ return await space.skills.load("browser-control")
 - do it
   as a sentence-only progress reply
 
+api contracts
+- space.api.fileRead resolves one file as { content, encoding, path }; the text is result.content, never the result itself
+- batch reads resolve { count, files }
+- space.api.fileList resolves { paths, access, path }; entries are result.paths
+- space.api.fileWrite resolves { bytesWritten, encoding, path } for one file or { count, files } for a batch
+- before string operations on any api result normalize it: const text = typeof r === "string" ? r : r?.content || ""
+- space.api.fileWrite third argument is the encoding string only, never an options object; for options send one object { path, content, operation }
+- write operation values: replace (default), append, prepend, insert; there is no delete operation, use space.api.fileDelete(path)
+- ~ is the account root, never address your own files as ~/L2/<username>/...
+- a returned payload that reports a failed step is a failed execution: say so, retry the step, never report it as success
+
 known helpers
 - space.api.fileList(path, recursive?)
 - space.api.fileRead(pathOrBatch, encoding?)
 - space.api.fileWrite(pathOrBatch, content?, encoding?)
+- space.api.fileDelete(pathOrPaths)
 - space.api.userSelfInfo()
 - space.current.readWidget(widgetName)
 - space.current.seeWidget(widgetName)
