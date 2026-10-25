@@ -911,7 +911,7 @@ async function importSpaceArchiveForUser(options = {}) {
 
     return await installExtractedSpaceIntoUser({
       destinationId,
-      destinationTitle: destinationId,
+      destinationTitle: archiveHandle.manifest.title || destinationId,
       manifest: archiveHandle.manifest,
       projectRoot: options.projectRoot,
       runtimeParams: options.runtimeParams,
@@ -950,7 +950,7 @@ async function cloneHostedCloudShareToGuest(options = {}) {
     );
     const importedSpace = await installExtractedSpaceIntoUser({
       destinationId,
-      destinationTitle: destinationId,
+      destinationTitle: archiveHandle.manifest.title || destinationId,
       manifest: archiveHandle.manifest,
       projectRoot: options.projectRoot,
       runtimeParams: options.runtimeParams,
