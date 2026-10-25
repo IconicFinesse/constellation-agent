@@ -1,7 +1,7 @@
 (() => {
   const GLOBAL_KEY = "__spaceBrowserPageContent__";
   const DOM_HELPER_KEY = "__spaceBrowserDomHelper__";
-  const VERSION = "6";
+  const VERSION = "7";
   const BLOCK_TAGS = new Set([
     "ADDRESS",
     "ARTICLE",
@@ -996,6 +996,41 @@
     return normalizeText(element?.textContent || "");
   }
 
+  function isLabelSkippedTextElement(element) {
+    const tagName = getTagName(element);
+    return tagName === "INPUT"
+      || tagName === "TEXTAREA"
+      || tagName === "SELECT"
+      || tagName === "BUTTON"
+      || isReferenceableElement(element);
+  }
+
+  // A wrapping label's own `textContent` also contains the wrapped control's text, so a
+  // `<label>Country<select>...</select></label>` would otherwise summarize as
+  // "CountryCzechiaGermany". Collect only the label's non-control text.
+  function getLabelElementText(labelElement) {
+    if (!isElementNode(labelElement)) {
+      return "";
+    }
+
+    const parts = [];
+
+    labelElement.childNodes.forEach((childNode) => {
+      if (isTextNode(childNode)) {
+        parts.push(childNode.textContent || "");
+        return;
+      }
+
+      if (!isElementNode(childNode) || isLabelSkippedTextElement(childNode)) {
+        return;
+      }
+
+      parts.push(getLabelElementText(childNode));
+    });
+
+    return normalizeText(parts.join(" "));
+  }
+
   function collectLabelCandidates(element, options = {}) {
     const includeAlt = options.includeAlt !== false;
     const includeDescendantImageAlt = options.includeDescendantImageAlt !== false;
@@ -1006,7 +1041,7 @@
     try {
       if (Array.isArray(element?.labels) || typeof element?.labels?.forEach === "function") {
         element.labels.forEach((labelElement) => {
-          const text = getElementText(labelElement);
+          const text = getLabelElementText(labelElement);
           if (text) {
             collectedLabels.push(text);
           }
@@ -1444,6 +1479,44 @@
     return isInteractiveElement(element) || getTagName(element) === "IMG";
   }
 
+  function collectReferenceableDescendants(element) {
+    const descendants = [];
+
+    const visit = (parentElement) => {
+      [...(parentElement?.children || [])].forEach((childElement) => {
+        if (!isElementNode(childElement) || isHiddenElement(childElement)) {
+          return;
+        }
+
+        if (isReferenceableElement(childElement)) {
+          descendants.push(childElement);
+          return;
+        }
+
+        visit(childElement);
+      });
+    };
+
+    visit(element);
+    return descendants;
+  }
+
+  // A label that wraps a form control (or points at one through `for`) is skipped as readable text
+  // because the control's own summary already carries the label text through `element.labels`.
+  // Only the label's own text nodes stay skipped here; nested referenceable descendants such as the
+  // wrapped input, textarea, select, button, image, or link must still render so they receive
+  // reference entries that ref-targeted actions can resolve.
+  function renderLabelReferenceableContents(element, context) {
+    const descendants = collectReferenceableDescendants(element);
+    if (!descendants.length) {
+      return "";
+    }
+
+    return joinInlineParts(descendants.map((descendantElement) => {
+      return renderReference(descendantElement, context);
+    }));
+  }
+
   function renderInlineNode(node, context) {
     if (isTextNode(node)) {
       const textContent = normalizeText(node.textContent || "");
@@ -1465,7 +1538,7 @@
     const tagName = getTagName(node);
 
     if (tagName === "LABEL" && (node.getAttribute?.("for") || node.querySelector?.("input, textarea, select, button"))) {
-      return "";
+      return renderLabelReferenceableContents(node, context);
     }
 
     if (tagName === "BR") {
@@ -1641,7 +1714,7 @@
     const tagName = getTagName(element);
 
     if (tagName === "LABEL" && (element.getAttribute?.("for") || element.querySelector?.("input, textarea, select, button"))) {
-      return "";
+      return renderLabelReferenceableContents(element, context);
     }
 
     if (/^H[1-6]$/u.test(tagName)) {

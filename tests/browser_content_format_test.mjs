@@ -203,6 +203,14 @@ test("browser CLI actions report visible reaction and no-op retries", {
       contentResult,
       ...readBrowserHarnessLogs(harness)
     }, null, 2));
+    const documentContent = contentResult?.document || "";
+    assert.match(documentContent, /\[radio \d+\] Yes/u, JSON.stringify({
+      contentResult,
+      ...readBrowserHarnessLogs(harness)
+    }, null, 2));
+    assert.match(documentContent, /\[radio \d+\] No/u, JSON.stringify(contentResult, null, 2));
+    assert.doesNotMatch(documentContent, /Yes Yes/u, JSON.stringify(contentResult, null, 2));
+    assert.doesNotMatch(documentContent, /No No/u, JSON.stringify(contentResult, null, 2));
     const firstClickResult = await sendBrowserHarnessCommand(harness, "click", [continueRef]);
     const secondClickResult = await sendBrowserHarnessCommand(harness, "click", [continueRef]);
 
@@ -225,6 +233,88 @@ test("browser CLI actions report visible reaction and no-op retries", {
   }
 });
 
+test("browser CLI content exposes label-wrapped form controls as addressable refs", {
+  timeout: 2 * 60 * 1000
+}, async () => {
+  const server = await startHttpServer((request, response) => {
+    response.writeHead(200, {
+      "content-type": "text/html; charset=utf-8"
+    });
+    response.end(`<!doctype html>
+<html>
+  <head>
+    <title>Label Wrapped Controls Test</title>
+  </head>
+  <body>
+    <form id="login-form">
+      <label><span>Username</span><input id="username" name="username" type="text"></label>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password">
+      <label><input type="radio" name="optin" value="yes">Yes</label>
+      <label><input type="radio" name="optin" value="no">No</label>
+      <label><input id="agree" type="checkbox">I agree</label>
+      <label>Notes<textarea id="notes" name="notes"></textarea></label>
+      <label>Country<select id="country" name="country"><option>Czechia</option><option>Germany</option></select></label>
+      <button type="submit">Log in</button>
+    </form>
+  </body>
+</html>`);
+  });
+  const { port } = server.address();
+  const harness = await startBrowserHarness();
+
+  try {
+    await sendBrowserHarnessCommand(harness, "open", [`http://127.0.0.1:${port}/`]);
+    const contentResult = await sendBrowserHarnessCommand(harness, "content");
+    const documentContent = contentResult?.document || "";
+    const contentContext = JSON.stringify({
+      contentResult,
+      ...readBrowserHarnessLogs(harness)
+    }, null, 2);
+
+    assert.match(documentContent, /\[input text \d+\] Username/u, contentContext);
+    assert.match(documentContent, /\[input password \d+\] Password/u, contentContext);
+    assert.match(documentContent, /\[radio \d+\] Yes/u, contentContext);
+    assert.match(documentContent, /\[radio \d+\] No/u, contentContext);
+    assert.match(documentContent, /\[checkbox \d+\] I agree/u, contentContext);
+    assert.match(documentContent, /\[textarea \d+\] Notes/u, contentContext);
+    assert.match(documentContent, /\[select \d+\] Country selected=Czechia/u, contentContext);
+    assert.match(documentContent, /\[button \d+\] Log in/u, contentContext);
+
+    assert.doesNotMatch(documentContent, /Username Username/u, contentContext);
+    assert.doesNotMatch(documentContent, /CountryCzechiaGermany/u, contentContext);
+    assert.doesNotMatch(documentContent, /Notes\s*$/mu, contentContext);
+
+    const usernameRef = Number(documentContent.match(/\[[^\]]*input[^\]]* (\d+)\] Username/u)?.[1] || 0);
+    assert.equal(usernameRef > 0, true, contentContext);
+
+    const typeResult = await sendBrowserHarnessCommand(harness, "type", [usernameRef, "alice"]);
+    assert.equal(typeResult?.action?.status?.reacted, true, JSON.stringify({
+      typeResult,
+      ...readBrowserHarnessLogs(harness)
+    }, null, 2));
+    assert.equal(typeResult?.action?.status?.valueChanged, true, JSON.stringify(typeResult, null, 2));
+
+    const typedContentResult = await sendBrowserHarnessCommand(harness, "content");
+    assert.match(typedContentResult?.document || "", /\[input text \d+\] Username value=alice/u, JSON.stringify({
+      typedContentResult,
+      ...readBrowserHarnessLogs(harness)
+    }, null, 2));
+
+    const radioRef = Number(documentContent.match(/\[radio (\d+)\] Yes/u)?.[1] || 0);
+    assert.equal(radioRef > 0, true, contentContext);
+    const radioClickResult = await sendBrowserHarnessCommand(harness, "click", [radioRef]);
+    assert.equal(radioClickResult?.action?.status?.reacted, true, JSON.stringify({
+      radioClickResult,
+      ...readBrowserHarnessLogs(harness)
+    }, null, 2));
+    assert.equal(radioClickResult?.action?.status?.checkedChanged, true, JSON.stringify(radioClickResult, null, 2));
+  } finally {
+    await stopBrowserHarness(harness);
+    await stopHttpServer(server);
+  }
+});
+
 test("browser CLI content falls back to live DOM capture on Trusted Types pages", {
   timeout: 2 * 60 * 1000
 }, async () => {
@@ -241,6 +331,7 @@ test("browser CLI content falls back to live DOM capture on Trusted Types pages"
   <body>
     <main>
       <a href="/trusted">Trusted Story</a>
+      <label><span>Trusted Email</span><input id="trusted-email" type="email"></label>
       <button>Continue</button>
     </main>
   </body>
@@ -258,7 +349,11 @@ test("browser CLI content falls back to live DOM capture on Trusted Types pages"
       ...readBrowserHarnessLogs(harness)
     }, null, 2));
     assert.match(contentResult?.document || "", /\[link 1\] Trusted Story/u);
-    assert.match(contentResult?.document || "", /\[button 2\] Continue/u);
+    assert.match(contentResult?.document || "", /\[input email 2\] Trusted Email/u, JSON.stringify({
+      contentResult,
+      ...readBrowserHarnessLogs(harness)
+    }, null, 2));
+    assert.match(contentResult?.document || "", /\[button 3\] Continue/u);
     assert.doesNotMatch(contentResult?.document || "", /Browser frame bridge could not collect semantic page content\./u);
   } finally {
     await stopBrowserHarness(harness);
