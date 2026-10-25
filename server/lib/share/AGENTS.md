@@ -53,7 +53,7 @@ Current install rules:
 - imported destinations ignore any incoming archive id for the destination folder name
 - non-replace imports always install into the next free `imported-1`, `imported-2`, and so on for that user
 - replace imports require an explicit target space id and overwrite that destination root
-- installed manifests are rewritten so the persisted destination `id` and visible `title` both match the installed destination name
+- installed manifests are rewritten with the fresh generated destination `id`, while the visible `title` keeps the archive manifest title on every import path — normal import, replace import, and guest cloud-share clone all pass `archiveHandle.manifest.title || destinationId`, and `normalizeInstalledSpaceTitle` trims it then falls back to the destination id and finally `Imported`, so only a blank or missing title loses the source title
 - installs always ensure `widgets/`, `data/`, and `assets/` exist after copy
 - installs must record the concrete `/app/L2/<username>/spaces/<spaceId>/` mutation so file indexes and local history see the imported tree
 
