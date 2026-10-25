@@ -34,6 +34,37 @@ honestly provide, contract decisions now and content decisions from use.
 The fork began at upstream commit `10f4ffd` (tag `baseline-2026-06-08`, the v0.66
 era). Everything below diverges from that point.
 
+### `v1.2.0` — First Light
+
+The reliability line. Everything the fork's own test lab and the owner's daily use
+turned up in the `v1.1.x` era, fixed at the layer that caused it and covered by
+regression tests that fail on the previous release.
+
+- **First login and duplicating a space work again.** A directory copy raced its
+  own destination directory on Node 24 — the request materialized the folder it was
+  about to copy into, then `fs.cpSync` with `errorOnExist` tripped over it — which
+  silently broke the "Big Bang" onboarding space and every duplicate-space call.
+  The copy stages its destination correctly now, and the first-login marker is not
+  written when the hook's work throws, so a later login can retry instead of the
+  space being missing forever.
+- **Imported spaces keep their own title.** The plain import branch passed the
+  generated id as the title while the replace branch used the manifest title; both
+  paths now keep the archive's name.
+- **File and git-API failures report honestly.** Directory-copy conflicts map to a
+  real status instead of a blanket 500, git-history calls map a missing commit to
+  404 instead of 500, derived space ids are capped before they become 255+ byte
+  directory names, write rejections name the accepted encodings and operations, and
+  a doubled `~/L2/<user>/...` path collapses to the canonical own root instead of
+  silently creating a nested duplicate tree (reads still fall back to bug-era
+  copies).
+- **The onscreen agent stops losing its own tool calls.** The firmware prompt now
+  pins the exact runtime API result shapes and write-operation values; a reply that
+  wraps runnable code in a fence with no execution separator gets one protocol
+  correction instead of completing with raw code as the chat answer; a leaked
+  `</parameter>`-style trailer is stripped at the compile gate when that removal is
+  what unblocked the compile; and the second identical execution error in a row now
+  carries a repeat count so deterministic retry loops are visible.
+
 ### `v1.1.4` — First Light
 
 Second pass on the two surfaces from `v1.1.3`. The first pass moved the numbers;

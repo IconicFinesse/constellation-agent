@@ -1,6 +1,6 @@
 {
   "name": "constellation-agent",
-  "version": "1.1.4",
+  "version": "1.2.0",
   "private": true,
   "description": "Browser-first AI agent with a thin Node.js server.",
   "author": "Jan Tomasek",

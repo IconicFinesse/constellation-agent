@@ -9,7 +9,7 @@ check-in points, open decisions.
 Working evidence lives in the maintainer's local checkout: paths under
 `fixes/`, `prs/`, `worktrees/`, and `local/` are not tracked in this repository.
 
-Updated: 2026-10-24 — **Image line closed: `v1.1.1` rebrand, `v1.1.2` Windows icons, `v1.1.3` first sizing pass, `v1.1.4` icon fill and avatar framing. The next line is `v1.2` for the owner's larger changes. Avatar state artwork is parked.**
+Updated: 2026-10-25 — **`v1.2.0` ships the reliability line: the six bug classes from the fork's own lab and field use (onboarding copy, space duplication, long titles, git error mapping, imported titles, onscreen-agent tool calls) closed with failing-first tests. The image line stayed closed at `v1.1.4`. The next line is module intake — voice and llm-manager.**
 
 ## Phase status
 
@@ -17,7 +17,7 @@ Updated: 2026-10-24 — **Image line closed: `v1.1.1` rebrand, `v1.1.2` Windows 
 | --- | --- |
 | 1 — bug squash | **COMPLETE 2026-10-22** — last fixes released in `v0.66-fork.6` |
 | 2 — parked ladder | **DEFERRED** by owner decision; no further bug work until new reports arrive |
-| 3 — features, ideas, improvements | **OPEN** — image work closed across `v1.1.1`-`v1.1.4`; next release line is `v1.2` when the planned changes are ready |
+| 3 — features, ideas, improvements | **OPEN** — `v1.2.0` closed the reliability line; module intake (voice, llm-manager) is the next release line |
 
 Nothing in `fixes/` or `prs/` requires action. The upstream PR phase closed
 with the rebrand; six staged bodies remain only as reference.
