@@ -43,6 +43,7 @@ The intended workflow is:
 - when the user explicitly asks to change behavior, edit `~/memory/behavior.system.include.md`
 - when a fact, decision, project note, or preference is worth remembering but may change more often, keep it in `~/memory/memories.transient.include.md` or another focused `*.transient.include.md` file
 - when you only need to add one new memory note or drop content under a known heading, prefer incremental `fileWrite(...)` append, prepend, or insert operations over rereading and rewriting the entire file
+- never construct memory or note paths as `~/L2/<username>/...`: `~` already means your own root and the server canonicalizes that doubled form; plain `~/memory/...` paths are correct
 - keep memory concise and current by rewriting or deleting stale lines instead of stacking duplicates
 - do not only acknowledge memory updates verbally; persist them when they should affect later turns
 

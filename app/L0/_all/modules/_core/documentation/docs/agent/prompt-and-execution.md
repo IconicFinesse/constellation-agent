@@ -102,6 +102,9 @@ Important execution rules:
 - if a model turn returns no assistant content, the runtime retries the same request once automatically
 - only after that retry does it emit a generic protocol-correction user message
 - no-result execution output is informational only and should not trigger a synthetic correction message by itself
+- a reply whose code sits in a fenced block with no `_____javascript` separator executes nothing, so once per user turn chain the runtime sends a fenced-reply protocol correction instead of completing with raw code as the chat answer; a repeat case degrades to completing
+- when an execution block fails to compile, the runtime strips trailing leaked envelope closing tags (`</parameter>`, `</invoke>`) and lone trailing fence markers only when that fixes the compile, records the removal in `removedArtifactLines`, and notes the removal in the transcript
+- from the second identical execution error in a row, the execution-output turn carries a repeat-count note so the agent sees deterministic-failure loops; per-run `sourceURL` ids are normalized before comparing
 
 ## LLM Transport
 

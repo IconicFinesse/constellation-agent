@@ -176,6 +176,9 @@ Prompt rules:
 - the firmware prompt should tell the agent never to emit raw JavaScript or fenced code as a normal reply; browser work must use the execution protocol, otherwise the reply must be ordinary prose
 - shipped firmware prompt changes should be compared in `tests/agent_llm_performance/` first, and live prompt promotion should require both automated harness success and manual review of the nominal passes
 - `execution.js` should fail fast when `_____javascript` is inline instead of occupying its own line, and should surface a direct protocol error telling the agent to put the explanatory sentence on the previous line and the separator alone on the next line
+- `store.js runConversationLoop` sends at most one fenced-reply protocol correction per user turn chain: when an assistant reply carries a runtime-referencing fenced code block but no `_____javascript` separator (`turn-boundary.js findUnexecutedCodeFence`, budget `MAX_UNEXECUTED_FENCE_RETRY_COUNT`), the loop appends a `protocol-retry` message saying the code never executed instead of completing with raw code as the chat reply; a repeated case degrades to completing, never loops
+- `execution.js execute` rescues trailing non-JavaScript artifact lines: when the raw block fails to compile, lone leaked envelope closing tags (`</parameter>`, `</invoke>`) and lone fence markers are stripped (`turn-boundary.js stripTrailingExecutionArtifacts`), the stripped block recompiles, the result carries `removedArtifactLines`, and the execution transcript notes the removal; a strip that cannot fix the compile keeps the original error
+- `store.js runConversationLoop` counts identical consecutive execution errors per turn chain (`turn-boundary.js trackExecutionErrorRepeat`, per-run `sourceURL` ids normalized), appends `note: this exact execution error has now occurred N times in a row` to the execution-output turn from the second occurrence on, and resets on any clean or changed-error batch
 - the firmware prompt should explain the prepared-message block markers explicitly: `_____user` means the real human user, `_____framework` means a runtime-generated follow-up turn, and `_____transient` is auto-injected mutable context
 - prompt-facing text here is token-budgeted; when editing `prompts/system-prompt.md`, prompt wrapper strings in `skills.js`, or any auto-loaded skill, measure the prompt surface with the local tokenizer in the same session and prefer plain text, short labels, minimal markdown, minimal filler, and no unnecessary trailing punctuation
 - `prompts/compact-prompt.md` is used for user-triggered history compaction
@@ -210,7 +213,7 @@ Current `processOnscreenAgentMessage` phases:
 - `submit`: a user draft was converted into the first outbound message
 - `assistant-response`: a streamed assistant reply finished, or a stopped reply produced partial content, before metrics and persistence run
 - `execution-output`: browser execution results were converted into the follow-up user message; even successful no-return executions stay in this phase instead of triggering a missing-result correction turn
-- `protocol-retry`: the overlay is generating a generic empty-assistant protocol-correction retry message
+- `protocol-retry`: the overlay is generating a protocol-correction retry message; the empty-assistant correction is generic, and the fenced-reply correction says the assistant's code block carried no `_____javascript` separator so nothing executed
 - `history-compact`: history compaction produced the replacement summary message
 
 Phase-specific context fields may include `draftSubmission`, `responseMeta`, `executionResults`, `executionOutputMessage`, or compaction `mode`.

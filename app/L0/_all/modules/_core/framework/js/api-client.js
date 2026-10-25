@@ -390,12 +390,55 @@ function createFileReadRequest(pathOrFiles, encoding) {
   };
 }
 
+// Models sometimes pass the write-encoding options object as the third
+// argument. Forgive the unambiguous shape ({ encoding: "utf8" }) locally and
+// correct everything else before a server round trip is wasted. Anything
+// beyond a lone encoding string (for example { operation: "append" }) throws
+// with the accepted form so no write option is ever silently dropped.
+function normalizeFileWriteEncodingArgument(encoding) {
+  if (encoding == null) {
+    return "utf8";
+  }
+
+  if (typeof encoding === "string") {
+    return encoding;
+  }
+
+  if (
+    isPlainObject(encoding) &&
+    Object.keys(encoding).length === 1 &&
+    typeof encoding.encoding === "string"
+  ) {
+    return encoding.encoding;
+  }
+
+  let receivedText;
+
+  if (typeof encoding === "object") {
+    try {
+      receivedText = JSON.stringify(encoding);
+    } catch (error) {
+      receivedText = "[object Object]";
+    }
+  } else {
+    receivedText = String(encoding);
+  }
+
+  throw new Error(
+    `Unsupported fileWrite encoding: ${receivedText}. ` +
+    'The encoding must be a string such as "utf8" or "base64"; ' +
+    "to pass write options, call fileWrite once with a single object argument ({ path, content, operation })."
+  );
+}
+
 function createFileWriteRequest(pathOrFiles, content, encoding) {
+  const normalizedEncoding = normalizeFileWriteEncodingArgument(encoding);
+
   if (Array.isArray(pathOrFiles)) {
     return {
       method: "POST",
       body: {
-        encoding,
+        encoding: normalizedEncoding,
         files: pathOrFiles
       }
     };
@@ -407,7 +450,7 @@ function createFileWriteRequest(pathOrFiles, content, encoding) {
       body: {
         after: pathOrFiles.after,
         before: pathOrFiles.before,
-        encoding: pathOrFiles.encoding ?? encoding,
+        encoding: normalizeFileWriteEncodingArgument(pathOrFiles.encoding ?? encoding),
         files: pathOrFiles.files,
         line: pathOrFiles.line,
         operation: pathOrFiles.operation
@@ -422,7 +465,7 @@ function createFileWriteRequest(pathOrFiles, content, encoding) {
         after: pathOrFiles.after,
         before: pathOrFiles.before,
         content: pathOrFiles.content,
-        encoding: pathOrFiles.encoding ?? encoding,
+        encoding: normalizeFileWriteEncodingArgument(pathOrFiles.encoding ?? encoding),
         line: pathOrFiles.line,
         operation: pathOrFiles.operation,
         path: pathOrFiles.path
@@ -434,7 +477,7 @@ function createFileWriteRequest(pathOrFiles, content, encoding) {
     method: "POST",
     body: {
       content,
-      encoding,
+      encoding: normalizedEncoding,
       path: pathOrFiles
     }
   };

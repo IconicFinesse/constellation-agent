@@ -144,11 +144,31 @@ function stripTrailingSlash(value) {
   return text.endsWith("/") ? text.slice(0, -1) : text;
 }
 
+// `~` already expands to the session user's `L2/<username>/` root, so a path
+// that repeats that own prefix once names the historical silent nested
+// duplicate. Collapse exactly that repetition for the session's own user;
+// every other shape, including another user's prefix, is left untouched so
+// cross-user access keeps its current rejection.
+function collapseDoubledOwnUserPathPrefix(expandedPath, username) {
+  if (!username) {
+    return expandedPath;
+  }
+
+  const ownPrefix = `L2/${username}/`;
+  let collapsedPath = expandedPath;
+
+  while (collapsedPath.startsWith(`${ownPrefix}${ownPrefix}`)) {
+    collapsedPath = collapsedPath.slice(ownPrefix.length);
+  }
+
+  return collapsedPath;
+}
+
 function resolveUserShorthandPath(inputPath, username) {
   const rawPath = String(inputPath || "").trim();
 
   if (!rawPath.startsWith("~")) {
-    return rawPath;
+    return collapseDoubledOwnUserPathPrefix(rawPath, username);
   }
 
   if (!username) {
@@ -160,7 +180,7 @@ function resolveUserShorthandPath(inputPath, username) {
   }
 
   if (rawPath.startsWith("~/")) {
-    return `L2/${username}/${rawPath.slice(2)}`;
+    return collapseDoubledOwnUserPathPrefix(`L2/${username}/${rawPath.slice(2)}`, username);
   }
 
   throw createHttpError(`Invalid user-relative path: ${rawPath}`, 400);
@@ -703,6 +723,23 @@ function resolveExistingProjectPath(pathIndex, inputPath) {
   };
 }
 
+// The doubled own-user prefix named a nested duplicate tree that the
+// collapsed canonical path no longer addresses. Reads prefer the canonical
+// path and fall back to that doubled location when only the bug-era copy
+// exists, mirroring the read-side legacy fallback used for the v1.1 renames.
+// Writes never resolve through here, so nothing is ever written back to the
+// doubled location.
+function listDoubledOwnUserPathCandidates(projectPath) {
+  const normalizedPath = String(projectPath || "");
+  const match = normalizedPath.match(/^\/app\/L2\/([^/]+)\//u);
+
+  if (!match) {
+    return [];
+  }
+
+  return [match[0] + normalizedPath.slice("/app/".length)];
+}
+
 // Reads prefer the current v1.1 names and fall back to the pre-v1.1 names that an
 // existing install still carries on disk. Writes, deletes, copies, and moves keep
 // resolving through resolveExistingProjectPath so they never touch legacy paths.
@@ -713,12 +750,20 @@ function resolveReadableProjectPathWithLegacyFallback(pathIndex, inputPath) {
     return preferredResolution;
   }
 
-  const legacyCandidates = listLegacyProjectPathCandidates(
-    preferredResolution.projectPath || normalizeAppProjectPath(inputPath, {
-      allowAppRoot: true,
-      isDirectory: true
-    })
-  );
+  const legacyCandidates = [
+    ...listLegacyProjectPathCandidates(
+      preferredResolution.projectPath || normalizeAppProjectPath(inputPath, {
+        allowAppRoot: true,
+        isDirectory: true
+      })
+    ),
+    ...listDoubledOwnUserPathCandidates(
+      preferredResolution.projectPath || normalizeAppProjectPath(inputPath, {
+        allowAppRoot: true,
+        isDirectory: true
+      })
+    )
+  ];
 
   for (const legacyCandidate of legacyCandidates) {
     const legacyResolution = resolveExistingProjectPath(pathIndex, legacyCandidate);
@@ -856,7 +901,12 @@ function ensureValidWriteEncoding(encoding) {
     return encoding;
   }
 
-  throw createHttpError(`Unsupported write encoding: ${String(encoding || "")}`, 400);
+  throw createHttpError(
+    `Unsupported write encoding: ${String(encoding || "")}. ` +
+      'The encoding must be a string such as "utf8" or "base64"; ' +
+    "to pass write options, send one write entry object with { path, content, operation }.",
+    400
+  );
 }
 
 function normalizeReadEntries(options = {}) {
@@ -1044,7 +1094,12 @@ function ensureValidWriteOperation(operation) {
     return normalizedOperation;
   }
 
-  throw createHttpError("Unsupported write operation: " + String(operation || ""), 400);
+  throw createHttpError(
+    `Unsupported write operation: ${String(operation || "")}. ` +
+      "Supported operations are \"replace\" (default), \"append\", \"prepend\", and \"insert\"; " +
+      "use file_delete to remove a file.",
+    400
+  );
 }
 
 function normalizeWriteInsertTarget(request, options, operation, requestedPath) {

@@ -35,6 +35,8 @@ Path rules:
 - logical `/app/L0/...` always resolve under repo `app/L0/...`
 - logical `/app/L1/...` and `/app/L2/...` resolve under `CUSTOMWARE_PATH/L1/...` and `CUSTOMWARE_PATH/L2/...` when `CUSTOMWARE_PATH` is configured, otherwise under repo `app/L1/...` and `app/L2/...`
 - writable user-relative shorthand `~` and `~/...` are expanded by `file_access.js`
+- a repeated own-user prefix collapses: `~` already means `L2/<username>/`, so `~/L2/<username>/...` and the plain doubled `L2/<username>/...` form canonicalize to the single own root for the authenticated session user, never rewriting a path whose inner name is a different user
+- reads fall back to the bug-era doubled nested location when only that copy exists, mirroring the v1.1 legacy read fallback; writes, deletes, copies, moves, and lists always resolve the collapsed canonical path and never write back into the doubled tree
 - module request paths normalize under `/modules/...`
 - group and user ids are normalized through `normalizeEntityId(...)`
 
@@ -141,6 +143,7 @@ Rules:
 - user-folder quota accounting is cached per resolved `L2/<user>/` root; cache fills and subtree size reads should come from indexed `sizeBytes` metadata in the loaded `file_index` shard instead of crawling the full user tree, while normal app-file mutations update that cache by byte deltas
 - other backend app-path mutation callers invalidate the affected cache through `recordAppPathMutations`, and Git history commits, rollback, and revert also invalidate affected L2 quota cache entries because backend `.git` metadata can change outside the app-file mutation delta
 - filesystem failures caused by the caller's own path map to client statuses at the `file_access.js` boundary through one shared `mapFilesystemErrorToHttpError` helper, applied at the write, delete, copy, and move mutation boundaries rather than re-implemented per operation: `ENAMETOOLONG` -> `400` naming the requested path and the 255-byte per-name limit, `EACCES` and `EPERM` -> `403`, and `ENOSPC` -> `507` (the router forwards any `400`-`599` status, so `507` reaches the client as-is). `EMFILE`, `ENFILE`, and unlisted codes stay unmapped so they keep their raw `500`, because transient resource exhaustion is genuinely server-side. The mapped error preserves the raw OS message and keeps the original error as `cause`. A permission failure on the project root itself, or on a root the caller never named, stays a `500`: that is operator configuration and must not be reported as a client mistake. Already-statused errors such as validation, access, quota, and copy-conflict failures pass through untouched
+- write-encoding and write-operation validation rejections name the accepted forms in their messages (encodings `"utf8"` and `"base64"`, write options on a single entry object, operations `replace`, `append`, `prepend`, and `insert`, and `file_delete` for removals) so the onscreen agent can self-correct from the error text
 
 `module_manage.js` is the canonical entry point for:
 
@@ -204,6 +207,7 @@ Admin-only access is required for aggregated or cross-user user-layer listings.
 
 ## Verification
 
+- `tests/user_path_canonicalization_test.mjs` covers the own-user prefix collapse, the doubled-path read fallback, the corrective write rejections, and that another user's name inside a doubled shorthand never collapses to a sibling of their root
 
 
 ## Child DOX Index

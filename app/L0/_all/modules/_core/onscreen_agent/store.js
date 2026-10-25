@@ -15,7 +15,11 @@ import {
 } from "/modules/_core/onscreen_agent/history-persistence.js";
 import * as agentView from "/modules/_core/onscreen_agent/view.js";
 import {
-  resolveOnscreenAgentBoundaryAfterAssistantResponse
+  buildExecutionErrorRepeatNote,
+  buildUnexecutedCodeFenceRetryMessage,
+  resolveOnscreenAgentBoundaryAfterAssistantResponse,
+  shouldRetryUnexecutedFence,
+  trackExecutionErrorRepeat
 } from "/modules/_core/onscreen_agent/turn-boundary.js";
 import { renderMarkdown } from "/modules/_core/framework/js/markdown-frontmatter.js";
 import {
@@ -5264,6 +5268,9 @@ const model = {
 
     let nextUserMessage = initialUserMessage;
     let emptyAssistantRetryCount = 0;
+    let unexecutedFenceRetryCount = 0;
+    let lastExecutionErrorSignature = "";
+    let lastExecutionErrorRepeatCount = 0;
     while (nextUserMessage) {
       let requestMessages =
         this.history[this.history.length - 1]?.id === nextUserMessage.id
@@ -5418,14 +5425,49 @@ const model = {
       const executionResults = await this.executeAssistantBlocks(assistantMessage);
 
       if (!executionResults || !executionResults.length) {
+        if (shouldRetryUnexecutedFence(assistantMessage.content, unexecutedFenceRetryCount)) {
+          unexecutedFenceRetryCount += 1;
+          this.status = "Retrying: code block was fenced, not executed...";
+          await this.persistHistory({
+            immediate: true
+          });
+          this.render();
+          nextUserMessage = await createProcessedMessage(
+            "user",
+            buildUnexecutedCodeFenceRetryMessage(),
+            {
+              kind: "protocol-retry"
+            },
+            {
+              history: this.history,
+              phase: "protocol-retry",
+              store: this
+            }
+          );
+          continue;
+        }
+
         return "complete";
       }
 
+      const executionErrorTexts = executionResults
+        .map((result) => String(result?.error?.message || ""))
+        .filter(Boolean);
+      const executionErrorRepeat = trackExecutionErrorRepeat(
+        executionErrorTexts,
+        lastExecutionErrorSignature,
+        lastExecutionErrorRepeatCount
+      );
+      lastExecutionErrorSignature = executionErrorRepeat.signature;
+      lastExecutionErrorRepeatCount = executionErrorRepeat.count;
+
       this.executionOutputOverrides[assistantMessage.id] = execution.createExecutionOutputSnapshots(executionResults);
 
+      const executionOutputContent = execution.formatExecutionResultsMessage(executionResults);
+      const executionErrorRepeatNote = buildExecutionErrorRepeatNote(executionErrorRepeat.count);
       const executionOutputMessage = await createProcessedMessage(
         "user",
-        execution.formatExecutionResultsMessage(executionResults),
+        executionErrorRepeatNote ? `${executionOutputContent}\n\n${executionErrorRepeatNote}` : executionOutputContent,
         {
           kind: "execution-output"
         },
