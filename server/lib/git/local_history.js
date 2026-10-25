@@ -65,7 +65,12 @@ function normalizeCommitHash(value) {
   const commitHash = String(value || "").trim();
 
   if (!COMMIT_HASH_PATTERN.test(commitHash)) {
-    throw new Error("A valid Git commit hash is required.");
+    // Malformed input is a different user mistake from an unknown commit (404):
+    // reject it as a 400 at this single validation boundary shared by every
+    // git-history operation and both backends.
+    const error = new Error("A valid Git commit hash is required.");
+    error.statusCode = 400;
+    throw error;
   }
 
   return commitHash;

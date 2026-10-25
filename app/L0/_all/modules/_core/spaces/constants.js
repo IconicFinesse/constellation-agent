@@ -3,6 +3,12 @@ export const SPACES_SCHEMA = "spaces/v2";
 export const SPACE_WIDGET_SCHEMA = "space-widget/v1";
 export const WIDGET_API_VERSION = 1;
 
+// Derived space and widget ids become single filesystem path components.
+// NAME_MAX on Linux is 255 bytes; collision suffixes (`-2`, `-3`) append after
+// the cap, so 64 keeps the component plus suffix far below the limit while
+// keeping ids readable. Display titles are never capped.
+export const SPACE_ID_MAX_LENGTH = 64;
+
 export const SPACES_ROOT_PATH = "~/spaces/";
 export const SPACE_MANIFEST_FILE = "space.yaml";
 export const SPACE_WIDGETS_DIR = "widgets/";
