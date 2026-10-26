@@ -145,10 +145,6 @@ the same contract upstream gave its users, now given by this fork.
 
 <!-- WHATS-NEW:START -->
 
-**`v1.1.4`**
-
-- Fill the icon past the slot and give the avatar real presence
-
 **`v1.2.0`**
 
 - Ship the reliability line
@@ -158,6 +154,11 @@ the same contract upstream gave its users, now given by this fork.
 - Keep the archive title on imported spaces
 - Cap derived space ids and map filesystem errors
 - Make directory copies work on Node 24 and gate the first-login marker
+
+**`v1.2.1`**
+
+- Ship the fence contract
+- Fence-aware extraction so fenced displays never execute (BUG-007)
 
 _Newest releases only. The full per-release record lives in [`ROADMAP.md`](./ROADMAP.md). Generated from `baseline-2026-06-08..HEAD` by `packaging/scripts/whats-new.js`._
 <!-- WHATS-NEW:END -->
