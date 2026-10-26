@@ -20,6 +20,7 @@ This module owns:
 - `js/markdown-frontmatter.js`: markdown frontmatter parsing plus safe markdown-to-DOM rendering helpers
 - `js/yaml-lite.js`: project-owned lightweight YAML parser and serializer shared directly by browser runtime helpers, server modules, and agent-surface param parsers
 - `js/execution-format.js`: shared YAML-first execution transcript formatting helpers used by first-party agent runtimes for console-log and returned-value serialization
+- `js/execution-blocks.js`: shared fence-aware execution-block extraction and separator accounting for first-party agent surfaces; a separator inside a backtick or tilde fence is display text, an unterminated fence makes the remainder display, and a winning block's body is never fence-scanned so executed code may contain fence-like text
 - `js/server-config.js`: injected page-meta parsing for frontend-exposed backend runtime parameters
 - `js/extensions.js`: `space.extend`, HTML extension loading, the framework-managed `_core/framework/head/end` head seam, JS hook loading, lookup caching, and batching
 - `js/moduleResolution.js`: propagation of `maxLayer` into framework-managed module and extension requests
