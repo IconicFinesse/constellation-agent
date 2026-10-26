@@ -1375,6 +1375,11 @@ const model = {
   dragState: null,
   executionContext: null,
   executionOutputOverrides: Object.create(null),
+  // Tier 1 only: assistant message ids whose text carries an executable separator
+  // but was NEVER executed (the turn ended without a typed tool call). They render
+  // as a settled `Shown, not executed` chip instead of a running one. Cleared with
+  // the other per-turn render state so it can never outlive the turn it describes.
+  engineSwapDisplayOnlyMessageIds: new Set(),
   activeTurnRequestMessages: null,
   history: [],
   historyCheckpointAt: 0,
@@ -4090,6 +4095,7 @@ const model = {
     }
 
     agentView.renderMessages(this.refs.thread, this.getRenderHistory(), {
+      displayOnlyMessageIds: this.engineSwapDisplayOnlyMessageIds,
       isConversationBusy: this.isSending,
       outputOverrides: this.executionOutputOverrides,
       preserveScroll: options.preserveScroll === true,
@@ -4999,6 +5005,7 @@ const model = {
       refreshPrompt: false
     });
     this.executionOutputOverrides = Object.create(null);
+    this.engineSwapDisplayOnlyMessageIds = new Set();
     this.rerunningMessageId = "";
     this.stopRequested = false;
     this.activeTurnRequestMessages = null;
@@ -5251,6 +5258,9 @@ const model = {
             }
           );
           this.executionOutputOverrides = Object.create(null);
+          // Compaction replaces the thread with one summary entry, so the ids that
+          // described the old chips describe nothing now.
+          this.engineSwapDisplayOnlyMessageIds = new Set();
           this.rerunningMessageId = "";
           await this.replaceHistory([compactedMessage]);
           await this.persistHistory({
@@ -5393,12 +5403,45 @@ const model = {
     }
   },
 
-  // Runs one whole Tier 1 turn and commits it to history as typed entries. Returns
-  // the same outcome vocabulary the Tier 3 loop uses so callers need no new branch.
+  // Assistant text that carries an executable execution separator was SHOWN, not run.
+  //
+  // On Tier 1 nothing ever executes separator text: execution happens only through a
+  // typed tool call. So a reply that answers with separator prose ends the turn with
+  // no result coming, and a chip waiting for one would wait forever. Recording those
+  // ids makes the chip settle at `Shown, not executed` instead of spinning.
+  //
+  // The separator test is the SHARED fence-aware one: a separator inside a fence is
+  // display text and never starts an execution, and a second copy of fence logic is
+  // the BUG-007 anti-pattern.
+  collectEngineSwapDisplayOnlyIds(entries) {
+    const ids = new Set();
+
+    for (const entry of Array.isArray(entries) ? entries : []) {
+      if (entry?.role !== "assistant" || typeof entry?.content !== "string") {
+        continue;
+      }
+
+      if (entry.id && execution.findExecutableSeparatorIndex(entry.content) !== -1) {
+        ids.add(String(entry.id));
+      }
+    }
+
+    return ids;
+  },
+
   async runTier1TurnAndCommit(requestMessages, preparedRequest, plan) {
     const baseline = Array.isArray(preparedRequest?.messages) ? preparedRequest.messages.length : 0;
     const { result, session } = await this.runTier1ConversationTurn(requestMessages, preparedRequest, plan);
     const tailEntries = canonicalMessagesToTypedEntries(result?.messages || [], { fromIndex: baseline });
+
+    // CUMULATIVE, not per-turn: an id recorded on an earlier turn must stay
+    // terminal, otherwise the next busy turn would re-derive `running` for that old
+    // chip and it would spin again. The set is cleared only where the history it
+    // describes is cleared (chat clear, compaction).
+    this.engineSwapDisplayOnlyMessageIds = new Set([
+      ...this.engineSwapDisplayOnlyMessageIds,
+      ...this.collectEngineSwapDisplayOnlyIds(tailEntries)
+    ]);
 
     if (result?.status === "held") {
       // The destructive call is HELD: nothing executed, and the chat now renders an

@@ -27,6 +27,25 @@ export const TIER1_RETAINED_SECTION_HEADINGS = Object.freeze([
 // what the drift test watches: the contract must survive on every tier.
 export const FENCE_CONTRACT_MARKER = "_____javascript";
 
+// Tier 1 only: the channel the model acts through is the typed tool list, not the
+// separator. Without this the prompt's separator vocabulary is the ONLY acting
+// idiom a model sees, and on a live run it answered a file request with separator
+// prose that nothing executes (a chip that can never settle). The marker is what
+// the drift test watches, and it makes the append idempotent.
+//
+// It must NOT forbid showing code: a show-me-code answer stays plain display on
+// every tier (BUG-007). What it constrains is which channel ACTS.
+export const TIER1_STEERING_MARKER = "## acting on this tier";
+
+export const TIER1_STEERING_SECTION = [
+  TIER1_STEERING_MARKER,
+  "",
+  "- to act, call a tool. a tool call is the only thing that runs.",
+  "- fenced code and the _____javascript separator only SHOW code; they never run it.",
+  "- use that display form only for code the user explicitly asked to see.",
+  "- when the user asks for a file or system operation, call the matching tool."
+].join("\n");
+
 function findSectionBounds(lines, heading) {
   const normalizedHeading = String(heading || "").trim().toLowerCase();
   let start = -1;
@@ -92,6 +111,19 @@ export function removePromptSection(promptText, heading) {
   return joined.replace(/\n{3,}/gu, "\n\n").trimEnd();
 }
 
+// Appends the steering leg exactly once. Idempotent by marker, so re-shaping an
+// already-shaped prompt cannot stack duplicate sections (the shape function is
+// pure and may be applied to its own output by a later layer).
+export function appendTier1Steering(promptText) {
+  const text = typeof promptText === "string" ? promptText : "";
+
+  if (text.includes(TIER1_STEERING_MARKER)) {
+    return text;
+  }
+
+  return `${text.trimEnd()}\n\n${TIER1_STEERING_SECTION}\n`;
+}
+
 // THE prompt-shape function. Pure: same input, same output, no config reads.
 //
 // `tier` is the resolved session tier (`tier1` / `tier3` / `none`). Only a real
@@ -112,7 +144,7 @@ export function shapeSystemPromptForTier({ promptText = "", tier = "" } = {}) {
     return text;
   }
 
-  return withoutContract;
+  return appendTier1Steering(withoutContract);
 }
 
 // Deterministic visible-tool-list summary for diagnostics. One line, stable order:

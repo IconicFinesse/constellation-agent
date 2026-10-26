@@ -22,6 +22,9 @@ import test from "node:test";
 import {
   API_CONTRACT_SECTION_HEADING,
   FENCE_CONTRACT_MARKER,
+  TIER1_STEERING_MARKER,
+  TIER1_STEERING_SECTION,
+  appendTier1Steering,
   formatTier1ToolListLine,
   removePromptSection,
   shapeSystemPromptForTier
@@ -79,6 +82,45 @@ test("the shaped tier 1 prompt is shorter than the full card prompt", () => {
   const shaped = shapeSystemPromptForTier({ promptText: PROMPT, tier: "tier1" });
 
   assert.ok(shaped.length < PROMPT.length, "retiring a recited contract must shrink the prompt");
+});
+
+// --- tier 1 also STEERS toward the typed tools -----------------------------
+//
+// The live run answered a file request with separator prose that nothing executes.
+// The prompt was the cause: its separator vocabulary was the only acting idiom the
+// model saw. This leg names the acting channel, and it must NOT forbid showing code
+// (a show-me-code answer stays plain display on every tier — BUG-007).
+
+test("a tier 1 prompt tells the model to act through tools, not the separator", () => {
+  const shaped = shapeSystemPromptForTier({ promptText: PROMPT, tier: "tier1" });
+
+  assert.ok(shaped.includes(TIER1_STEERING_MARKER), "the steering leg is present");
+  // The acting channel is named.
+  assert.match(shaped, /call a tool/iu);
+  // ...and the display channel is explicitly declared non-executing.
+  assert.match(shaped, /never run it/iu);
+  // Showing code the user asked to see stays allowed: the leg constrains which
+  // channel ACTS, it does not retire display.
+  assert.match(shaped, /asked to see/iu);
+  // Exactly once: re-shaping must not stack duplicates.
+  assert.equal(shaped.split(TIER1_STEERING_MARKER).length - 1, 1);
+});
+
+test("the steering append is idempotent and additive only", () => {
+  const once = appendTier1Steering("body text\n");
+
+  assert.ok(once.startsWith("body text"));
+  assert.ok(once.includes(TIER1_STEERING_SECTION));
+  assert.equal(appendTier1Steering(once), once, "a second append must be a no-op");
+  // The prompt body is never replaced, only extended.
+  assert.ok(once.length > "body text".length);
+});
+
+test("tier 1 keeps the fence contract AFTER the card cut", () => {
+  const shaped = shapeSystemPromptForTier({ promptText: PROMPT, tier: "tier1" });
+
+  // The marker the drift test watches survives both the cut and the append.
+  assert.ok(shaped.includes(FENCE_CONTRACT_MARKER));
 });
 
 // --- non-tier-1 is untouched ----------------------------------------------

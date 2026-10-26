@@ -5,6 +5,67 @@ const EXECUTION_PRINT_LINE_PATTERN = /^(log|info|warn|error|debug|dir|table|asse
 const ORDERED_LIST_LINE_PATTERN = /^\d+\.\s+/u;
 const STICKY_SCROLL_THRESHOLD = 96;
 
+// Terminal chip state for text that carries an execution separator but was never
+// executed. On a Tier 1 turn a model can answer with separator-bearing prose and
+// no typed tool call: nothing dispatches, so no execution result ever arrives to
+// settle the chip. A chip that waits for a result that cannot exist is a state
+// with no exit, so that turn ends here instead.
+export const EXECUTION_DISPLAY_ONLY_STATE = "display-only";
+export const EXECUTION_DISPLAY_ONLY_LABEL = "Shown, not executed";
+export const EXECUTION_DISPLAY_ONLY_OUTPUT_TEXT = "Nothing was executed.";
+
+// ONE resolver for the execution card's visual state, so the summary label, the
+// status icon, the output pane, and the render signature cannot disagree.
+//
+// Precedence is deliberate. Live streaming and an explicit rerun both mean work is
+// genuinely in flight, so they win. A message KNOWN to carry unexecuted text then
+// wins over the busy guess: `isConversationBusy` is an inference that results are
+// coming, and for separator text on a tool session no result ever will be, so the
+// inference must not be allowed to outrank the fact. The busy branch keeps its old
+// meaning for every other message: no results yet and the surface is still busy.
+export function resolveExecutionCardState({
+  displayOnly = false,
+  hasError = false,
+  hasResults = false,
+  isConversationBusy = false,
+  isRerunning = false,
+  isStreaming = false
+} = {}) {
+  if (isStreaming) {
+    return { iconName: "edit_note", pendingState: "generating", tone: "is-writing" };
+  }
+
+  if (isRerunning) {
+    return { iconName: "sync", pendingState: "running", tone: "is-running" };
+  }
+
+  if (displayOnly) {
+    return { iconName: "visibility", pendingState: EXECUTION_DISPLAY_ONLY_STATE, tone: "is-pending" };
+  }
+
+  if (!hasResults && isConversationBusy) {
+    return { iconName: "sync", pendingState: "running", tone: "is-running" };
+  }
+
+  if (hasError) {
+    return { iconName: "error", pendingState: "", tone: "is-error" };
+  }
+
+  if (hasResults) {
+    return { iconName: "check_circle", pendingState: "", tone: "is-success" };
+  }
+
+  return { iconName: "schedule", pendingState: "", tone: "is-pending" };
+}
+
+function executionResultsHaveError(results) {
+  const normalizedResults = Array.isArray(results) ? results : [];
+
+  return normalizedResults.some(
+    (result) => String(result?.status || "").trim().toLowerCase() === "error"
+  );
+}
+
 function joinClassNames(...classNames) {
   return classNames
     .map((className) => (typeof className === "string" ? className.trim() : ""))
@@ -255,15 +316,19 @@ export function createAgentThreadView(config = {}) {
     const pendingState = options.pendingState || "";
 
     if (!Array.isArray(results) || !results.length) {
+      const pendingText =
+        pendingState === "generating"
+          ? "Generating code..."
+          : pendingState === "running"
+            ? "Running..."
+            : pendingState === EXECUTION_DISPLAY_ONLY_STATE
+              ? EXECUTION_DISPLAY_ONLY_OUTPUT_TEXT
+              : "No output yet.";
+
       return [
         {
           modifier: "is-muted",
-          text:
-            pendingState === "generating"
-              ? "Generating code..."
-              : pendingState === "running"
-                ? "Running..."
-                : "No output yet."
+          text: pendingText
         }
       ];
     }
@@ -628,50 +693,25 @@ export function createAgentThreadView(config = {}) {
       return `Executing ${lineLabel} of code`;
     }
 
+    // Text that was SHOWN but never executed must not claim it ran. This is the
+    // terminal state a Tier 1 separator-bearing answer settles into.
+    if (pendingState === EXECUTION_DISPLAY_ONLY_STATE) {
+      return EXECUTION_DISPLAY_ONLY_LABEL;
+    }
+
     if (Array.isArray(results) && results.length) {
-      const hasError = results.some((result) => String(result?.status || "").trim().toLowerCase() === "error");
-      return `Executed ${lineLabel} of code - ${hasError ? "Error" : "Success"}`;
+      return `Executed ${lineLabel} of code - ${executionResultsHaveError(results) ? "Error" : "Success"}`;
     }
 
     return `Executed ${lineLabel}`;
   }
 
   function getExecutionSummaryState(results, pendingState = "") {
-    if (pendingState === "generating") {
-      return {
-        iconName: "edit_note",
-        tone: "is-writing"
-      };
-    }
-
-    if (pendingState === "running") {
-      return {
-        iconName: "sync",
-        tone: "is-running"
-      };
-    }
-
-    const normalizedResults = Array.isArray(results) ? results : [];
-    const hasError = normalizedResults.some((result) => String(result?.status || "").trim().toLowerCase() === "error");
-
-    if (hasError) {
-      return {
-        iconName: "error",
-        tone: "is-error"
-      };
-    }
-
-    if (normalizedResults.length) {
-      return {
-        iconName: "check_circle",
-        tone: "is-success"
-      };
-    }
-
-    return {
-      iconName: "schedule",
-      tone: "is-pending"
-    };
+    return resolveExecutionCardState({
+      hasError: executionResultsHaveError(results),
+      hasResults: Array.isArray(results) && results.length > 0,
+      isStreaming: pendingState === "generating"
+    });
   }
 
   function createAssistantMessageActionRow(message, outputResults = null) {
@@ -756,15 +796,26 @@ export function createAgentThreadView(config = {}) {
     return button;
   }
 
-  function createExecutionCard({ executeDisplay, isConversationBusy, isStreaming, messageId, outputResults, rerunningMessageId }) {
+  function createExecutionCard({
+    displayOnly = false,
+    executeDisplay,
+    isConversationBusy,
+    isStreaming,
+    messageId,
+    outputResults,
+    rerunningMessageId
+  }) {
     const lineCount = getExecuteDisplayLineCount(executeDisplay);
     const displayOutputResults = rerunningMessageId === messageId ? null : outputResults;
-    const pendingState = isStreaming
-      ? "generating"
-      : rerunningMessageId === messageId || (!displayOutputResults && isConversationBusy)
-        ? "running"
-        : "";
-    const summaryState = getExecutionSummaryState(displayOutputResults, pendingState);
+    const summaryState = resolveExecutionCardState({
+      displayOnly,
+      hasError: executionResultsHaveError(displayOutputResults),
+      hasResults: Array.isArray(displayOutputResults) && displayOutputResults.length > 0,
+      isConversationBusy,
+      isRerunning: rerunningMessageId === messageId,
+      isStreaming
+    });
+    const pendingState = summaryState.pendingState;
     const terminal = document.createElement("details");
     terminal.className = "execution-card";
     terminal.dataset.executionCard = "true";
@@ -1015,6 +1066,7 @@ export function createAgentThreadView(config = {}) {
 
         sectionElement.append(
           createExecutionCard({
+            displayOnly: section.displayOnly === true,
             executeDisplay: section.executeDisplay,
             isConversationBusy: options.isConversationBusy,
             isStreaming: Boolean(section.message.streaming),
@@ -1283,6 +1335,7 @@ export function createAgentThreadView(config = {}) {
 
   function buildMessageDisplayGroups(history, options = {}) {
     const groups = [];
+    const displayOnlyMessageIds = options.displayOnlyMessageIds || new Set();
     const outputOverrides = options.outputOverrides || {};
 
     for (let index = 0; index < history.length; index += 1) {
@@ -1301,6 +1354,10 @@ export function createAgentThreadView(config = {}) {
         groups.push({
           sections: [
             {
+              // An id in this set means the surface KNOWS this text was shown and
+              // never executed (a Tier 1 turn that ended without a tool call), so
+              // the chip settles instead of waiting for a result that cannot come.
+              displayOnly: displayOnlyMessageIds.has(message.id),
               executeDisplay,
               message,
               outputResults,
@@ -1413,10 +1470,25 @@ export function createAgentThreadView(config = {}) {
         group.sections
         .map((section) => {
           if (section?.type === "execute") {
+            // The RESOLVED chip state is part of the signature on purpose. It is
+            // derived from surface state that is not in the message itself (is the
+            // conversation still busy?), so without it a row built while the turn
+            // was live is reused when the turn ends and the chip keeps spinning.
+            // Keying on the resolved state makes that transition un-skippable.
+            const cardState = resolveExecutionCardState({
+              displayOnly: section.displayOnly === true,
+              hasError: executionResultsHaveError(section.outputResults),
+              hasResults: Array.isArray(section.outputResults) && section.outputResults.length > 0,
+              isConversationBusy: options.isConversationBusy,
+              isRerunning: section?.message?.id === options.rerunningMessageId,
+              isStreaming: Boolean(section.message.streaming)
+            });
+
             return [
               "execute",
               getMessageRenderSignature(section.message),
               getExecutionResultsRenderSignature(section.outputResults),
+              cardState.pendingState,
               section?.message?.id === options.rerunningMessageId ? "rerunning" : ""
             ].join("\u241f");
           }
@@ -1782,6 +1854,10 @@ export function createAgentThreadView(config = {}) {
     autoResizeTextarea,
     copyTextToClipboard,
     findExecuteSection,
+    // Exposed so the render-reuse contract is testable at the real code path: the
+    // execute-section signature must CHANGE when a chip settles, or the row built
+    // mid-turn is reused and its spinner never stops.
+    getGroupRenderSignature,
     getAssistantMessageCopyText,
     getTerminalInputText,
     getTerminalOutputText,
