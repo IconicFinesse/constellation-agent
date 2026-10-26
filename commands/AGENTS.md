@@ -78,6 +78,7 @@ Runtime resolution rules:
 - `CUSTOMWARE_GIT_HISTORY` enables optional adaptive-debounced per-owner local Git history repositories for writable `L1` and `L2` roots; it defaults to `true`
 - `GIT_BACKEND` defaults to `auto` and selects the backend used by server-owned Git flows such as local history and Git-backed module installs; `auto` keeps the default `native -> isomorphic` fallback order
 - `USER_FOLDER_SIZE_LIMIT_BYTES` sets an optional byte cap for each on-disk `L2/<user>/` folder; `0` disables the cap
+- `ENGINE_SWAP_SHADOW` and `ENGINE_SWAP_DISPATCH` are the engine-swap flags: both `frontend_exposed`, both defaulting to `false`. `ENGINE_SWAP_SHADOW` only observes (chat behavior unchanged, artifacts for the lab); `ENGINE_SWAP_DISPATCH` is the master gate for the Tier 1 typed tool path on the onscreen surface. Dispatch off means today's text protocol, byte for byte; dispatch on resolves Tier 1 only for a config whose model resolves the `tools` capability, and everything else stays Tier 3 with one diagnostics line
 - short-lived `user` and `group` commands flush pending local-history commits before returning when `CUSTOMWARE_GIT_HISTORY` is enabled
 
 The `help` export should be complete enough that `node space help <command>` is useful without reading the code. Prefer accurate usage lines, concrete descriptions, explicit argument descriptions when position matters, and examples when the command shape is not obvious.

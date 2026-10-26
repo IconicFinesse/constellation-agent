@@ -4,9 +4,9 @@
 
 `engine-swap/` is the shared transport and tool-registry layer for the LLM action-envelope upgrade, following the `execution-blocks.js` precedent: one pure, shared implementation under `_core/framework/js/`, consumed by both agent surfaces.
 
-P1 builds the machinery and changes no behavior. Sessions keep running the existing Tier 3 text protocol exactly as today; when the `ENGINE_SWAP_SHADOW` flag is on, this layer only assembles and records what the tool-call tier (Tier 1) would have sent.
+P1 built the transports, the registry skeleton and the shadow observer. P2 adds the DISPATCH PIPELINE and the launch tool inventory on the onscreen surface, behind a second default-off flag (`ENGINE_SWAP_DISPATCH`). With dispatch OFF nothing here runs and chat is byte-identical to the text protocol. With dispatch ON a tools-capable config runs Tier 1: the model is offered typed tools, its calls are validated, coerced, risk-classified and executed against the existing handlers, results return as structured tool messages, and the loop runs until a plain-text answer. A config without the tools capability stays on Tier 3 with one diagnostics line.
 
-Dispatch, streaming assembly, admin-surface convergence, prompt caching, and rollout belong to later phases and are deliberately absent here.
+Streaming tool-call assembly, parallel dispatch (P3), admin-surface convergence (P4), prompt caching (P5) and rollout (P6) are deliberately absent here.
 
 ## Ownership
 
@@ -18,18 +18,28 @@ Dispatch, streaming assembly, admin-surface convergence, prompt caching, and rol
 - `shadow-classifier.js`: the closed nine-class diff enum, display-only detection, and verdict computation for the `ca.shadow-diff/1` gate.
 - `shadow-session.js`: shadow run state and the three contract artifacts (manifest, sessions, summary) with an injectable emit sink.
 - `shadow-projector.js`: derives the Tier 1 call list from executed Tier 3 block bodies without evaluating them.
-- `config-flag.js`: the `ENGINE_SWAP_SHADOW` flag read through the app's existing runtime-parameter system.
+- `config-flag.js`: the `ENGINE_SWAP_SHADOW` and `ENGINE_SWAP_DISPATCH` flags, the dispatch x shadow session plan, and tier resolution, read through the app's existing runtime-parameter system.
+- `dispatch-errors.js`: the closed five-class error taxonomy (`validation` / `coercion` / `execution` / `api` / `policy`). Every error carries a human line AND a model-facing retry hint; a prose-only error is a defect.
+- `dispatch-validation.js`: stage 1. Structural JSON-Schema checks (required, unknown fields, enum, minimum) plus arguments-JSON parsing. Type shape is NOT judged here.
+- `dispatch-coercion.js`: stage 2. The closed repair table for known-harmless shape slips, and an honest rejection for richer wrong shapes. Owns type shape by design so its rejection path is reachable.
+- `dispatch-pipeline.js`: the ordered pipeline (validation -> coercion -> risk -> execution -> structured result), argument adapters onto the shipped `space.api` handlers and the execution context, and `formatToolResultForModel`.
+- `destructive-gate.js`: the v1 consent affordance state machine (`idle -> held -> confirmed | denied | cancelled`) with a guaranteed exit from every state.
+- `history-shapes.js`: the ONE reader for both history shapes (legacy text protocol and typed tool entries), the writer constructors, the persistence mapping pair, the canonical <-> typed conversions, and the render/prompt projections.
+- `prompt-shape.js`: the Tier 1 prompt shape (the api contract card retires, the fence contract stays) and the deterministic tool-list diagnostics line.
+- `tool-turn-loop.js`: the Tier 1 loop: send a turn, dispatch exactly one call, feed the structured result back, stop on plain text, iteration cap, stop request, transport failure or a held destructive call.
+- `tier1-session.js`: one session object composing registry, transport, gate, pipeline and loop, plus the non-streamed completion parse and the post-hold continuation.
 
-The live-path bridge lives with its surface at `_core/onscreen_agent/engine-swap-shadow.js`; it owns lazy loading, the per-session capability line, and the programmatic flush seam.
+The live-path bridges live with their surface: `_core/onscreen_agent/engine-swap-shadow.js` (P1 observation, lazy loading, capability line, flush seam) and `_core/onscreen_agent/engine-swap-dispatch.js` (P2 tier decision and turn runner). Both are thin by construction: surface code only imports and calls, and no dispatch logic lives surface-side.
 
 ## Local Contracts
 
 ### Flag And Inertness
 
-- The flag is `ENGINE_SWAP_SHADOW`, declared in `commands/params.yaml` as a frontend-exposed boolean with `default: false` and read through `space.config.get(...)`. No second settings store.
+- Two flags exist, both declared in `commands/params.yaml` as frontend-exposed booleans with `default: false` and read through `space.config.get(...)`. No second settings store: `ENGINE_SWAP_SHADOW` (P1 observation) and `ENGINE_SWAP_DISPATCH` (P2 master gate for the tool path).
 - OFF must stay genuinely inert: the bridge statically imports only the dependency-free `config-flag.js` leaf, then resolves the flag synchronously and returns before importing the engine-swap machinery, allocating a session, logging, or writing anything.
 - ON must not change behavior either. Tier 3 executes exactly as before; the layer observes and records.
 - A flag read that throws resolves OFF; observation failures log once and never break a turn.
+- Dispatch OFF is inert for the tool path too: the store resolves the plan synchronously and returns to the untouched text protocol before importing any dispatch module.
 
 ### Capability Seam
 
@@ -48,6 +58,44 @@ The live-path bridge lives with its surface at `_core/onscreen_agent/engine-swap
 - The dispatch-table stub never executes anything. Its honest answer in P1 is `{ dispatched: false }`.
 - Launch schemas mirror live server truth, not prose. `tests/engine_swap_registry_test.mjs` reads `ensureValidWriteOperation`, `ensureValidWriteEncoding`, and the `server/api/file_*.js` sources so a written-contract drift fails the build (the BUG-006 lesson).
 - Handler refs are identifiers too: a handler is either a real `space.api.<method>` on the api-client surface or a `/modules/<path>#<symbol>` ref that must resolve to a real function in that module. The same suite asserts every ref, so an invented namespace fails the build instead of waiting for P2.
+
+### Tier Selection And The Flag Matrix
+
+- Dispatch is the master gate. With it OFF a session resolves tier `none` and nothing changes. With it ON the tier comes from `capabilities.js` alone: `tools` true -> Tier 1, otherwise Tier 3 with ONE diagnostics line. A session never changes tier mid-loop; a session object is created per send.
+- The dispatch x shadow interaction is pinned by `tests/engine_swap_dispatch_flag_test.mjs`, cell by cell. On a real Tier 1 session shadow observation is SUPPRESSED (`shadowActive: false`) even when the shadow flag is on, because a Tier 1 turn executes no Tier 3 blocks and an empty diff would be a false pass rather than evidence. On a Tier 3 session shadow keeps observing.
+- A local (browser-inference) provider resolves Tier 3 explicitly: there is no HTTP tool transport to send a tool list to.
+
+### Dispatch Pipeline
+
+- Stage order is mechanical and observable: validation -> coercion -> risk -> execution -> structured result. Every outcome carries `stages`, so a call that failed validation provably never reached coercion or a handler.
+- Validation owns STRUCTURE (required fields, unknown fields, enum membership, minimums). Coercion owns TYPE SHAPE. A wrong type is always handed to coercion, which repairs the declared known-harmless slips or rejects the call before execution; repaired values are re-checked structurally so a coerced value cannot slip past an enum or a minimum.
+- The coercion table is closed and data-driven (`KNOWN_HARMLESS_SLIPS`): numeric-as-string, boolean-as-string, one scalar wrapped in a single-element array, a lone `{ encoding }` object, and an explicit null for an optional field. Anything richer is rejected, because broad coercion would turn an intended append into a silent overwrite.
+- Handlers are the shipped capabilities: `space.api` file shorthands and the execution context's `execute(code)` for `run_code`. Nothing here re-implements a file operation or an executor, and the fence contract inside `run_code` is unchanged.
+- The error taxonomy is closed: `validation` / `coercion` / `execution` / `api` / `policy`. Every error carries a human line and a model-facing retry hint; `formatToolResultForModel` is the single formatter and a prose-only error is a defect.
+
+### Destructive Gate (D3: inline confirm)
+
+- `file_delete` is the only `destructive` tool at launch. Its call is HELD, never auto-executed, and the model is told HELD (not failed) with an explicit "do not retry".
+- The state machine is small and total: `idle -> held -> confirmed | denied | cancelled`. Every terminal state is reachable without user input (`cancelHeld()` runs on stop, chat clear and session end), so a hold can never wait forever.
+- Confirm re-enters the pipeline at execution only, so the arguments the human saw are the arguments that execute, and a second confirm settles nothing.
+- The gate is a consent affordance, not a security boundary: the same deletion inside `run_code` is ungated by construction. Never advertise it as a boundary.
+
+### History Shapes (both, forever)
+
+- ONE reader: `readHistoryEntry` / `readHistoryEntries` / `describeHistoryEntryForRender`. No consumer branches on history shape itself.
+- Legacy text-protocol entries are never rewritten and render exactly as before. Typed entries (`tool_call`, `tool_result`) render through the same execution chip via `projectHistoryEntryForDisplay`, and project onto plain text for a Tier 3 prompt via `projectHistoryEntryForPrompt` so a conversation started on Tier 1 is still visible after a config change.
+- Writers emit only typed entries (`createToolCallEntry`, `createToolResultEntry`); the persistence write/read pair (`serializeTypedHistoryFields`, `normalizeTypedHistoryFields`) lives here so the store and the reader cannot drift, and returns `{}` for a legacy message so its stored shape is byte-identical to before.
+- Exactly one tool result may exist per call id. A settled hold REPLACES the held result rather than appending a second one.
+
+### Tier 1 Prompt Shape
+
+- On a Tier 1 session the `api contracts` card retires from the system prompt: the contracts now live in the tool schemas, where they are enforced instead of recited.
+- The fence contract line stays on every tier (it governs `run_code` displays and Tier 3), and role/behavioral norms are untouched. A prompt that would lose the fence marker is not cut at all (fail safe).
+- Tier 3 prompts are returned byte-identical.
+
+### Streaming Boundary (P2 vs P3)
+
+- P2 consumes only complete, parseable tool calls. The surface's streaming reader extracts text deltas and drops `tool_calls`, so a Tier 1 turn sends a NON-streamed completion (`stream: false`) and parses one JSON body. P3 replaces this with real fragment assembly; until then this is the minimal honest route rather than a second reassembler.
 
 ### Shadow Artifacts (`ca.shadow-diff/1`)
 
@@ -81,7 +129,14 @@ The live-path bridge lives with its surface at `_core/onscreen_agent/engine-swap
 - `tests/engine_swap_flag_test.mjs`: flag resolution, OFF inertness, ON recording, the capability line, the flush seam, and a wiring-level test that drives the bridge with the live call shape (settled identity + runtime envelope) and asserts collapsed paths and non-empty commit/version on the artifact.
 - `tests/engine_swap_transports_test.mjs`: the launch adapter set (four OpenAI-shape, none native), per-provider request assembly driven by the capability seam, canonical message wire shape (JSON-string tool arguments), provider resolution from the real Synthetic host, conservative unknown fallback, param merging, and purity.
 
-Every suite runs hermetically under `node --test` with no network, no real keys, and no app-data writes. Seeded mutations over this area must turn the owning suite red before a change is considered covered.
+- `tests/engine_swap_dispatch_pipeline_test.mjs`: stage order (validation before coercion before risk before execution, observed through `stages`), every coaching-error class, the coercion table (each known-harmless slip repaired, one rich wrong shape rejected), the destructive hold lifecycle (hold -> confirm executes once, hold -> deny executes nothing, no execution while held), and structured-result formatting.
+- `tests/engine_swap_tier1_loop_test.mjs`: plain-text answer termination, one-call dispatch with the tool result returned as a tool message, the parallel-calls policy refusal, malformed-arguments coaching, iteration cap, stop request, transport failure, repeat-error surfacing, the hold exit through a session, and the non-streamed request shape.
+- `tests/engine_swap_history_shapes_test.mjs`: a legacy history reads exactly as before, typed entries read as calls/results, the persistence round trip, canonical -> typed mapping, render/prompt projections, and writers emitting the new shape only.
+- `tests/engine_swap_composition_test.mjs`: an assembled visible list builds a real request with every schema present (carryover fix), the strict promise crosses the seam, both record shapes agree, and determinism holds across the seam.
+- `tests/engine_swap_dispatch_flag_test.mjs`: `ENGINE_SWAP_DISPATCH` declared in `params.yaml`, OFF inertness, tier resolution from the capability seam, tier fallback per config, and the full dispatch x shadow matrix including Tier 1 shadow suppression.
+- `tests/engine_swap_prompt_shape_test.mjs`: the api contract card retires on Tier 1, the fence contract survives, Tier 3 prompts are byte-identical, the fail-safe refusal to cut, and the display contract at the representation level.
+
+Every suite runs hermetically under `node --test` with no network, no real keys, and no app-data writes. Seeded mutations over this area must turn the owning suite red before a change is considered covered. P2 mutation round: 16/16 caught, every file restored byte-identically.
 
 ## Child DOX Index
 
