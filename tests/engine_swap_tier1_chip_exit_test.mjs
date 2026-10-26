@@ -320,16 +320,19 @@ test("a tier 1 text-only separator turn records its chip as terminal", async (t)
   assert.equal(recorded.length, 1, "the separator answer must settle its chip");
   assert.ok(recorded[0].startsWith("assistant-"), "the recorded id is the assistant entry");
 
-  // Cumulative: a later turn that answers cleanly must not resurrect the old chip.
+  // A later turn must not resurrect (or drop) the earlier terminal chip. The call
+  // shape matters: the real loop always passes the WHOLE history plus the new user
+  // message, so the re-derivation sees the earlier assistant entry again.
+  const historyAfterFirstTurn = [...store.history];
+
   store.runTier1ConversationTurn = async () => ({
-    answer: "done",
     result: { answer: "done", messages: [{ content: "thanks", role: "user" }, { content: "done", role: "assistant" }], status: "answered" },
     session: {}
   });
 
   await store.runTier1TurnAndCommit(
-    [{ content: "thanks", id: "u2", role: "user" }],
-    { messages: [{ content: "thanks", id: "u2", role: "user" }] },
+    [...historyAfterFirstTurn, { content: "thanks", id: "u2", role: "user" }],
+    { messages: [...historyAfterFirstTurn, { content: "thanks", id: "u2", role: "user" }] },
     { tier: "tier1" }
   );
 
@@ -338,4 +341,159 @@ test("a tier 1 text-only separator turn records its chip as terminal", async (t)
     recorded,
     "an earlier terminal chip must stay terminal while a later turn runs"
   );
+});
+
+// --- 5. audit round 1: the set must survive a RELOAD -------------------------
+//
+// Blocker 1: the set was memory-only, so after a refresh a never-executed message
+// fell back to the label that claims `Executed N lines`. Deriving from the restored
+// history removes the persistence question entirely.
+
+test("restoring persisted history re-derives which messages were never executed", async (t) => {
+  const previousHistory = store.history;
+  const previousSet = store.engineSwapDisplayOnlyMessageIds;
+  const previousOverrides = store.executionOutputOverrides;
+
+  store.executionOutputOverrides = Object.create(null);
+
+  t.after(() => {
+    store.history = previousHistory;
+    store.engineSwapDisplayOnlyMessageIds = previousSet;
+    store.executionOutputOverrides = previousOverrides;
+  });
+
+  // Exactly what startup restores: a Tier 1 separator answer that never executed,
+  // and a separator answer that DID execute (its framework follow-up carries the
+  // results). Ids are the persisted ones, verbatim.
+  await store.replaceHistory(
+    [
+      { content: "read my notes", id: "user-1", kind: "", role: "user" },
+      { content: SEPARATOR_CONTENT, id: "assistant-1", kind: "", role: "assistant" },
+      { content: "and delete the temp file", id: "user-2", kind: "", role: "user" },
+      { content: SEPARATOR_CONTENT, id: "assistant-3", kind: "", role: "assistant" },
+      { content: "execution ok", id: "user-4", kind: "execution-output", role: "user" }
+    ],
+    { refreshPrompt: false }
+  );
+
+  assert.deepEqual(
+    [...store.engineSwapDisplayOnlyMessageIds],
+    ["assistant-1"],
+    "after restore only the message WITHOUT results is shown-not-executed"
+  );
+});
+
+// --- 6. audit round 1: a rerun settles the card out of display-only ----------
+
+test("a rerun that produces real results ends the display-only claim", async (t) => {
+  const previousState = {
+    chatRuntime: store.chatRuntime,
+    executionOutputOverrides: store.executionOutputOverrides,
+    executeAssistantBlocks: store.executeAssistantBlocks,
+    history: store.history,
+    isSending: store.isSending,
+    render: store.render,
+    rerunningMessageId: store.rerunningMessageId,
+    status: store.status
+  };
+  const messageId = "assistant-1";
+  const ranResults = [{ outputLines: ["result\u2193", "notes"], status: "success" }];
+
+  store.history = [
+    { content: "read my notes", id: "user-1", kind: "", role: "user" },
+    { content: SEPARATOR_CONTENT, id: messageId, kind: "", role: "assistant" }
+  ];
+  store.executionOutputOverrides = Object.create(null);
+  store.engineSwapDisplayOnlyMessageIds = new Set([messageId]);
+  store.chatRuntime = { attachments: { setActiveMessage() {} } };
+  store.render = () => {};
+  store.isSending = false;
+  store.executeAssistantBlocks = async () => ranResults;
+
+  t.after(() => {
+    store.chatRuntime = previousState.chatRuntime;
+    store.executionOutputOverrides = previousState.executionOutputOverrides;
+    store.executeAssistantBlocks = previousState.executeAssistantBlocks;
+    store.history = previousState.history;
+    store.isSending = previousState.isSending;
+    store.render = previousState.render;
+    store.rerunningMessageId = previousState.rerunningMessageId;
+    store.status = previousState.status;
+  });
+
+  const button = {
+    blur() {},
+    dataset: { terminalAction: "rerun", terminalMessageId: messageId }
+  };
+  const event = {
+    target: {
+      closest(selector) {
+        return selector === "[data-terminal-action]" ? button : null;
+      }
+    }
+  };
+
+  store.refs.thread = { contains: () => true };
+
+  await store.handleThreadClick(event);
+
+  // The code really ran, so the override now holds its output...
+  assert.equal(store.executionOutputOverrides[messageId].length, ranResults.length);
+  // ...and the message is no longer eligible to be called unexecuted.
+  assert.equal(
+    store.engineSwapDisplayOnlyMessageIds.has(messageId),
+    false,
+    "an executed message must stop claiming it was only shown"
+  );
+
+  // Label, icon and output pane all describe the execution now: the resolver and
+  // the render signature agree that this card is executed, not display-only.
+  const settled = resolveExecutionCardState({ displayOnly: true, hasResults: true });
+
+  assert.notEqual(settled.pendingState, EXECUTION_DISPLAY_ONLY_STATE);
+  assert.equal(settled.tone, "is-success");
+
+  // With the rerun's results present and the id no longer in the set, the render
+  // signature carries the executed state, not the display-only one.
+  const rerunGroup = makeExecuteGroup();
+
+  rerunGroup.sections[0].outputResults = ranResults;
+
+  const signature = createAgentThreadView({}).getGroupRenderSignature(rerunGroup, {
+    isConversationBusy: false
+  });
+
+  assert.ok(!signature.includes(EXECUTION_DISPLAY_ONLY_STATE));
+  assert.ok(signature.includes("is-success") || signature.includes("check_circle") || !signature.includes("running"));
+});
+
+// --- 7. audit round 1: "no results" is a real eligibility condition ----------
+
+test("a separator message WITH results is never recorded as shown-not-executed", (t) => {
+  const previous = store.engineSwapDisplayOnlyMessageIds;
+
+  t.after(() => {
+    store.engineSwapDisplayOnlyMessageIds = previous;
+  });
+
+  const withOverride = store.collectEngineSwapDisplayOnlyIds(
+    [{ content: SEPARATOR_CONTENT, id: "assistant-1", role: "assistant" }],
+    { "assistant-1": [{ outputLines: ["ran"], status: "success" }] }
+  );
+
+  assert.equal(withOverride.size, 0, "results override means it executed");
+
+  const withFollowUp = store.collectEngineSwapDisplayOnlyIds([
+    { content: SEPARATOR_CONTENT, id: "assistant-1", role: "assistant" },
+    { content: "execution ok", id: "user-2", kind: "execution-output", role: "user" }
+  ]);
+
+  assert.equal(withFollowUp.size, 0, "a framework results turn means it executed");
+
+  // The control: the same message with no results anywhere IS display-only.
+  const withoutResults = store.collectEngineSwapDisplayOnlyIds([
+    { content: SEPARATOR_CONTENT, id: "assistant-1", role: "assistant" }
+  ]);
+
+  assert.deepEqual([...withoutResults], ["assistant-1"]);
 });

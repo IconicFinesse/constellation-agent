@@ -39,20 +39,24 @@ export function resolveExecutionCardState({
     return { iconName: "sync", pendingState: "running", tone: "is-running" };
   }
 
-  if (displayOnly) {
-    return { iconName: "visibility", pendingState: EXECUTION_DISPLAY_ONLY_STATE, tone: "is-pending" };
-  }
-
-  if (!hasResults && isConversationBusy) {
-    return { iconName: "sync", pendingState: "running", tone: "is-running" };
-  }
-
+  // Real execution results outrank the display-only label. A message can stop being
+  // unexecuted (the user reruns it), and the label must follow the output pane rather
+  // than contradict it: a card showing real output under "Shown, not executed" would
+  // be the same class of lie this state exists to remove.
   if (hasError) {
     return { iconName: "error", pendingState: "", tone: "is-error" };
   }
 
   if (hasResults) {
     return { iconName: "check_circle", pendingState: "", tone: "is-success" };
+  }
+
+  if (displayOnly) {
+    return { iconName: "visibility", pendingState: EXECUTION_DISPLAY_ONLY_STATE, tone: "is-pending" };
+  }
+
+  if (isConversationBusy) {
+    return { iconName: "sync", pendingState: "running", tone: "is-running" };
   }
 
   return { iconName: "schedule", pendingState: "", tone: "is-pending" };
