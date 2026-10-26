@@ -6,7 +6,9 @@
 //   - the loop shape and its termination conditions
 //   - the iteration cap and repeat-error surfacing carried over from v1.2
 //   - the P2 policy that several calls in one turn are refused with coaching
-//     (sequential dispatch arrives in P3; the refusal is honest, not a crash)
+//     BEFORE the calls enter the message list, so a refusal can never leave an
+//     unanswered `tool_call_id` in the wire history or in persisted history
+//     (sequential dispatch arrives in P3)
 //   - assembling the next request's message list from canonical messages
 //
 // What it deliberately does NOT own:
@@ -22,7 +24,8 @@
 import {
   createAssistantTextMessage,
   createAssistantToolCallMessage,
-  createToolResultMessage
+  createToolResultMessage,
+  createUserMessage
 } from "./canonical.js";
 import { DISPATCH_OUTCOME, formatToolResultForModel } from "./dispatch-pipeline.js";
 import { formatHeldToolResult } from "./destructive-gate.js";
@@ -126,6 +129,17 @@ export async function runToolTurn({
     } catch (error) {
       emit({ error, iteration, type: "turn-error" });
 
+      // A transport that failed because the user pressed stop is a STOP, not a
+      // fault to report. `isStopRequested` is the only signal consulted, so a real
+      // failure while the user did not ask to stop still surfaces as an error.
+      if (isStopRequested()) {
+        return Object.freeze({
+          messages: Object.freeze(messages),
+          reason: TOOL_TURN_STOP_REASON.STOPPED,
+          turns: Object.freeze(turns)
+        });
+      }
+
       return Object.freeze({
         error: String(error?.message || error),
         messages: Object.freeze(messages),
@@ -154,28 +168,26 @@ export async function runToolTurn({
       });
     }
 
-    // Several calls in one turn: P2 refuses with coaching. Nothing executes.
+    // Several calls in one turn: P2 refuses with coaching. Nothing executes, and
+    // the refused calls NEVER enter the message list.
+    //
+    // Why the calls are kept out rather than answered one-by-one (P2 audit
+    // blocker 2): OpenAI-compatible transports require every `tool_call_id` on an
+    // assistant message to be answered, and the surface persists a turn through
+    // `canonicalMessagesToTypedEntries`, which writes one `tool_call` entry per
+    // call. Replay then rebuilds one assistant message per entry
+    // (`historyEntriesToCanonicalMessages`), so even a fully answered refusal
+    // would replay as three assistant messages with zero or trailing results —
+    // invalid adjacency that poisons every later turn in the chat. Refusing
+    // BEFORE the calls exist is the only shape that is valid going forward.
+    //
+    // The coaching still reaches the model, as a plain turn — the same shape the
+    // text protocol's corrections use — so the count and the retry instruction
+    // survive without claiming a call that was never answered.
     if (toolCalls.length > 1) {
       const coaching = formatParallelCallsPolicyHint(toolCalls.length);
-      const syntheticCall = { arguments: {}, callId: toolCalls[0]?.id || "", name: toolCalls[0]?.name || "" };
 
-      messages.push(
-        createAssistantToolCallMessage({
-          content: text,
-          toolCalls: toolCalls.map((call) => ({
-            arguments: typeof call.arguments === "string" && call.arguments.trim() ? call.arguments : "{}",
-            id: call.id,
-            name: call.name
-          }))
-        })
-      );
-      messages.push(
-        createToolResultMessage({
-          content: coaching,
-          isError: true,
-          toolCallId: syntheticCall.callId || toolCalls[0]?.id || "call_parallel"
-        })
-      );
+      messages.push(createUserMessage(coaching));
       emit({ coaching, toolCalls, type: "parallel-refused" });
 
       const repeat = trackToolErrorRepeat([coaching], lastErrorSignature, lastErrorCount);

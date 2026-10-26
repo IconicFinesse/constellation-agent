@@ -26,6 +26,10 @@ import {
   extractToolCallsFromCompletion
 } from "../app/L0/_all/modules/_core/framework/js/engine-swap/tier1-session.js";
 import {
+  canonicalMessagesToTypedEntries,
+  historyEntriesToCanonicalMessages
+} from "../app/L0/_all/modules/_core/framework/js/engine-swap/history-shapes.js";
+import {
   TOOL_TURN_MAX_ITERATIONS,
   TOOL_TURN_STOP_REASON,
   buildRepeatErrorNote,
@@ -34,6 +38,36 @@ import {
   trackToolErrorRepeat
 } from "../app/L0/_all/modules/_core/framework/js/engine-swap/tool-turn-loop.js";
 import { createDestructiveGate } from "../app/L0/_all/modules/_core/framework/js/engine-swap/destructive-gate.js";
+
+// The OpenAI-compatible adjacency contract: every `tool_call_id` an assistant
+// message announces is answered by exactly one `tool` message, and no `tool`
+// message answers a call that was never announced.
+function assertValidToolCallAdjacency(messages) {
+  const announced = [];
+  const answered = [];
+
+  (Array.isArray(messages) ? messages : []).forEach((message) => {
+    if (message?.role === "assistant" && Array.isArray(message.toolCalls)) {
+      message.toolCalls.forEach((call) => announced.push(call.id));
+    }
+
+    if (message?.role === "tool") {
+      answered.push(message.toolCallId);
+    }
+  });
+
+  announced.forEach((id) => {
+    assert.equal(
+      answered.filter((value) => value === id).length,
+      1,
+      `tool_call_id ${id} must be answered exactly once`
+    );
+  });
+
+  answered.forEach((id) => {
+    assert.ok(announced.includes(id), `tool result ${id} must answer an announced call`);
+  });
+}
 
 function createFakeApi(outcomes = {}) {
   const calls = [];
@@ -209,10 +243,133 @@ test("several calls in one turn are refused with policy coaching and none execut
 
   assert.equal(api.calls.length, 0, "no handler runs for a refused parallel turn");
   assert.equal(result.answer, "One at a time then.");
-  // The refusal is part of the transcript as a failed tool result.
-  const refusal = result.messages.find((message) => message.role === "tool" && /policy:/u.test(message.content));
-  assert.ok(refusal);
-  assert.match(refusal.content, /exactly one call per turn/u);
+
+  // Variant (b): the refused calls never enter the message list, so no assistant
+  // message carries a `tool_calls` array that could go unanswered.
+  const assistantCalls = result.messages.filter(
+    (message) => message.role === "assistant" && Array.isArray(message.toolCalls) && message.toolCalls.length
+  );
+
+  assert.deepEqual(assistantCalls, [], "a refused turn must not manufacture an assistant tool-call message");
+
+  // The coaching still reaches the model, as a plain turn, with the count and the
+  // retry instruction intact.
+  const coaching = result.messages.find((message) => message.role === "user" && /policy:/u.test(message.content));
+
+  assert.ok(coaching, "the model must still be coached");
+  assert.match(coaching.content, /policy: 2 tool calls/u);
+  assert.match(coaching.content, /exactly one call per turn/u);
+  assert.match(coaching.content, /Retry with the first call alone/u);
+});
+
+// The persisted-history half of the same defect: whatever a refused turn leaves
+// behind must REPLAY into a valid canonical sequence. Before variant (b) the tail
+// mapped to three typed `tool_call` entries (one per refused call) that replayed
+// as three assistant messages with zero or trailing results — invalid adjacency
+// that poisoned every later turn in the chat.
+test("a refused parallel turn persists a history that replays validly", async () => {
+  const api = createFakeApi();
+  const { session } = createSession({
+    api,
+    script: [
+      {
+        toolCalls: [
+          { arguments: '{"path":"~/a"}', id: "c1", name: "file_read" },
+          { arguments: '{"path":"~/b"}', id: "c2", name: "file_read" },
+          { arguments: '{"path":"~/c"}', id: "c3", name: "file_read" }
+        ]
+      },
+      { text: "One at a time then." }
+    ]
+  });
+  const result = await session.run();
+  const baseline = 2; // system prompt + the scripted user turn
+  const tailEntries = canonicalMessagesToTypedEntries(result.messages, { fromIndex: baseline });
+
+  // No typed call entry may be written for a refused call.
+  assert.equal(
+    tailEntries.some((entry) => entry.kind === "tool_call"),
+    false,
+    "a refused call must never be persisted as a tool_call entry"
+  );
+
+  // And the replay is a valid OpenAI-shaped sequence.
+  const replayed = historyEntriesToCanonicalMessages(tailEntries);
+
+  assertValidToolCallAdjacency(replayed);
+});
+
+// Stop responsiveness (P2 audit non-blocker 3): the loop consults the surface's
+// stop flag between iterations, so a stop after the first iteration exits without
+// executing anything further and reports a legible stopped state.
+test("a stop requested after the first iteration exits without executing further calls", async () => {
+  const api = createFakeApi();
+  let stop = false;
+  const sender = createScriptedSender([
+    { toolCalls: [{ arguments: '{"path":"~/a"}', id: "c1", name: "file_read" }] },
+    { toolCalls: [{ arguments: '{"path":"~/b"}', id: "c2", name: "file_read" }] },
+    { toolCalls: [{ arguments: '{"path":"~/c"}', id: "c3", name: "file_read" }] }
+  ]);
+  const session = createTier1Session({
+    api,
+    apiEndpoint: "https://api.openai.com/v1/chat/completions",
+    history: [],
+    model: "gpt-x",
+    providerKey: "openai",
+    sendCompletion: async (context) => {
+      const payload = await sender.sendCompletion(context);
+
+      // The user presses Stop while the first turn is being handled.
+      stop = true;
+      return payload;
+    },
+    systemPrompt: "You are a test agent.",
+    userContent: "read my files"
+  });
+  const result = await session.run({ isStopRequested: () => stop });
+
+  assert.equal(result.status, TIER1_TURN_STATUS.STOPPED, "a stop is its own ended state, not an answer");
+  assert.equal(api.calls.length, 1, "the first call may execute; the stop lands before the second");
+  assert.equal(sender.requests.length, 1, "no further request may be sent after the stop");
+  assert.equal(result.answer, "", "a stopped turn carries no answer");
+});
+
+// A transport cut by an abort is a stop, not a fault; a real failure with no stop
+// request still surfaces as an error.
+test("an aborted transport is reported as stopped, not as a transport error", async () => {
+  let stop = false;
+  const session = createTier1Session({
+    api: createFakeApi(),
+    apiEndpoint: "https://api.openai.com/v1/chat/completions",
+    history: [],
+    model: "gpt-x",
+    providerKey: "openai",
+    sendCompletion: async () => {
+      stop = true;
+      throw new Error("The operation was aborted.");
+    },
+    systemPrompt: "You are a test agent.",
+    userContent: "read my notes"
+  });
+  const stopped = await session.run({ isStopRequested: () => stop });
+
+  assert.equal(stopped.status, TIER1_TURN_STATUS.STOPPED);
+
+  const failing = createTier1Session({
+    api: createFakeApi(),
+    apiEndpoint: "https://api.openai.com/v1/chat/completions",
+    history: [],
+    model: "gpt-x",
+    providerKey: "openai",
+    sendCompletion: async () => {
+      throw new Error("provider exploded");
+    },
+    systemPrompt: "You are a test agent.",
+    userContent: "read my notes"
+  });
+  const errored = await failing.run();
+
+  assert.equal(errored.status, TIER1_TURN_STATUS.ERROR, "a failure with no stop request is still an error");
 });
 
 test("the parallel policy hint names the count and the retry shape", () => {

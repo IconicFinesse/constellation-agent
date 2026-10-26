@@ -97,6 +97,7 @@ export function createTier1Session({
   params = {},
   providerKey = "",
   apiEndpoint = "",
+  isStopRequested = null,
   sendCompletion,
   systemPrompt = "",
   userContent = ""
@@ -167,11 +168,19 @@ export function createTier1Session({
 
     // Runs the whole turn. Returns a normalized result the surface renders; every
     // reason maps to a surface action and none of them can spin.
-    async run({ isStopRequested = () => false } = {}) {
+    // `isStopRequested` may be supplied per run (the surface's live stop flag) or
+    // once at construction; per-run wins, and the default still guarantees an exit.
+    async run({ isStopRequested: runStopRequested = null } = {}) {
+      const stopRequested =
+        typeof runStopRequested === "function"
+          ? runStopRequested
+          : typeof isStopRequested === "function"
+            ? isStopRequested
+            : () => false;
       const outcome = await runToolTurn({
         dispatch: pipeline,
         history: initialHistory,
-        isStopRequested,
+        isStopRequested: stopRequested,
         onEvent,
         sendTurn,
         tools: assembled.tools
@@ -251,6 +260,7 @@ export function createTier1Session({
       const outcome = await runToolTurn({
         dispatch: pipeline,
         history: base,
+        isStopRequested: typeof isStopRequested === "function" ? isStopRequested : () => false,
         onEvent: null,
         sendTurn: async ({ messages: turnMessages }) => {
           const request = buildTurnRequest(turnMessages);
@@ -272,7 +282,7 @@ export function createTier1Session({
 
     // Text formatting for a settled outcome. Lives here so a surface can render a
     // tool result without importing the pipeline (the OFF path must stay inert:
-    // store.js imports nothing from the dispatch layer).
+    // the surface loads no dispatch machinery when the flag is off).
     formatOutcome(outcome) {
       return formatToolResultForModel(outcome);
     },

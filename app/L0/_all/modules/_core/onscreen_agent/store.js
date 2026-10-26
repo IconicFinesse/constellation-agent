@@ -8,6 +8,7 @@ import * as execution from "/modules/_core/onscreen_agent/execution.js";
 import { maybeObserveEngineSwapShadowTurn } from "/modules/_core/onscreen_agent/engine-swap-shadow.js";
 import {
   canonicalMessagesToTypedEntries,
+  isToolResultEntry,
   normalizeTypedHistoryFields,
   projectHistoryEntryForDisplay,
   projectHistoryEntryForPrompt,
@@ -5360,20 +5361,36 @@ const model = {
       };
     }
 
-    return runOnscreenTier1Turn({
-      api: this.runtime?.api || globalThis.space?.api || null,
-      apiEndpoint: String(this.settings.apiEndpoint || ""),
-      executionContext: this.executionContext,
-      initialMessages: messages,
-      model: String(this.settings.model || ""),
-      params: llmParams.parseOnscreenAgentParamsText(this.settings.paramsText || ""),
-      providerKey: "",
-      sendCompletion: async ({ request }) =>
-        agentApi.completeOnscreenAgentToolTurn({
-          requestBody: request.body,
-          settings: this.settings
-        })
-    });
+    // Stop reuses the ONE mechanism the text path already owns: `requestStop()`
+    // sets `stopRequested` and aborts `activeRequestController`. The loop consults
+    // the flag between iterations, and the controller's signal reaches the
+    // tool-turn fetch so an in-flight request is cut instead of waited out (P2
+    // audit non-blocker 3). No second stop source is introduced.
+    const controller = new AbortController();
+    this.activeRequestController = controller;
+
+    try {
+      return await runOnscreenTier1Turn({
+        api: this.runtime?.api || globalThis.space?.api || null,
+        apiEndpoint: String(this.settings.apiEndpoint || ""),
+        executionContext: this.executionContext,
+        initialMessages: messages,
+        isStopRequested: () => this.stopRequested === true,
+        model: String(this.settings.model || ""),
+        params: llmParams.parseOnscreenAgentParamsText(this.settings.paramsText || ""),
+        providerKey: "",
+        sendCompletion: async ({ request }) =>
+          agentApi.completeOnscreenAgentToolTurn({
+            requestBody: request.body,
+            settings: this.settings,
+            signal: controller.signal
+          })
+      });
+    } finally {
+      if (this.activeRequestController === controller) {
+        this.activeRequestController = null;
+      }
+    }
   },
 
   // Runs one whole Tier 1 turn and commits it to history as typed entries. Returns
@@ -5393,6 +5410,10 @@ const model = {
       if (this.engineSwapPendingHold) {
         session.cancelHeld?.();
         this.engineSwapTier1Session = null;
+        // The FIRST hold's confirm bar must go with the session it belonged to.
+        // Leaving it set left two buttons that both no-op on `!session`: an
+        // affordance that lied about being actionable (P2 audit non-blocker 1).
+        this.engineSwapPendingHold = null;
         this.engineSwapHeldMessages = null;
         this.history = [...requestMessages, ...tailEntries];
         await this.persistHistory({ immediate: true });
@@ -5424,6 +5445,14 @@ const model = {
       return "failed";
     }
 
+    // A stop is its own ended state, never a silent completion: the user asked
+    // for it, no further calls executed, and the submission series reports it.
+    if (result?.status === "stopped") {
+      this.status = "Stopped: the tool turn ended at your stop request.";
+      this.render();
+      return "stopped";
+    }
+
     const answer = String(result?.answer || "").trim();
 
     if (answer) {
@@ -5453,7 +5482,7 @@ const model = {
     const history = Array.isArray(this.history) ? [...this.history] : [];
     const index = history.findIndex(
       (entry, position) =>
-        entry?.kind === "tool_result" &&
+        isToolResultEntry(entry) &&
         String(entry?.toolResult?.callId || "") === String(toolCallId || "") &&
         position === history.length - 1
     );

@@ -26,6 +26,15 @@ import {
   removePromptSection,
   shapeSystemPromptForTier
 } from "../app/L0/_all/modules/_core/framework/js/engine-swap/prompt-shape.js";
+import {
+  canonicalMessagesToOpenAi,
+  createUserMessage
+} from "../app/L0/_all/modules/_core/framework/js/engine-swap/canonical.js";
+import {
+  TOOL_TURN_STOP_REASON,
+  runToolTurn
+} from "../app/L0/_all/modules/_core/framework/js/engine-swap/tool-turn-loop.js";
+import { extractToolCallsFromCompletion } from "../app/L0/_all/modules/_core/framework/js/engine-swap/tier1-session.js";
 
 const SYSTEM_PROMPT_URL = new URL(
   "../app/L0/_all/modules/_core/onscreen_agent/prompts/system-prompt.md",
@@ -127,25 +136,92 @@ test("the tool-list diagnostics line is deterministic and names the tools", () =
 });
 
 // --- the display contract at the representation level (plan §8) -----------
+//
+// P2 audit note 4: the previous version of this test asserted on a literal object
+// it had just constructed two lines above, so it could never fail. It now drives
+// the REAL loop with a scripted text-only completion and inspects the assembled
+// message tail, which is what would have to change for display text to manufacture
+// a call.
 
-test("a show-me-code answer carries no tool call at the representation level", () => {
-  // The plan's success shape: the user asks to SEE the code that would delete a
-  // file. The model answers in plain text. On Tier 1 the refusal to act is a
-  // representation fact: the assistant turn has content and zero tool calls.
-  const answer = "Here is the code that would delete the file:\n\n" +
-    "await space.api.fileDelete('~/notes.txt')\n\n" +
-    "I have not run it. Say the word and I will.";
+// The display turn is driven through the REAL chain the product uses: a provider
+// completion payload goes through `extractToolCallsFromCompletion`, then the loop,
+// then the canonical->wire transform. Anything that fabricates a call from display
+// text — extraction included — shows up in the assembled tail.
+async function runFencedDisplayTurn(displayText) {
+  const requests = [];
+  const payload = {
+    choices: [
+      {
+        finish_reason: "stop",
+        message: { content: displayText, tool_calls: [] }
+      }
+    ]
+  };
+  const extracted = extractToolCallsFromCompletion(payload);
+  const result = await runToolTurn({
+    dispatch: {
+      async dispatchToolCall() {
+        throw new Error("a display turn must never dispatch");
+      }
+    },
+    history: [createUserMessage("show me the code that would delete my notes file")],
+    sendTurn: async ({ messages }) => {
+      requests.push(messages);
+      // The loop receives exactly what extraction produced, as in the live path.
+      return extracted;
+    },
+    tools: [{ name: "file_delete" }]
+  });
 
-  // A show-me-code turn is one assistant message with text and no `toolCalls`.
-  const assistantTurn = { content: answer, role: "assistant" };
+  return { extracted, requests, result };
+}
 
-  assert.equal(assistantTurn.role, "assistant");
-  assert.ok(assistantTurn.content.includes("fileDelete"));
-  assert.equal("toolCalls" in assistantTurn, false, "displaying code must not produce a tool call");
+for (const [label, displayText] of [
+  [
+    "an unfenced show-me-code answer",
+    "Here is the code that would delete the file:\n\n" +
+      "await space.api.fileDelete('~/notes.txt')\n\n" +
+      "I have not run it. Say the word and I will."
+  ],
+  [
+    "a fenced show-me-code answer",
+    "Here is how I would do it:\n\n```js\nawait space.api.fileDelete('~/notes.txt')\n```"
+  ]
+]) {
+  test(`${label} carries no tool call at the representation level`, async () => {
+    const { extracted, requests, result } = await runFencedDisplayTurn(displayText);
 
-  // And the same holds for a fenced display, which is what a model naturally
-  // emits for a show-me request: fenced code is text, never a call.
-  const fencedAnswer = "Here is how I would do it:\n\n```js\nawait space.api.fileDelete('~/notes.txt')\n```";
+    assert.equal(result.reason, TOOL_TURN_STOP_REASON.ANSWERED);
+    assert.equal(requests.length, 1, "a display turn is one request and one answer");
 
-  assert.equal("toolCalls" in { content: fencedAnswer, role: "assistant" }, false);
-});
+    // (0) The extraction step itself must not read fenced display text as a call.
+    assert.equal(
+      extracted.toolCalls.length,
+      0,
+      "extraction must not manufacture a tool call from display text"
+    );
+
+    // (a) The assembled tail: no assistant message may carry calls.
+    const withCalls = result.messages.filter(
+      (message) => Array.isArray(message.toolCalls) && message.toolCalls.length
+    );
+
+    assert.deepEqual(withCalls, [], "displaying code must never produce a tool call message");
+
+    // (b) ...and nothing manufactures a `tool_calls` key on the WIRE either.
+    const wire = canonicalMessagesToOpenAi(result.messages);
+
+    assert.equal(
+      wire.some((message) => "tool_calls" in message),
+      false,
+      "no assistant wire message may carry tool_calls for a display turn"
+    );
+
+    // The display text itself survives verbatim — this is a representation test,
+    // not a content filter.
+    const final = result.messages[result.messages.length - 1];
+
+    assert.equal(final.role, "assistant");
+    assert.equal(final.content, displayText);
+  });
+}

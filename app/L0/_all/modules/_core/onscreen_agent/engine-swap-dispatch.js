@@ -145,6 +145,7 @@ export async function runOnscreenTier1Turn({
   executionContext = null,
   history = [],
   initialMessages = null,
+  isStopRequested = null,
   model = "",
   onEvent = null,
   params = {},
@@ -171,6 +172,7 @@ export async function runOnscreenTier1Turn({
     executionContext,
     history,
     initialMessages,
+    isStopRequested,
     logger: console,
     model,
     onEvent,
@@ -185,7 +187,9 @@ export async function runOnscreenTier1Turn({
 
   logOncePerConfig(shapeLine);
 
-  const result = await session.run();
+  // The SAME stop source the surface already owns (one mechanism, not a second
+  // one). The loop consults it between iterations and after a transport failure.
+  const result = await session.run({ isStopRequested });
 
   return Object.freeze({ result, session });
 }

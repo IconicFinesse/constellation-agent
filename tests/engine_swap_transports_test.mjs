@@ -180,8 +180,34 @@ test("request params merge into the body without disturbing the assembled shape"
 
   assert.equal(built.body.temperature, 0.2);
   assert.equal(built.body.model, "gpt-x");
-  assert.equal(built.body.stream, true);
+  // This request carries the launch tool list, so it IS a tool turn: the P2
+  // non-streamed boundary applies even though `request()` defaults to
+  // `stream: true` (P2 audit note 5). Before the contract was enforced this
+  // assertion read `true`, blessing the override the audit flagged. The text-turn
+  // case is pinned separately above.
+  assert.equal(built.body.stream, false);
   assert.equal(built.endpoint, "https://api.openai.com/v1/chat/completions");
+});
+
+// P2 audit note 5: the non-streamed boundary is a CONTRACT. A user param must
+// never push a tool turn into the streaming reader.
+test("a tool turn stays non-streamed even when params ask for streaming", () => {
+  const built = request({ params: { stream: true, temperature: 0.1 } });
+
+  assert.equal(built.body.stream, false, "a tool turn is non-streamed by contract");
+  assert.equal(built.body.temperature, 0.1, "unrelated params still merge");
+});
+
+// ...and the text path keeps today's behavior exactly: params may set `stream`.
+test("a text turn still honors a stream param", () => {
+  const streamed = request({ params: { stream: true }, tools: [] });
+
+  assert.equal(streamed.body.stream, true);
+  assert.equal("tools" in streamed.body, false);
+
+  const notStreamed = request({ params: { stream: false }, stream: true, tools: [] });
+
+  assert.equal(notStreamed.body.stream, false, "text turns keep param precedence over the default");
 });
 
 test("assembly is pure: identical inputs produce an identical request", () => {

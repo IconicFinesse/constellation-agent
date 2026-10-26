@@ -21,6 +21,7 @@ import {
   createToolResultEntry,
   describeHistoryEntryForRender,
   historyEntriesToCanonicalMessages,
+  isToolResultEntry,
   isTypedHistoryEntry,
   normalizeTypedHistoryFields,
   projectHistoryEntryForDisplay,
@@ -250,6 +251,22 @@ test("fromIndex maps only the tail a turn produced", () => {
 });
 
 // --- projection helpers ----------------------------------------------------
+
+// P2 audit note 6: the one surface-side shape branch moved here, so the branch
+// lives once, in THE reader. The helper must agree with the reader's own view.
+test("isToolResultEntry identifies results and nothing else", () => {
+  const call = createToolCallEntry({ arguments: {}, callId: "c1", name: "file_list" });
+  const result = createToolResultEntry({ callId: "c1", name: "file_list", payload: [] });
+
+  assert.equal(isToolResultEntry(result), true);
+  assert.equal(isToolResultEntry(call), false);
+  // Legacy message shapes are not results, whatever their role or kind.
+  assert.equal(isToolResultEntry({ content: "hi", id: "u1", kind: "", role: "user" }), false);
+  assert.equal(isToolResultEntry({ content: "x", kind: "execution-output", role: "user" }), false);
+  assert.equal(isToolResultEntry(null), false);
+  // It agrees with the reader on a stored (un-normalized) result entry.
+  assert.equal(isToolResultEntry({ kind: "tool_result", role: "user", toolResult: { callId: "c1" } }), true);
+});
 
 test("typed entries project onto the existing execution chip for render", () => {
   const call = createToolCallEntry({ arguments: { path: "~/a.txt" }, callId: "c1", name: "file_read" });

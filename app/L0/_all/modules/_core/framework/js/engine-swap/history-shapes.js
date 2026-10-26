@@ -41,6 +41,13 @@ export function isTypedHistoryEntry(entry) {
   return kind === HISTORY_ENTRY_KIND.TOOL_CALL || kind === HISTORY_ENTRY_KIND.TOOL_RESULT;
 }
 
+// True for a shape B tool-result entry. A consumer that needs to reason about a
+// result asks HERE rather than comparing the `kind` string itself, so the branch
+// keeps living once, in THE reader module (P2 audit note 6).
+export function isToolResultEntry(entry) {
+  return normalizeText(entry?.kind).trim() === HISTORY_ENTRY_KIND.TOOL_RESULT;
+}
+
 // THE reader. Returns one normalized view of an entry, whatever shape it arrived
 // in. Never returns null for a plain message, so callers can map without filters.
 export function readHistoryEntry(entry) {
