@@ -3,6 +3,11 @@ import {
   formatExecutionLogArgs,
   formatExecutionTranscriptValue
 } from "/modules/_core/framework/js/execution-format.js";
+import {
+  countExecutionSeparators as sharedCountExecutionSeparators,
+  extractExecuteBlocks as sharedExtractExecuteBlocks,
+  hasInlineExecutionSeparator as sharedHasInlineExecutionSeparator
+} from "/modules/_core/framework/js/execution-blocks.js";
 
 export const EXECUTION_SEPARATOR = "_____javascript";
 
@@ -24,83 +29,12 @@ function formatLoadedSkillResultText(skill) {
   return responseText || String(skill?.content || "").trim();
 }
 
-function findLineStart(content, index) {
-  let lineStart = index;
-
-  while (lineStart > 0 && content[lineStart - 1] !== "\n" && content[lineStart - 1] !== "\r") {
-    lineStart -= 1;
-  }
-
-  return lineStart;
-}
-
-function findLineEnd(content, index) {
-  let lineEnd = index;
-
-  while (lineEnd < content.length && content[lineEnd] !== "\n" && content[lineEnd] !== "\r") {
-    lineEnd += 1;
-  }
-
-  return lineEnd;
-}
-
-function isSeparatorLine(content, separatorIndex) {
-  const lineStart = findLineStart(content, separatorIndex);
-  const lineEnd = findLineEnd(content, separatorIndex + EXECUTION_SEPARATOR.length);
-
-  return (
-    !content.slice(lineStart, separatorIndex).trim() &&
-    !content.slice(separatorIndex + EXECUTION_SEPARATOR.length, lineEnd).trim()
-  );
-}
-
-function getCodeStart(content, separatorIndex) {
-  let codeStart = findLineEnd(content, separatorIndex + EXECUTION_SEPARATOR.length);
-
-  if (content.startsWith("\r\n", codeStart)) {
-    codeStart += 2;
-  } else if (content[codeStart] === "\n" || content[codeStart] === "\r") {
-    codeStart += 1;
-  }
-
-  return codeStart;
-}
-
-function findExecutionBlock(content) {
-  if (typeof content !== "string" || !content.trim()) {
-    return null;
-  }
-
-  let searchIndex = 0;
-
-  while (searchIndex < content.length) {
-    const separatorIndex = content.indexOf(EXECUTION_SEPARATOR, searchIndex);
-
-    if (separatorIndex === -1) {
-      return null;
-    }
-
-    if (isSeparatorLine(content, separatorIndex)) {
-      const index = findLineStart(content, separatorIndex);
-      const codeStart = getCodeStart(content, separatorIndex);
-
-      return {
-        code: content.slice(codeStart),
-        codeStart,
-        index,
-        raw: content.slice(index)
-      };
-    }
-
-    searchIndex = separatorIndex + EXECUTION_SEPARATOR.length;
-  }
-
-  return null;
-}
-
+// Extraction and separator accounting live in the shared fence-aware module so
+// the admin and onscreen surfaces cannot drift apart on the display/execute
+// contract. A separator inside a fenced region is display text and never starts
+// an execution; see framework/js/execution-blocks.js.
 export function extractExecuteBlocks(content) {
-  const block = findExecutionBlock(content);
-  return block ? [block] : [];
+  return sharedExtractExecuteBlocks(content, EXECUTION_SEPARATOR);
 }
 
 function createAsyncRunner(code) {
@@ -625,6 +559,24 @@ function createExecutionError(error) {
   };
 }
 
+// A plan correction is a result, not a thrown error: it reaches the transcript
+// through the same formatter as an execution failure, so the model sees the
+// protocol correction on its next turn. This mirrors the onscreen surface.
+function createPlanErrorResult(executionContext, message) {
+  const error = new Error(message);
+  error.name = "ExecutionPlanError";
+
+  return {
+    block: null,
+    error: createExecutionError(error),
+    logs: [],
+    result: undefined,
+    resultText: "",
+    runId: executionContext.runCount,
+    status: "error"
+  };
+}
+
 function createExecutionOutputSnapshot(result) {
   return {
     outputLines: formatExecutionResultLines(result),
@@ -704,6 +656,26 @@ export function createExecutionContext(options = {}) {
       };
     },
     async executeFromContent(content, options = {}) {
+      const separatorCount = sharedCountExecutionSeparators(content, EXECUTION_SEPARATOR);
+
+      if (separatorCount > 1) {
+        return [
+          createPlanErrorResult(
+            executionContext,
+            "Execution messages may contain _____javascript at most once, and it must appear on its own line."
+          )
+        ];
+      }
+
+      if (sharedHasInlineExecutionSeparator(content, EXECUTION_SEPARATOR)) {
+        return [
+          createPlanErrorResult(
+            executionContext,
+            "_____javascript must be on its own line. End the explanatory sentence, insert a newline, then place _____javascript alone on the next line."
+          )
+        ];
+      }
+
       const blocks = extractExecuteBlocks(content);
 
       if (!blocks.length) {

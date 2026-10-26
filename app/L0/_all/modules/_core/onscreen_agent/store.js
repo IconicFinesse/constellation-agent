@@ -1207,8 +1207,15 @@ function extractAssistantBubbleText(content) {
   }
 
   let normalizedContent = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const separator = typeof execution.EXECUTION_SEPARATOR === "string" ? execution.EXECUTION_SEPARATOR : "";
-  const separatorIndex = separator ? normalizedContent.indexOf(separator) : -1;
+  // Fence-aware: a fenced display that only shows the separator is content the
+  // user asked to see, so the bubble must render it in full instead of cutting
+  // the reply in half at the token.
+  const separatorIndex =
+    typeof execution.findExecutableSeparatorIndex === "function"
+      ? execution.findExecutableSeparatorIndex(normalizedContent)
+      : normalizedContent.indexOf(
+          typeof execution.EXECUTION_SEPARATOR === "string" ? execution.EXECUTION_SEPARATOR : ""
+        );
 
   if (separatorIndex !== -1) {
     normalizedContent = normalizedContent.slice(0, separatorIndex);
