@@ -9,7 +9,7 @@ check-in points, open decisions.
 Working evidence lives in the maintainer's local checkout: paths under
 `fixes/`, `prs/`, `worktrees/`, and `local/` are not tracked in this repository.
 
-Updated: 2026-10-25 — **`v1.2.0` ships the reliability line: the six bug classes from the fork's own lab and field use (onboarding copy, space duplication, long titles, git error mapping, imported titles, onscreen-agent tool calls) closed with failing-first tests. The image line stayed closed at `v1.1.4`. The next line is module intake — voice and llm-manager.**
+Updated: 2026-10-26 — **`v1.2.1` closes a consent-boundary defect in the agent execution model: a fenced code block shown to the user could execute for real once the `v1.2.0` compile rescue stripped the trailing fence line. Extraction and separator accounting are one shared fence-aware module for both agent surfaces now, and admin gained the plan guards it lacked. The next line is still module intake — voice and llm-manager.**
 
 ## Phase status
 

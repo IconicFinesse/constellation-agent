@@ -34,6 +34,27 @@ honestly provide, contract decisions now and content decisions from use.
 The fork began at upstream commit `10f4ffd` (tag `baseline-2026-06-08`, the v0.66
 era). Everything below diverges from that point.
 
+### `v1.2.1` — First Light
+
+A consent-boundary fix for the onscreen and admin agent execution model, found by
+the fork's own lab against `v1.2.0`.
+
+- **A code block shown to the user can no longer run.** Extraction scanned the raw
+  reply for the separator and treated everything after the first own-line hit as
+  code, fences invisible; once the `v1.2.0` compile rescue stripped a trailing
+  fence line, a tidy fenced display at the end of a reply executed for real. A
+  separator inside a backtick or tilde fence is display text now, an unterminated
+  fence stays display, and a winning block's body is never fence-scanned, so
+  executed code may legitimately contain fence-like text.
+- **One extractor instead of two divergent copies.** The onscreen and admin
+  surfaces share `framework/js/execution-blocks.js`. Admin also gains the
+  at-most-once and inline-separator plan guards it previously lacked: it ran both
+  separators in one reply and silently no-oped an inline one.
+- **The display path is no longer taxed.** A fenced display does not clear a
+  queued follow-up and the compact reply bubble renders it in full instead of
+  truncating at the token, and both system prompts state the contract: fenced
+  means display, unfenced means run.
+
 ### `v1.2.0` — First Light
 
 The reliability line. Everything the fork's own test lab and the owner's daily use
