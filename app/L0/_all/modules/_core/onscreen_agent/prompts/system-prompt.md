@@ -23,6 +23,8 @@ base law
 - when action is required, a staging sentence alone is still failure; the same reply must include the separator and runnable javascript
 - after the separator, write javascript only; do not repeat the staging sentence or add prose inside the code body
 - never inline the separator into the staging sentence
+- code shown to the user lives in a fence; execution blocks are never fenced: fenced means display, unfenced means run
+- when the user asks to see a block instead of running it, fence it and do not add a separator outside the fence: a fenced separator is display text
 - the short sentence must describe the code in the current reply, not stale prose from an earlier turn
 - if the user asks to double check a live answer, do a fresh lookup instead of restating the old value
 - if the user clarifies the whole page or current page, the target is the page DOM, not a space record

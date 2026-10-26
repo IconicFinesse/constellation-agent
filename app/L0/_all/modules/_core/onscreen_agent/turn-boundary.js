@@ -1,3 +1,5 @@
+import { hasExecutableExecutionSeparator } from "../framework/js/execution-blocks.js";
+
 export const ONSCREEN_AGENT_EXECUTION_SEPARATOR = "_____javascript";
 
 // A separator-less fenced reply earns at most one protocol correction per user
@@ -5,8 +7,10 @@ export const ONSCREEN_AGENT_EXECUTION_SEPARATOR = "_____javascript";
 // looping. Lives here so the pure helper file owns the whole fence contract.
 export const MAX_UNEXECUTED_FENCE_RETRY_COUNT = 1;
 
+// Fence-aware on purpose: a fenced display that merely shows the separator is
+// not pending execution output, so it must not clear a queued follow-up.
 export function hasOnscreenAgentExecutionSeparator(content) {
-  return typeof content === "string" && content.includes(ONSCREEN_AGENT_EXECUTION_SEPARATOR);
+  return hasExecutableExecutionSeparator(content, ONSCREEN_AGENT_EXECUTION_SEPARATOR);
 }
 
 export function resolveOnscreenAgentBoundaryAfterAssistantResponse(boundaryAction, assistantContent) {

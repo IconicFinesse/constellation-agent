@@ -8,6 +8,12 @@ import {
   formatExecutionLogArgs,
   formatExecutionTranscriptValue
 } from "/modules/_core/framework/js/execution-format.js";
+import {
+  countExecutionSeparators as sharedCountExecutionSeparators,
+  extractExecuteBlocks as sharedExtractExecuteBlocks,
+  findExecutableSeparatorIndex as sharedFindExecutableSeparatorIndex,
+  hasInlineExecutionSeparator as sharedHasInlineExecutionSeparator
+} from "/modules/_core/framework/js/execution-blocks.js";
 
 export const EXECUTION_SEPARATOR = ONSCREEN_AGENT_EXECUTION_SEPARATOR;
 
@@ -53,130 +59,26 @@ function formatLoadedSkillResultText(skill) {
   return responseText || String(skill?.content || "").trim();
 }
 
-function findLineStart(content, index) {
-  let lineStart = index;
-
-  while (lineStart > 0 && content[lineStart - 1] !== "\n" && content[lineStart - 1] !== "\r") {
-    lineStart -= 1;
-  }
-
-  return lineStart;
-}
-
-function findLineEnd(content, index) {
-  let lineEnd = index;
-
-  while (lineEnd < content.length && content[lineEnd] !== "\n" && content[lineEnd] !== "\r") {
-    lineEnd += 1;
-  }
-
-  return lineEnd;
-}
-
-function isSeparatorLine(content, separatorIndex) {
-  const lineStart = findLineStart(content, separatorIndex);
-  const lineEnd = findLineEnd(content, separatorIndex + EXECUTION_SEPARATOR.length);
-
-  return (
-    !content.slice(lineStart, separatorIndex).trim() &&
-    !content.slice(separatorIndex + EXECUTION_SEPARATOR.length, lineEnd).trim()
-  );
-}
-
-function getCodeStart(content, separatorIndex) {
-  let codeStart = findLineEnd(content, separatorIndex + EXECUTION_SEPARATOR.length);
-
-  if (content.startsWith("\r\n", codeStart)) {
-    codeStart += 2;
-  } else if (content[codeStart] === "\n" || content[codeStart] === "\r") {
-    codeStart += 1;
-  }
-
-  return codeStart;
-}
-
-function findExecutionBlock(content) {
-  if (typeof content !== "string" || !content.trim()) {
-    return null;
-  }
-
-  let searchIndex = 0;
-
-  while (searchIndex < content.length) {
-    const separatorIndex = content.indexOf(EXECUTION_SEPARATOR, searchIndex);
-
-    if (separatorIndex === -1) {
-      return null;
-    }
-
-    if (isSeparatorLine(content, separatorIndex)) {
-      const index = findLineStart(content, separatorIndex);
-      const codeStart = getCodeStart(content, separatorIndex);
-
-      return {
-        code: content.slice(codeStart),
-        codeStart,
-        index,
-        leadingText: content.slice(0, index).trim(),
-        raw: content.slice(index)
-      };
-    }
-
-    searchIndex = separatorIndex + EXECUTION_SEPARATOR.length;
-  }
-
-  return null;
-}
-
+// Extraction and separator accounting live in the shared fence-aware module so
+// the onscreen and admin surfaces cannot drift apart on the display/execute
+// contract. A separator inside a fenced region is display text and never starts
+// an execution; see framework/js/execution-blocks.js.
 export function extractExecuteBlocks(content) {
-  const block = findExecutionBlock(content);
-  return block ? [block] : [];
+  return sharedExtractExecuteBlocks(content, EXECUTION_SEPARATOR);
+}
+
+// Display helpers split a reply at the separator before rendering it. They use
+// this so a fenced display that merely shows the separator is never cut in half.
+export function findExecutableSeparatorIndex(content) {
+  return sharedFindExecutableSeparatorIndex(content, EXECUTION_SEPARATOR);
 }
 
 function countExecutionSeparators(content) {
-  if (typeof content !== "string" || !content) {
-    return 0;
-  }
-
-  let count = 0;
-  let searchIndex = 0;
-
-  while (searchIndex < content.length) {
-    const separatorIndex = content.indexOf(EXECUTION_SEPARATOR, searchIndex);
-
-    if (separatorIndex === -1) {
-      break;
-    }
-
-    count += 1;
-    searchIndex = separatorIndex + EXECUTION_SEPARATOR.length;
-  }
-
-  return count;
+  return sharedCountExecutionSeparators(content, EXECUTION_SEPARATOR);
 }
 
 function hasInlineExecutionSeparator(content) {
-  if (typeof content !== "string" || !content) {
-    return false;
-  }
-
-  let searchIndex = 0;
-
-  while (searchIndex < content.length) {
-    const separatorIndex = content.indexOf(EXECUTION_SEPARATOR, searchIndex);
-
-    if (separatorIndex === -1) {
-      return false;
-    }
-
-    if (!isSeparatorLine(content, separatorIndex)) {
-      return true;
-    }
-
-    searchIndex = separatorIndex + EXECUTION_SEPARATOR.length;
-  }
-
-  return false;
+  return sharedHasInlineExecutionSeparator(content, EXECUTION_SEPARATOR);
 }
 
 export function createExecutionPlanError(message) {
