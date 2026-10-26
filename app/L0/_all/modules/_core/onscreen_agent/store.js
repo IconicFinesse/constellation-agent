@@ -1375,6 +1375,11 @@ const model = {
   dragState: null,
   executionContext: null,
   executionOutputOverrides: Object.create(null),
+  // Tier 1 only: assistant message ids whose text carries an executable separator
+  // but was NEVER executed (the turn ended without a typed tool call). They render
+  // as a settled `Shown, not executed` chip instead of a running one. Cleared with
+  // the other per-turn render state so it can never outlive the turn it describes.
+  engineSwapDisplayOnlyMessageIds: new Set(),
   activeTurnRequestMessages: null,
   history: [],
   historyCheckpointAt: 0,
@@ -3251,6 +3256,12 @@ const model = {
 
   async replaceHistory(nextHistory, options = {}) {
     this.history = Array.isArray(nextHistory) ? [...nextHistory] : [];
+    // The display-only set DESCRIBES THE HISTORY, not the session, so it is
+    // re-derived on every replace — including the startup restore, which passes
+    // `refreshPrompt: false` and would otherwise return before any derivation ran.
+    // Without this a reload forgot which messages were never executed and their
+    // cards fell back to the label that claims `Executed N lines` (audit blocker 1).
+    this.syncEngineSwapDisplayOnlyIds(this.history);
     this.syncCurrentChatRuntime();
 
     if (options.refreshPrompt === false || (!this.defaultSystemPrompt && !this.isInitialized && !this.promptInput)) {
@@ -4090,6 +4101,7 @@ const model = {
     }
 
     agentView.renderMessages(this.refs.thread, this.getRenderHistory(), {
+      displayOnlyMessageIds: this.engineSwapDisplayOnlyMessageIds,
       isConversationBusy: this.isSending,
       outputOverrides: this.executionOutputOverrides,
       preserveScroll: options.preserveScroll === true,
@@ -4999,6 +5011,7 @@ const model = {
       refreshPrompt: false
     });
     this.executionOutputOverrides = Object.create(null);
+    this.engineSwapDisplayOnlyMessageIds = new Set();
     this.rerunningMessageId = "";
     this.stopRequested = false;
     this.activeTurnRequestMessages = null;
@@ -5251,6 +5264,9 @@ const model = {
             }
           );
           this.executionOutputOverrides = Object.create(null);
+          // Compaction replaces the thread with one summary entry, so the ids that
+          // described the old chips describe nothing now.
+          this.engineSwapDisplayOnlyMessageIds = new Set();
           this.rerunningMessageId = "";
           await this.replaceHistory([compactedMessage]);
           await this.persistHistory({
@@ -5393,12 +5409,86 @@ const model = {
     }
   },
 
-  // Runs one whole Tier 1 turn and commits it to history as typed entries. Returns
-  // the same outcome vocabulary the Tier 3 loop uses so callers need no new branch.
+  // Assistant text that carries an executable execution separator was SHOWN, not run.
+  //
+  // On Tier 1 nothing ever executes separator text: execution happens only through a
+  // typed tool call. So a reply that answers with separator prose ends the turn with
+  // no result coming, and a chip waiting for one would wait forever. Recording those
+  // ids makes the chip settle at `Shown, not executed` instead of spinning.
+  //
+  // The separator test is the SHARED fence-aware one: a separator inside a fence is
+  // display text and never starts an execution, and a second copy of fence logic is
+  // the BUG-007 anti-pattern.
+  //
+  // THE ONE derivation, used by the Tier 1 commit, by history restore and by a rerun.
+  // Deriving instead of remembering is the whole point: the set describes PERSISTED
+  // history, so it must survive a reload. Persisted ids are kept verbatim
+  // (`assistant-<n>`), so the same inputs derive the same ids and nothing is stored
+  // twice.
+  //
+  // Eligibility is three conditions, not two:
+  //   - assistant text (only assistant entries render a chip),
+  //   - carrying an EXECUTABLE separator (fenced separators are display),
+  //   - with NO execution results. A message that really executed — a Tier 3 turn
+  //     with its `execution-output` follow-up, or any message with a results
+  //     override — must keep its executed label. Without this condition a reload
+  //     would relabel real executions as `Shown, not executed`.
+  collectEngineSwapDisplayOnlyIds(entries, outputOverrides = null) {
+    const ids = new Set();
+    const list = Array.isArray(entries) ? entries : [];
+    const overrides = outputOverrides && typeof outputOverrides === "object" ? outputOverrides : {};
+
+    for (let index = 0; index < list.length; index += 1) {
+      const entry = list[index];
+
+      if (entry?.role !== "assistant" || typeof entry?.content !== "string" || !entry.id) {
+        continue;
+      }
+
+      if (execution.findExecutableSeparatorIndex(entry.content) === -1) {
+        continue;
+      }
+
+      const overrideResults = overrides[entry.id];
+      const hasOverrideResults = Array.isArray(overrideResults) && overrideResults.length > 0;
+      // The other results shape: the framework follow-up turn written under the
+      // assistant message by the text protocol (Tier 3) after real execution.
+      const next = list[index + 1];
+      const hasFollowUpResults = Boolean(next) && isFrameworkFollowUpKind(next.kind);
+
+      if (!hasOverrideResults && !hasFollowUpResults) {
+        ids.add(String(entry.id));
+      }
+    }
+
+    return ids;
+  },
+
+  // Applies the shared derivation to a history snapshot. Deterministic by design:
+  // calling it twice with the same inputs yields the same set, so restore cannot
+  // drift from commit and a rerun can truthfully REMOVE an id.
+  syncEngineSwapDisplayOnlyIds(history, outputOverrides = null) {
+    this.engineSwapDisplayOnlyMessageIds = this.collectEngineSwapDisplayOnlyIds(
+      history,
+      outputOverrides || this.executionOutputOverrides
+    );
+
+    return this.engineSwapDisplayOnlyMessageIds;
+  },
+
   async runTier1TurnAndCommit(requestMessages, preparedRequest, plan) {
     const baseline = Array.isArray(preparedRequest?.messages) ? preparedRequest.messages.length : 0;
     const { result, session } = await this.runTier1ConversationTurn(requestMessages, preparedRequest, plan);
     const tailEntries = canonicalMessagesToTypedEntries(result?.messages || [], { fromIndex: baseline });
+
+    // Derived from the WHOLE composed history with the one shared collector, the
+    // same call the restore path makes. A union with the previous set could only
+    // ever add ids: it could not see that a message had since acquired results, and
+    // it could not match what a reload would compute. Determinism here is what lets
+    // commit and restore agree (audit blocker 1).
+    const composedHistory = [...requestMessages, ...tailEntries];
+
+    this.syncEngineSwapDisplayOnlyIds(composedHistory);
 
     if (result?.status === "held") {
       // The destructive call is HELD: nothing executed, and the chat now renders an
@@ -6037,6 +6127,11 @@ const model = {
       }
 
       this.executionOutputOverrides[messageId] = execution.createExecutionOutputSnapshots(executionResults);
+      // A rerun makes the message EXECUTED, so it can no longer be "shown, not
+      // executed". Re-deriving from the same shared eligibility (which requires no
+      // results) drops the id, and the card's label, icon and output pane then all
+      // describe the real execution instead of contradicting it (audit non-blocker 2).
+      this.syncEngineSwapDisplayOnlyIds(this.history);
       this.status = "Execution refreshed.";
     } catch (error) {
       this.reportError("rerunning an execution block", error);
