@@ -136,7 +136,11 @@ export const LAUNCH_TOOL_RECORDS = Object.freeze([
     deferrable: false,
     description:
       "Run one JavaScript block against the Constellation Agent runtime. Composition, batching, DOM work, spaces, and self-verification live here. Return the value the caller needs; console output is captured separately.",
-    handler: "space.runtime.executeCode",
+    // A tool call carries one complete code block, so it maps to the execution
+    // context's single-block runner in `onscreen_agent/execution.js`. The Tier 3
+    // text protocol still enters through `executeFromContent`, which is the
+    // surface's parser, not the tool's handler.
+    handler: "/modules/_core/onscreen_agent/execution.js#execute",
     name: "run_code",
     riskClass: TOOL_RISK_CLASS.WRITE,
     riskClassNote:
@@ -167,6 +171,13 @@ export function toStrictSchema(schema) {
       property.type = Array.isArray(property.type)
         ? [...new Set([...property.type, "null"])]
         : [property.type || "string", "null"];
+
+      // Strict mode requires every property, so an optional enum'd field with a
+      // null-less enum would have no legal sendable value. The widened type and
+      // the enum must agree, or the schema is a dead end for the model.
+      if (Array.isArray(property.enum) && !property.enum.includes(null)) {
+        property.enum = [...property.enum, null];
+      }
     }
 
     properties[name] = Object.freeze(property);

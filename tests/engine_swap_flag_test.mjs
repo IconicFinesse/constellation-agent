@@ -126,6 +126,48 @@ test("ON records a compared turn and flush returns the three artifacts", async (
   assert.match(logged[0], /^\[engine-swap\] provider=neuralwatt model=deepseek-v4\.1-flash tier=tier1 /u);
 });
 
+// The missing test class the audit named: drive the bridge with the shape the
+// live call site actually uses (settled identity + runtime envelope), not with
+// fields supplied straight to the session. If the threading is removed from the
+// bridge, this fails — which is the point.
+test("the live call shape threads identity and runtime into the artifact", async (t) => {
+  const previousSpace = globalThis.space;
+  const previousInfo = console.info;
+
+  t.after(() => {
+    console.info = previousInfo;
+    restoreGlobal("space", previousSpace);
+    bridge.resetEngineSwapShadowForTests();
+  });
+
+  console.info = () => {};
+  globalThis.space = stubRuntime(true);
+  bridge.resetEngineSwapShadowForTests();
+
+  bridge.maybeObserveEngineSwapShadowTurn({
+    assistantContent: "Writing.\n_____javascript\nawait space.api.fileWrite({ path: '~/notes.txt', content: 'hi' });",
+    executionResults: [
+      { block: { code: "await space.api.fileWrite({ path: '~/notes.txt', content: 'hi' });" } }
+    ],
+    runtime: { appCommit: "abc1234", appVersion: "1.2.1" },
+    separator: "_____javascript",
+    settings: { model: "deepseek-v4.1-flash" },
+    username: "brauk"
+  });
+
+  const artifacts = await bridge.flushShadowArtifacts();
+  const manifest = JSON.parse(artifacts.manifest);
+  const line = JSON.parse(artifacts.sessions.trim());
+
+  // Non-empty version context: the bridge must pass the runtime envelope on.
+  assert.equal(manifest.app_commit, "abc1234");
+  assert.equal(manifest.app_version, "1.2.1");
+
+  // Own-user collapse applied with the settled identity, not a no-op.
+  assert.equal(line.tier1_calls[0].args_normalized.path, "L2/brauk/notes.txt");
+  assert.equal(JSON.stringify(line).includes("\"~/notes.txt\""), false, "no uncollapsed ~/ path may reach the artifact");
+});
+
 test("a fenced display turn under ON classifies as suppressed-display and still passes", async (t) => {
   const previousSpace = globalThis.space;
   const previousInfo = console.info;

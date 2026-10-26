@@ -50,7 +50,14 @@ export function buildRequest({
   stream = true,
   tools = []
 } = {}) {
-  const capabilities = resolveCapabilities({ model, provider: providerKey });
+  // The endpoint travels with the request so a provider that is not named
+  // explicitly still resolves from its host; without it, host-based resolution
+  // would silently degrade to `unknown` at this entry point.
+  const capabilities = resolveCapabilities({
+    apiEndpoint: endpoint,
+    model,
+    provider: providerKey
+  });
   const variant = OPENAI_SHAPE_VARIANTS[capabilities.provider] || null;
   const body = {
     messages: canonicalMessagesToOpenAi(messages),

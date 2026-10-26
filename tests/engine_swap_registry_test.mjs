@@ -111,12 +111,30 @@ test("strict-capable providers get widened schemas, others get the plain schema"
   assert.deepEqual([...looseWrite.parameters.required], ["path", "content"]);
 });
 
-test("toStrictSchema widens optional fields instead of dropping them", () => {
+test("toStrictSchema widens optional enum fields so null is legal in both type and enum", () => {
   const strict = toStrictSchema(LAUNCH_TOOL_RECORDS.find((record) => record.name === "file_read").schema);
 
   assert.deepEqual([...strict.required], ["encoding", "path"]);
   assert.deepEqual(strict.properties.encoding.type, ["string", "null"]);
+  // Strict mode requires every property, so an enum without null would leave
+  // the model no legal way to express "omit". Both must agree.
+  assert.deepEqual(strict.properties.encoding.enum, ["utf8", "base64", null]);
   assert.equal(strict.additionalProperties, false);
+});
+
+test("no strict-mode optional enum field is left unsendable", () => {
+  for (const record of LAUNCH_TOOL_RECORDS) {
+    const strict = toStrictSchema(record.schema);
+
+    for (const [name, property] of Object.entries(strict.properties)) {
+      if (!Array.isArray(property.enum)) {
+        continue;
+      }
+
+      assert.ok(property.enum.includes(null), `${record.name}.${name} enum must include null under strict mode`);
+      assert.ok(property.type.includes("null"), `${record.name}.${name} type must include null under strict mode`);
+    }
+  }
 });
 
 test("the dispatch-table stub never executes anything", () => {
@@ -228,6 +246,45 @@ test("every file_delete argument name exists in the live endpoint source", async
 
   for (const name of Object.keys(schema.properties)) {
     assert.ok(source.includes(`payload.${name}`), `file_delete.js must still read the ${name} argument`);
+  }
+});
+
+// Handler refs are identifiers too. An invented ref (a namespace that does not
+// exist) is the same defect family as a drifted enum, so it is gated the same
+// way: every ref must resolve against real product source.
+test("every registry handler ref resolves to a real product identifier", async () => {
+  const apiClientSource = await readSource(new URL("../app/L0/_all/modules/_core/framework/js/api-client.js", import.meta.url));
+  const apiReturnStart = apiClientSource.lastIndexOf("return {");
+  const apiReturnBlock = apiClientSource.slice(apiReturnStart, apiClientSource.indexOf("};", apiReturnStart));
+
+  assert.ok(apiReturnStart > -1, "api-client must expose its public surface as a returned object");
+
+  for (const record of LAUNCH_TOOL_RECORDS) {
+    const apiMatch = /^space\.api\.([A-Za-z_$][\w$]*)$/u.exec(record.handler);
+
+    if (apiMatch) {
+      // The public surface is the object api-client returns; a method that is
+      // not a key there is an invented namespace, whatever it looks like.
+      assert.ok(
+        apiReturnBlock.includes(`${apiMatch[1]},`) || apiReturnBlock.includes(`${apiMatch[1]}:`),
+        `${record.name} handler ${record.handler} must name a real space.api method`
+      );
+      continue;
+    }
+
+    const moduleMatch = /^\/modules\/(.+)#([A-Za-z_$][\w$]*)$/u.exec(record.handler);
+
+    assert.ok(moduleMatch, `${record.name} handler must be space.api.<method> or /modules/<path>#<symbol>, got ${record.handler}`);
+
+    const moduleSource = await readSource(new URL(`../app/L0/_all/modules/${moduleMatch[1]}`, import.meta.url));
+    const symbol = moduleMatch[2];
+
+    assert.ok(
+      moduleSource.includes(`function ${symbol}(`) ||
+        moduleSource.includes(`async ${symbol}(`) ||
+        moduleSource.includes(`${symbol}:`),
+      `${record.name} handler ${record.handler} must name a real function in that module`
+    );
   }
 });
 

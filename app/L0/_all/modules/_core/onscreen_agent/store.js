@@ -5266,7 +5266,10 @@ const model = {
       assistantContent,
       executionResults,
       separator: execution.EXECUTION_SEPARATOR,
-      settings: this.settings
+      settings: this.settings,
+      // The surface's own identity state (loaded from userSelfInfo at init) so
+      // the own-user collapse rule applies to live artifacts.
+      username: this.uiStateOwner
     });
 
     if (!executionResults.length) {

@@ -86,21 +86,21 @@ function resolveConfigIdentity(settings) {
   return `${provider}/${model || "unknown"}`;
 }
 
-async function ensureShadowSession(runtime) {
+async function ensureShadowSession({ runtime = null, settings = null } = {}) {
   if (shadowSession) {
     return shadowSession;
   }
 
   const loaded = await loadShadowRuntime();
   const resolution = loaded.capabilities.resolveCapabilities({
-    apiEndpoint: runtime?.settings?.apiEndpoint,
-    model: runtime?.settings?.model
+    apiEndpoint: settings?.apiEndpoint,
+    model: settings?.model
   });
 
   shadowSession = loaded.session.createShadowSession({
     appCommit: String(runtime?.appCommit || ""),
     appVersion: String(runtime?.appVersion || ""),
-    configId: resolveConfigIdentity(runtime?.settings),
+    configId: resolveConfigIdentity(settings),
     runId: `p1-onscreen-${Date.now().toString(36)}`,
     suite: "live-shadow",
     surface: ONSCREEN_ENGINE_SWAP_SURFACE
@@ -127,15 +127,17 @@ async function ensureShadowSession(runtime) {
 export function maybeObserveEngineSwapShadowTurn({
   assistantContent = "",
   executionResults = [],
+  runtime = null,
   separator = "",
-  settings = null
+  settings = null,
+  username = ""
 } = {}) {
   if (resolveEngineSwapMode() !== ENGINE_SWAP_MODE.SHADOW) {
     return;
   }
 
   const observation = (async () => {
-    const session = await ensureShadowSession({ settings });
+    const session = await ensureShadowSession({ runtime, settings });
 
     if (observedTurnCount >= ENGINE_SWAP_SHADOW_MAX_TURNS) {
       return;
@@ -150,7 +152,8 @@ export function maybeObserveEngineSwapShadowTurn({
       separator: String(separator || ""),
       sessionId: getSessionId(),
       tier1Calls: calls,
-      tier3Blocks: blocks
+      tier3Blocks: blocks,
+      username: String(username || "")
     });
 
     observedTurnCount += 1;
