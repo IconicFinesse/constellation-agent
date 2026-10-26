@@ -84,3 +84,9 @@ USER_FOLDER_SIZE_LIMIT_BYTES:
   allowed: [0..9007199254740991]
   default: 0
   frontend_exposed: false
+ENGINE_SWAP_SHADOW:
+  description: Observe the engine-swap transport layer in shadow mode. When false (default) the layer is completely inert and chat runs the existing text protocol exactly as today; when true chat behavior is unchanged and the layer records what the tool-call tier would have sent as ca.shadow-diff/1 artifacts.
+  type: boolean
+  allowed: [true, false]
+  default: false
+  frontend_exposed: true

@@ -160,4 +160,4 @@ Rules:
 
 ## Child DOX Index
 
-- No child DOX docs.
+- [js/engine-swap/AGENTS.md](js/engine-swap/AGENTS.md) - shared transport and tool-registry layer for the LLM action-envelope upgrade: the single capability seam, tool records, shadow-diff artifacts, and the `ENGINE_SWAP_SHADOW` flag.

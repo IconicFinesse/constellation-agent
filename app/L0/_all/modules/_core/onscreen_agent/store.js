@@ -5,6 +5,7 @@ import {
   rebalancePromptBudgetRatios
 } from "/modules/_core/agent_prompt/prompt-items.js";
 import * as execution from "/modules/_core/onscreen_agent/execution.js";
+import { maybeObserveEngineSwapShadowTurn } from "/modules/_core/onscreen_agent/engine-swap-shadow.js";
 import * as agentLlm from "/modules/_core/onscreen_agent/llm.js";
 import * as llmParams from "/modules/_core/onscreen_agent/llm-params.js";
 import * as skills from "/modules/_core/onscreen_agent/skills.js";
@@ -5256,6 +5257,19 @@ const model = {
 
         this.status = getExecutionStatusText(code, index, total);
       }
+    });
+
+    // Engine-swap P1 shadow observation. Inert unless ENGINE_SWAP_SHADOW is on:
+    // the helper returns before importing anything when the flag is off, and it
+    // never changes the results this turn returns.
+    maybeObserveEngineSwapShadowTurn({
+      assistantContent,
+      executionResults,
+      separator: execution.EXECUTION_SEPARATOR,
+      settings: this.settings,
+      // The surface's own identity state (loaded from userSelfInfo at init) so
+      // the own-user collapse rule applies to live artifacts.
+      username: this.uiStateOwner
     });
 
     if (!executionResults.length) {
