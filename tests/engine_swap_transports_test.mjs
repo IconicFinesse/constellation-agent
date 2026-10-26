@@ -87,7 +87,7 @@ test("canonical messages reach the wire in the OpenAI shape", () => {
   assert.deepEqual(JSON.parse(wire[1].tool_calls[0].function.arguments), { path: "~/notes.txt" });
 });
 
-test("a strict-capable provider request carries strict tool schemas", () => {
+test("a strict-capable provider request carries fully strict tool schemas", () => {
   const built = request();
 
   assert.equal(built.provider, "openai");
@@ -95,6 +95,43 @@ test("a strict-capable provider request carries strict tool schemas", () => {
   assert.ok(built.body.tools.every((tool) => tool.function.strict === true));
   assert.ok(built.body.tools.every((tool) => tool.type === "function"));
   assert.equal(built.body.parallel_tool_calls, true);
+
+  // `strict: true` is a promise about the SHAPE, not just a flag. A definition
+  // whose `required` omits optional properties, or whose optional enum carries no
+  // null, is a dead end: strict mode requires every property, so those values
+  // could never legally be sent. Audit-2 finding 1 was exactly this, blessed by
+  // the previous version of this test.
+  built.body.tools.forEach((tool) => {
+    const parameters = tool.function.parameters;
+    const propertyNames = Object.keys(parameters.properties || {});
+
+    assert.deepEqual(
+      [...parameters.required].sort(),
+      [...propertyNames].sort(),
+      `${tool.function.name}: strict requires every property to be listed in required`
+    );
+
+    propertyNames.forEach((name) => {
+      const property = parameters.properties[name];
+      const declaredTypes = Array.isArray(property.type) ? property.type : [property.type];
+      const isRequired = parameters.required.includes(name);
+
+      if (!isRequired) {
+        assert.ok(declaredTypes.includes("null"), `${tool.function.name}.${name}: optional strict property must accept null`);
+      }
+
+      if (Array.isArray(property.enum)) {
+        const enumAcceptsNull = property.enum.includes(null);
+        const typeAcceptsNull = declaredTypes.includes("null");
+
+        assert.equal(
+          enumAcceptsNull,
+          typeAcceptsNull,
+          `${tool.function.name}.${name}: type and enum must agree about null`
+        );
+      }
+    });
+  });
 });
 
 test("a non-strict provider request omits strict and follows the seam for parallel calls", () => {

@@ -1,0 +1,448 @@
+// One shared reader for chat history entries, in every shape the product has ever
+// written (plan §3.5, plus the rename-rule discipline: reads accept both, writes
+// use the new one).
+//
+// Shape A — legacy text protocol (every history on disk today, forever):
+//
+//   { id, role: "user"|"assistant", content, kind?: "execution-output"|..., attachments }
+//
+// Shape B — typed tool entries (new in P2):
+//
+//   { id, role: "assistant", kind: "tool_call",    toolCall:   { name, arguments, callId } }
+//   { id, role: "user",      kind: "tool_result",  toolResult: { callId, name, payload }
+//                                                   | { callId, name, error } }
+//
+// Existing text-protocol histories are NEVER rewritten. A reader that cannot
+// handle shape A is a data-loss bug, and scattered `if (kind === ...)` branches in
+// consumers are the second-copy anti-pattern. So the branch lives here once and
+// everything — prompt assembly, rendering, persistence — reads through it.
+
+import {
+  createAssistantTextMessage,
+  createAssistantToolCallMessage,
+  createToolResultMessage,
+  createUserMessage
+} from "./canonical.js";
+
+export const HISTORY_ENTRY_KIND = Object.freeze({
+  MESSAGE: "message",
+  TOOL_CALL: "tool_call",
+  TOOL_RESULT: "tool_result"
+});
+
+function normalizeText(value) {
+  return typeof value === "string" ? value : "";
+}
+
+// True for shape B entries. Anything else is a legacy message entry.
+export function isTypedHistoryEntry(entry) {
+  const kind = normalizeText(entry?.kind).trim();
+
+  return kind === HISTORY_ENTRY_KIND.TOOL_CALL || kind === HISTORY_ENTRY_KIND.TOOL_RESULT;
+}
+
+// THE reader. Returns one normalized view of an entry, whatever shape it arrived
+// in. Never returns null for a plain message, so callers can map without filters.
+export function readHistoryEntry(entry) {
+  const kind = normalizeText(entry?.kind).trim();
+
+  if (kind === HISTORY_ENTRY_KIND.TOOL_CALL) {
+    const toolCall = entry?.toolCall && typeof entry.toolCall === "object" ? entry.toolCall : {};
+
+    return Object.freeze({
+      callId: normalizeText(toolCall.callId),
+      content: "",
+      id: normalizeText(entry?.id),
+      kind: HISTORY_ENTRY_KIND.TOOL_CALL,
+      name: normalizeText(toolCall.name),
+      arguments: toolCall.arguments && typeof toolCall.arguments === "object" ? toolCall.arguments : {},
+      role: "assistant",
+      toolResult: null
+    });
+  }
+
+  if (kind === HISTORY_ENTRY_KIND.TOOL_RESULT) {
+    const toolResult = entry?.toolResult && typeof entry.toolResult === "object" ? entry.toolResult : {};
+
+    return Object.freeze({
+      callId: normalizeText(toolResult.callId),
+      content: "",
+      error: toolResult.error && typeof toolResult.error === "object" ? toolResult.error : null,
+      id: normalizeText(entry?.id),
+      kind: HISTORY_ENTRY_KIND.TOOL_RESULT,
+      name: normalizeText(toolResult.name),
+      payload: toolResult.payload,
+      role: "user",
+      toolResult
+    });
+  }
+
+  return Object.freeze({
+    attachments: Array.isArray(entry?.attachments) ? entry.attachments : [],
+    callId: "",
+    content: normalizeText(entry?.content),
+    id: normalizeText(entry?.id),
+    kind: HISTORY_ENTRY_KIND.MESSAGE,
+    messageKind: kind,
+    role: entry?.role === "assistant" ? "assistant" : "user",
+    toolResult: null
+  });
+}
+
+export function readHistoryEntries(entries) {
+  return (Array.isArray(entries) ? entries : []).map((entry) => readHistoryEntry(entry));
+}
+
+// Writer: shape B tool call. Writes ONLY the new shape.
+export function createToolCallEntry({ arguments: args = {}, callId = "", id = "", name = "" } = {}) {
+  return Object.freeze({
+    id: normalizeText(id) || `tool-call-${String(callId || name || Date.now())}`,
+    kind: HISTORY_ENTRY_KIND.TOOL_CALL,
+    role: "assistant",
+    toolCall: Object.freeze({
+      arguments: Object.freeze({ ...(args || {}) }),
+      callId: normalizeText(callId),
+      name: normalizeText(name)
+    })
+  });
+}
+
+// Writer: shape B tool result. Exactly one of `payload` / `error` is meaningful.
+export function createToolResultEntry({ callId = "", error = null, id = "", name = "", payload } = {}) {
+  const result = { callId: normalizeText(callId), name: normalizeText(name) };
+
+  if (error && typeof error === "object") {
+    result.error = Object.freeze({
+      class: normalizeText(error.class),
+      coaching: normalizeText(error.coaching),
+      message: normalizeText(error.message)
+    });
+  } else {
+    result.payload = payload === undefined ? null : payload;
+  }
+
+  return Object.freeze({
+    id: normalizeText(id) || `tool-result-${String(callId || name || Date.now())}`,
+    kind: HISTORY_ENTRY_KIND.TOOL_RESULT,
+    role: "user",
+    toolResult: Object.freeze(result)
+  });
+}
+
+// History -> canonical OpenAI-shaped messages for a Tier 1 request.
+//
+// Legacy message entries become ordinary user/assistant text. Typed entries become
+// assistant tool_calls and tool results with the originating call id. Consecutive
+// tool results after one assistant tool-call message are grouped exactly as the
+// wire contract expects.
+//
+export function historyEntriesToCanonicalMessages(entries) {
+  const messages = [];
+
+  readHistoryEntries(entries).forEach((entry) => {
+    if (entry.kind === HISTORY_ENTRY_KIND.TOOL_CALL) {
+      messages.push(
+        createAssistantToolCallMessage({
+          toolCalls: [{ arguments: entry.arguments, id: entry.callId, name: entry.name }]
+        })
+      );
+      return;
+    }
+
+    if (entry.kind === HISTORY_ENTRY_KIND.TOOL_RESULT) {
+      const content = entry.error
+        ? `error (${entry.error.class || "execution"}): ${entry.error.coaching || entry.error.message || "failed"}`
+        : JSON.stringify(entry.payload ?? null);
+
+      messages.push(
+        createToolResultMessage({
+          content,
+          isError: Boolean(entry.error),
+          toolCallId: entry.callId
+        })
+      );
+      return;
+    }
+
+    if (!entry.content.trim()) {
+      return;
+    }
+
+    messages.push(
+      entry.role === "assistant" ? createAssistantTextMessage(entry.content) : createUserMessage(entry.content)
+    );
+  });
+
+  return Object.freeze(messages);
+}
+
+// Canonical message list -> typed history entries, starting at `fromIndex`.
+//
+// A Tier 1 session works in canonical messages (system / user / assistant-with-
+// toolCalls / tool). The surface stores history entries. This is the one mapping
+// between them: an assistant message with calls becomes one `tool_call` entry per
+// call, a `tool` message becomes a `tool_result`, and assistant text stays a plain
+// message. Legacy entries already in history are never touched — only the tail the
+// turn produced is mapped.
+export function canonicalMessagesToTypedEntries(messages, { fromIndex = 0 } = {}) {
+  const list = Array.isArray(messages) ? messages : [];
+  const start = Number.isFinite(fromIndex) ? Math.max(0, Math.floor(fromIndex)) : 0;
+  const entries = [];
+
+  list.slice(start).forEach((message, offset) => {
+    const index = start + offset;
+
+    if (message?.role === "assistant" && Array.isArray(message.toolCalls) && message.toolCalls.length) {
+      message.toolCalls.forEach((call) => {
+        entries.push(
+          createToolCallEntry({
+            arguments: call.arguments || {},
+            callId: call.id,
+            id: `tool-call-${call.id || index}`,
+            name: call.name
+          })
+        );
+      });
+      return;
+    }
+
+    if (message?.role === "tool") {
+      const content = normalizeText(message.content);
+      const isError = message.isError === true || content.startsWith("error (") || content.startsWith("policy:");
+
+      if (isError) {
+        // Preserve the two faces: class from the coaching prefix, coaching body.
+        const classMatch = /^error \(([a-z]+)\): /u.exec(content);
+
+        entries.push(
+          createToolResultEntry({
+            callId: message.toolCallId,
+            error: {
+              class: classMatch ? classMatch[1] : "policy",
+              coaching: classMatch ? content.slice(classMatch[0].length) : content,
+              message: content.split("\n")[0]
+            },
+            id: `tool-result-${message.toolCallId || index}`,
+            name: ""
+          })
+        );
+        return;
+      }
+
+      let payload = content;
+
+      if (content.startsWith("ok: ")) {
+        try {
+          payload = JSON.parse(content.slice(4));
+        } catch {
+          payload = content.slice(4);
+        }
+      }
+
+      entries.push(
+        createToolResultEntry({
+          callId: message.toolCallId,
+          id: `tool-result-${message.toolCallId || index}`,
+          payload
+        })
+      );
+      return;
+    }
+
+    if (message?.role === "assistant" && normalizeText(message.content).trim()) {
+      entries.push(
+        Object.freeze({
+          content: normalizeText(message.content),
+          id: `assistant-${index}`,
+          kind: "",
+          role: "assistant"
+        })
+      );
+    }
+  });
+
+  return Object.freeze(entries);
+}
+
+// Persistence mapping, used by BOTH the writer and the reader so they cannot
+// drift. Returns `{}` for a legacy message: its stored shape stays byte-identical
+// to before, with no new keys.
+export function serializeTypedHistoryFields(entry) {
+  const read = readHistoryEntry(entry);
+
+  if (read.kind === HISTORY_ENTRY_KIND.TOOL_CALL) {
+    return Object.freeze({
+      toolCall: Object.freeze({
+        arguments: { ...(read.arguments || {}) },
+        callId: read.callId,
+        name: read.name
+      })
+    });
+  }
+
+  if (read.kind === HISTORY_ENTRY_KIND.TOOL_RESULT) {
+    const toolResult = { callId: read.callId, name: read.name };
+
+    if (read.error) {
+      toolResult.error = {
+        class: normalizeText(read.error.class),
+        coaching: normalizeText(read.error.coaching),
+        message: normalizeText(read.error.message)
+      };
+    } else {
+      toolResult.payload = read.payload === undefined ? null : read.payload;
+    }
+
+    return Object.freeze({ toolResult: Object.freeze(toolResult) });
+  }
+
+  return Object.freeze({});
+}
+
+// Inverse of the mapping above, applied when a stored entry is read back. A legacy
+// stored message has neither field, so this answers `{}` and its normalized shape
+// is unchanged.
+export function normalizeTypedHistoryFields(stored) {
+  const fields = {};
+
+  if (stored?.toolCall && typeof stored.toolCall === "object") {
+    fields.toolCall = Object.freeze({
+      arguments:
+        stored.toolCall.arguments && typeof stored.toolCall.arguments === "object"
+          ? { ...stored.toolCall.arguments }
+          : {},
+      callId: normalizeText(stored.toolCall.callId),
+      name: normalizeText(stored.toolCall.name)
+    });
+  }
+
+  if (stored?.toolResult && typeof stored.toolResult === "object") {
+    const toolResult = {
+      callId: normalizeText(stored.toolResult.callId),
+      name: normalizeText(stored.toolResult.name)
+    };
+
+    if (stored.toolResult.error && typeof stored.toolResult.error === "object") {
+      toolResult.error = {
+        class: normalizeText(stored.toolResult.error.class),
+        coaching: normalizeText(stored.toolResult.error.coaching),
+        message: normalizeText(stored.toolResult.error.message)
+      };
+    } else if ("payload" in stored.toolResult) {
+      toolResult.payload = stored.toolResult.payload;
+    }
+
+    fields.toolResult = Object.freeze(toolResult);
+  }
+
+  return Object.freeze(fields);
+}
+
+// Render projection for the existing chip renderer.
+//
+// The thread renderer already knows how to draw an execution chip: a user-role
+// message with `kind: "execution-output"` whose content starts with an
+// `execution ...` line. Typed entries are a different shape, so the surface must
+// NOT branch on them itself — it maps history through this function, which returns
+// legacy entries untouched and projects typed entries onto that chip shape for
+// RENDER ONLY. Nothing here is persisted; on disk the entry stays typed.
+export function projectHistoryEntryForDisplay(entry) {
+  const read = readHistoryEntry(entry);
+
+  if (read.kind === HISTORY_ENTRY_KIND.TOOL_CALL) {
+    const args = JSON.stringify(read.arguments || {});
+
+    return Object.freeze({
+      content: `execution ${read.name || "tool"} call\n${args}`,
+      id: read.id || `tool-call-${read.callId}`,
+      kind: "execution-output",
+      role: "user"
+    });
+  }
+
+  if (read.kind === HISTORY_ENTRY_KIND.TOOL_RESULT) {
+    const detail = read.error
+      ? `error (${read.error.class || "execution"}): ${read.error.message || ""}`
+      : JSON.stringify(read.payload ?? null);
+
+    return Object.freeze({
+      content: `execution ${read.name || "tool"} result\n${detail}`,
+      id: read.id || `tool-result-${read.callId}`,
+      kind: "execution-output",
+      role: "user"
+    });
+  }
+
+  return entry;
+}
+
+// Prompt projection for the text-protocol (Tier 3) path.
+//
+// A Tier 1 session writes typed entries. If the config later resolves Tier 3 (the
+// flag is per config, and a user can switch models), the Tier 3 prompt must still
+// SEE that history rather than silently dropping it. This projects one typed entry
+// onto the plain text the text protocol can carry. Legacy entries answer `null` so
+// the caller keeps its existing normalization path untouched.
+export function projectHistoryEntryForPrompt(entry) {
+  const read = readHistoryEntry(entry);
+
+  if (read.kind === HISTORY_ENTRY_KIND.TOOL_CALL) {
+    return Object.freeze({
+      content: `tool call: ${read.name} ${JSON.stringify(read.arguments || {})}`,
+      id: read.id,
+      kind: "",
+      role: "assistant"
+    });
+  }
+
+  if (read.kind === HISTORY_ENTRY_KIND.TOOL_RESULT) {
+    const detail = read.error
+      ? `error (${read.error.class || "execution"}): ${read.error.coaching || read.error.message || "failed"}`
+      : `result: ${JSON.stringify(read.payload ?? null)}`;
+
+    return Object.freeze({
+      content: `${read.name || "tool"} ${detail}`,
+      id: read.id,
+      kind: "",
+      role: "user"
+    });
+  }
+
+  return null;
+}
+
+// Rendering view: what a reader needs to draw one row without re-deriving shape.
+// Legacy entries answer `{ type: "message" }` and render exactly as before; typed
+// entries answer `{ type: "tool", phase: "call"|"result" }` and render through the
+// existing execution chip.
+export function describeHistoryEntryForRender(entry) {
+  const read = readHistoryEntry(entry);
+
+  if (read.kind === HISTORY_ENTRY_KIND.TOOL_CALL) {
+    return Object.freeze({
+      callId: read.callId,
+      id: read.id,
+      name: read.name,
+      phase: "call",
+      type: "tool"
+    });
+  }
+
+  if (read.kind === HISTORY_ENTRY_KIND.TOOL_RESULT) {
+    return Object.freeze({
+      callId: read.callId,
+      failed: Boolean(read.error),
+      id: read.id,
+      name: read.name,
+      phase: "result",
+      type: "tool"
+    });
+  }
+
+  return Object.freeze({
+    id: read.id,
+    messageKind: read.messageKind,
+    role: read.role,
+    type: "message"
+  });
+}

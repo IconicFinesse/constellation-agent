@@ -132,6 +132,35 @@
                 @dragleave="$store.onscreenAgent.handleAttachmentDragLeave($event)"
                 @drop="$store.onscreenAgent.handleAttachmentDrop($event)"
               >
+                <!-- Engine-swap destructive gate (D3: inline confirm). A held
+                     file_delete renders here until the human confirms or denies;
+                     nothing has executed while this is visible. Both controls are
+                     always enabled: a consent affordance must never depend on a
+                     busy flag. -->
+                <template x-if="$store.onscreenAgent.engineSwapPendingHold">
+                  <div class="onscreen-agent-confirm-bar" role="alertdialog" aria-live="polite">
+                    <span class="onscreen-agent-confirm-text">
+                      Delete <strong x-text="$store.onscreenAgent.engineSwapPendingHold.arguments?.path || '(unknown path)'"></strong>?
+                      Nothing has been changed yet.
+                    </span>
+                    <span class="onscreen-agent-confirm-actions">
+                      <button
+                        type="button"
+                        class="onscreen-agent-inline-button onscreen-agent-confirm-deny"
+                        @click="$store.onscreenAgent.denyEngineSwapHold()"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        class="onscreen-agent-inline-button onscreen-agent-confirm-accept"
+                        @click="$store.onscreenAgent.confirmEngineSwapHold()"
+                      >
+                        Delete
+                      </button>
+                    </span>
+                  </div>
+                </template>
                 <form
                   class="onscreen-agent-composer"
                   :class="{ 'is-compact': $store.onscreenAgent.isCompactMode }"

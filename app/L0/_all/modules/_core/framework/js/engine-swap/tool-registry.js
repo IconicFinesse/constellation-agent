@@ -24,6 +24,13 @@
 
 import { stableStringify } from "./shadow-normalize.js";
 import { resolveCapabilities } from "./capabilities.js";
+import { toStrictSchema } from "./canonical.js";
+
+// The strict projection is a canonical -> wire transform and lives in
+// `canonical.js`. It is re-exported here because the registry is the public
+// surface callers reach for when they want the assembled list; the
+// implementation still exists exactly once.
+export { toStrictSchema };
 
 export const TOOL_RISK_CLASS = Object.freeze({
   DESTRUCTIVE: "destructive",
@@ -155,41 +162,6 @@ export const LAUNCH_TOOL_RECORDS = Object.freeze([
     source: TOOL_SOURCE.BUILTIN
   })
 ]);
-
-// Strict-mode projection of a JSON Schema: OpenAI strict tools require every
-// property to be listed in `required` and reject additional properties, so
-// optional fields are widened to `[type, "null"]` instead of being omitted.
-export function toStrictSchema(schema) {
-  const properties = {};
-  const sourceProperties = schema?.properties && typeof schema.properties === "object" ? schema.properties : {};
-  const required = Array.isArray(schema?.required) ? schema.required : [];
-
-  Object.keys(sourceProperties).forEach((name) => {
-    const property = { ...sourceProperties[name] };
-
-    if (!required.includes(name)) {
-      property.type = Array.isArray(property.type)
-        ? [...new Set([...property.type, "null"])]
-        : [property.type || "string", "null"];
-
-      // Strict mode requires every property, so an optional enum'd field with a
-      // null-less enum would have no legal sendable value. The widened type and
-      // the enum must agree, or the schema is a dead end for the model.
-      if (Array.isArray(property.enum) && !property.enum.includes(null)) {
-        property.enum = [...property.enum, null];
-      }
-    }
-
-    properties[name] = Object.freeze(property);
-  });
-
-  return Object.freeze({
-    additionalProperties: false,
-    properties: Object.freeze(properties),
-    required: Object.freeze(Object.keys(properties)),
-    type: "object"
-  });
-}
 
 function validateRecord(record) {
   const problems = [];

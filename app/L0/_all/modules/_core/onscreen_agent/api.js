@@ -1,5 +1,6 @@
 import * as config from "/modules/_core/onscreen_agent/config.js";
 import * as llmParams from "/modules/_core/onscreen_agent/llm-params.js";
+import * as proxyUrl from "/modules/_core/framework/js/proxy-url.js";
 import { prepareOnscreenAgentCompletionRequest } from "/modules/_core/onscreen_agent/llm.js";
 import { getHuggingFaceManager } from "/modules/_core/huggingface/manager.js";
 
@@ -508,6 +509,86 @@ export function createOnscreenAgentLlmClient(settings = config.DEFAULT_ONSCREEN_
   return new OnscreenAgentApiLlmClient({
     settings
   });
+}
+
+// Non-streamed completion used by the engine-swap Tier 1 tool loop (P2).
+//
+// Why non-streamed: the incremental reader above extracts text deltas and drops
+// `tool_calls`, so a streamed tool turn cannot be assembled honestly yet — that is
+// P3's job (fragment accumulation per call index). P2 therefore asks for one JSON
+// body back, where every tool call arrives complete and parseable. The boundary is
+// recorded in `engine-swap/tier1-session.js` and the lane report.
+//
+// The shared engine-swap layer builds the request BODY (transports.js) and never
+// fetches; this function owns the URL, the auth header, and the response parse,
+// exactly as `streamCompletion` does for the streaming path.
+export const completeOnscreenAgentToolTurn = globalThis.space.extend(
+  import.meta,
+  async function completeOnscreenAgentToolTurn({ requestBody, settings, signal } = {}) {
+    const effectiveSettings =
+      settings && typeof settings === "object" ? settings : config.DEFAULT_ONSCREEN_AGENT_SETTINGS;
+    const apiEndpoint = String(effectiveSettings?.apiEndpoint || "").trim();
+
+    if (!apiEndpoint) {
+      throw new Error("Set an API endpoint before sending a message.");
+    }
+
+    if (!String(effectiveSettings?.apiKey || "").trim()) {
+      throw new Error("Set an API key before sending a message.");
+    }
+
+    if (!String(effectiveSettings?.model || "").trim()) {
+      throw new Error("Set a model before sending a message.");
+    }
+
+    if (!requestBody || typeof requestBody !== "object") {
+      throw new Error("A tool turn requires an assembled request body.");
+    }
+
+    const response = await fetch(resolveToolTurnRequestUrl(apiEndpoint), {
+      body: JSON.stringify(requestBody),
+      headers: createApiRequestHeaders(String(effectiveSettings.apiKey || "").trim()),
+      method: "POST",
+      signal
+    });
+
+    if (!response.ok) {
+      await throwResponseError(response);
+    }
+
+    const bodyText = await response.text();
+    let payload;
+
+    try {
+      payload = JSON.parse(bodyText);
+    } catch {
+      // A tool turn asked for a single JSON body. An event stream here means the
+      // provider ignored `stream: false`; report that plainly rather than parsing
+      // half an event as a completion.
+      if (looksLikeEventStreamBody(bodyText)) {
+        throw new Error(
+          "Tool turn expected one JSON completion but the provider streamed an event payload. " +
+            "Disable streaming for this provider or wait for the streaming tool-call assembler."
+        );
+      }
+
+      throw createUnsupportedCompletionBodyError(response, bodyText);
+    }
+
+    return payload;
+  }
+);
+
+function resolveToolTurnRequestUrl(apiEndpoint) {
+  if (!proxyUrl.isProxyableExternalUrl(apiEndpoint)) {
+    return apiEndpoint;
+  }
+
+  if (window.space?.proxy?.buildUrl) {
+    return window.space.proxy.buildUrl(apiEndpoint);
+  }
+
+  return proxyUrl.buildProxyUrl(apiEndpoint);
 }
 
 export const streamOnscreenAgentCompletion = globalThis.space.extend(
