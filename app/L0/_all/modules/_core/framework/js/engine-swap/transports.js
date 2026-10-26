@@ -59,15 +59,29 @@ export function buildRequest({
     provider: providerKey
   });
   const variant = OPENAI_SHAPE_VARIANTS[capabilities.provider] || null;
+  // The P2 non-streamed boundary is a CONTRACT, not a default: a tool turn must
+  // never be pushed into the streaming reader by a user param (P2 audit note 5).
+  // The decision is taken before the param merge, `stream` is skipped during it,
+  // and the boundary is re-applied afterwards so it holds either way. Text turns
+  // keep today's behavior exactly, params included.
+  const isToolTurn = tools.length > 0 && capabilities.flags.tools === true;
   const body = {
     messages: canonicalMessagesToOpenAi(messages),
     model,
-    stream
+    stream: isToolTurn ? false : stream
   };
 
   Object.keys(params && typeof params === "object" ? params : {}).forEach((key) => {
+    if (isToolTurn && key === "stream") {
+      return;
+    }
+
     body[key] = params[key];
   });
+
+  if (isToolTurn) {
+    body.stream = false;
+  }
 
   if (tools.length && capabilities.flags.tools) {
     body.tools = tools.map((record) =>

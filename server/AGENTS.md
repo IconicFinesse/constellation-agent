@@ -43,6 +43,7 @@ Documentation is top priority for this area. After any change under `server/` or
 - expose distinct OS process titles for operator visibility: `space-serve` for single-process runtime, `space-serve-p` for clustered primary, and `space-serve-w<N>` for clustered workers
 - expose `frontend_exposed` runtime parameters to page shells as injected meta tags
 - expose the resolved project version string to page shells that declare the `SPACE_PROJECT_VERSION` placeholder, using `server/lib/utils/project_version.js` as the shared resolver
+- expose build provenance to framework-backed page shells as `space-config` metas (`SPACE_APP_COMMIT` from `resolveProjectCommit`, `SPACE_APP_VERSION` from the resolved project version), so browser-side diagnostics and engine-swap artifacts can name the exact build that produced them without a second settings mechanism
 - support local development and source-checkout update flows without turning the server into business-logic orchestration
 
 ### Structure
@@ -61,7 +62,7 @@ Current server layout:
 - `server/api/`: endpoint modules loaded by endpoint name
 - `server/router/`: top-level request routing, page handling, `/modules/...` serving, direct app-file fetches, request context, response helpers, proxy transport, and CORS handling
 - `server/lib/utils/process_title.js`: canonical OS process-title helper for direct serve, clustered primary, clustered workers, and supervisor-owned runtime naming
-- `server/lib/utils/project_version.js`: shared project-version resolver for Git-tag source checkouts and package-version fallback display in page shells
+- `server/lib/utils/project_version.js`: shared project-version resolver for Git-tag source checkouts and package-version fallback display in page shells, plus `resolveProjectCommit` for the short build commit (empty string when no checkout exists)
 - `server/lib/customware/`: logical app-path normalization, customware-root resolution, group and inheritance logic, extension override resolution, app-file access, and module management
 - `server/lib/customware/git_history.js`: optional writable-layer local Git history scheduling, repository discovery, paginated commit listing, file-diff reads, operation previews, rollback, revert, and commit-loop suppression
 - `server/lib/customware/user_quota.js`: optional per-user `L2` folder size accounting and cached quota projection helpers for app-file mutations
@@ -137,7 +138,7 @@ The server relies on a small set of shared infrastructure contracts. Do not re-i
 - `server/runtime/request_mutations.js` is the canonical worker-side mutation capture and commit layer for clustered runtime writes
 - `server/runtime/state_system.js` is the canonical primary-owned shared state engine for cross-worker coordination, replicated index shards, primary-only challenge state, delta replay, and named locks
 - `server/jobs/job_runner.js` is the canonical primary-owned periodic job scheduler and should reuse `state_system.js` named locks instead of inventing parallel lockfiles or second schedulers
-- `server/lib/utils/project_version.js` is the canonical project-version resolver for both the CLI version command and page-shell version display
+- `server/lib/utils/project_version.js` is the canonical project-version resolver for both the CLI version command and page-shell version display; `resolveProjectCommit` is its build-provenance companion and returns `""` (never an invented hash) when Git is unavailable
 - `app/L0/_all/modules/_core/framework/js/yaml-lite.js` is the canonical YAML parser and serializer for both browser and server code; server modules import it directly instead of maintaining a duplicate server-side helper
 - `server/lib/customware/layout.js` is the canonical logical-to-disk resolver for repo `L0` and configured writable `L1`/`L2` roots
 

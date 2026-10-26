@@ -71,10 +71,25 @@ function resolveProjectVersion(projectRoot) {
   }
 }
 
+// The exact build a session is running. `resolveProjectVersion` answers a display
+// question ("v1.2.1+3"); provenance needs the commit itself, so engine-swap
+// artifacts can say which build produced them without a release tag existing yet.
+//
+// Returns "" when Git is unavailable (packaged builds without a checkout), so
+// callers can emit an explicit unknown instead of inventing a hash.
+function resolveProjectCommit(projectRoot) {
+  try {
+    return readGitOutput(projectRoot, ["rev-parse", "--short", "HEAD"]);
+  } catch {
+    return "";
+  }
+}
+
 export {
   DEFAULT_PROJECT_VERSION,
   normalizePackageVersionTag,
   readLatestTag,
+  resolveProjectCommit,
   resolveGitProjectVersion,
   resolveProjectVersion
 };

@@ -87,7 +87,7 @@ test("canonical messages reach the wire in the OpenAI shape", () => {
   assert.deepEqual(JSON.parse(wire[1].tool_calls[0].function.arguments), { path: "~/notes.txt" });
 });
 
-test("a strict-capable provider request carries strict tool schemas", () => {
+test("a strict-capable provider request carries fully strict tool schemas", () => {
   const built = request();
 
   assert.equal(built.provider, "openai");
@@ -95,6 +95,43 @@ test("a strict-capable provider request carries strict tool schemas", () => {
   assert.ok(built.body.tools.every((tool) => tool.function.strict === true));
   assert.ok(built.body.tools.every((tool) => tool.type === "function"));
   assert.equal(built.body.parallel_tool_calls, true);
+
+  // `strict: true` is a promise about the SHAPE, not just a flag. A definition
+  // whose `required` omits optional properties, or whose optional enum carries no
+  // null, is a dead end: strict mode requires every property, so those values
+  // could never legally be sent. Audit-2 finding 1 was exactly this, blessed by
+  // the previous version of this test.
+  built.body.tools.forEach((tool) => {
+    const parameters = tool.function.parameters;
+    const propertyNames = Object.keys(parameters.properties || {});
+
+    assert.deepEqual(
+      [...parameters.required].sort(),
+      [...propertyNames].sort(),
+      `${tool.function.name}: strict requires every property to be listed in required`
+    );
+
+    propertyNames.forEach((name) => {
+      const property = parameters.properties[name];
+      const declaredTypes = Array.isArray(property.type) ? property.type : [property.type];
+      const isRequired = parameters.required.includes(name);
+
+      if (!isRequired) {
+        assert.ok(declaredTypes.includes("null"), `${tool.function.name}.${name}: optional strict property must accept null`);
+      }
+
+      if (Array.isArray(property.enum)) {
+        const enumAcceptsNull = property.enum.includes(null);
+        const typeAcceptsNull = declaredTypes.includes("null");
+
+        assert.equal(
+          enumAcceptsNull,
+          typeAcceptsNull,
+          `${tool.function.name}.${name}: type and enum must agree about null`
+        );
+      }
+    });
+  });
 });
 
 test("a non-strict provider request omits strict and follows the seam for parallel calls", () => {
@@ -143,8 +180,34 @@ test("request params merge into the body without disturbing the assembled shape"
 
   assert.equal(built.body.temperature, 0.2);
   assert.equal(built.body.model, "gpt-x");
-  assert.equal(built.body.stream, true);
+  // This request carries the launch tool list, so it IS a tool turn: the P2
+  // non-streamed boundary applies even though `request()` defaults to
+  // `stream: true` (P2 audit note 5). Before the contract was enforced this
+  // assertion read `true`, blessing the override the audit flagged. The text-turn
+  // case is pinned separately above.
+  assert.equal(built.body.stream, false);
   assert.equal(built.endpoint, "https://api.openai.com/v1/chat/completions");
+});
+
+// P2 audit note 5: the non-streamed boundary is a CONTRACT. A user param must
+// never push a tool turn into the streaming reader.
+test("a tool turn stays non-streamed even when params ask for streaming", () => {
+  const built = request({ params: { stream: true, temperature: 0.1 } });
+
+  assert.equal(built.body.stream, false, "a tool turn is non-streamed by contract");
+  assert.equal(built.body.temperature, 0.1, "unrelated params still merge");
+});
+
+// ...and the text path keeps today's behavior exactly: params may set `stream`.
+test("a text turn still honors a stream param", () => {
+  const streamed = request({ params: { stream: true }, tools: [] });
+
+  assert.equal(streamed.body.stream, true);
+  assert.equal("tools" in streamed.body, false);
+
+  const notStreamed = request({ params: { stream: false }, stream: true, tools: [] });
+
+  assert.equal(notStreamed.body.stream, false, "text turns keep param precedence over the default");
 });
 
 test("assembly is pure: identical inputs produce an identical request", () => {

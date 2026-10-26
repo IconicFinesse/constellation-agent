@@ -25,6 +25,12 @@ function normalizeText(value) {
 // A tool call in canonical form keeps the parsed argument object and the exact
 // JSON string the provider contract carries on the wire. Argument fragments are
 // strings until complete (plan §3.5) and are never parsed mid-flight.
+//
+// The raw string is authoritative. Parsing is best-effort CONVENIENCE for callers
+// that want the object, never a gate: a malformed complete-args payload must reach
+// the dispatch pipeline's validation stage and become a coaching error, not throw
+// here and kill the whole turn. `argumentsParseError` records the failure so a
+// caller can tell `{}`-because-empty from `{}`-because-unparseable.
 export function createCanonicalToolCall({ arguments: rawArguments, id, name } = {}) {
   const normalizedName = normalizeText(name).trim();
 
@@ -34,21 +40,39 @@ export function createCanonicalToolCall({ arguments: rawArguments, id, name } = 
 
   let argumentValues = {};
   let argumentText = "";
+  let argumentParseError = null;
 
   if (typeof rawArguments === "string") {
     argumentText = rawArguments;
-    argumentValues = rawArguments.trim() ? JSON.parse(rawArguments) : {};
+
+    if (rawArguments.trim()) {
+      try {
+        const parsed = JSON.parse(rawArguments);
+
+        // Only a JSON object is a tool-call argument list; an array or scalar is
+        // as malformed as broken JSON and is reported the same way.
+        argumentValues = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      } catch (error) {
+        argumentParseError = String(error?.message || error);
+      }
+    }
   } else if (rawArguments && typeof rawArguments === "object") {
-    argumentValues = rawArguments;
-    argumentText = JSON.stringify(rawArguments);
+    argumentValues = Array.isArray(rawArguments) ? {} : rawArguments;
+    argumentText = JSON.stringify(argumentValues);
   }
 
-  return Object.freeze({
+  const call = {
     arguments: argumentValues,
     argumentsJson: argumentText,
     id: normalizeText(id).trim() || `call_${normalizedName}`,
     name: normalizedName
-  });
+  };
+
+  if (argumentParseError) {
+    call.argumentsParseError = argumentParseError;
+  }
+
+  return Object.freeze(call);
 }
 
 export function createCanonicalMessage({ content, name, role, toolCallId, toolCalls } = {}) {
@@ -141,23 +165,82 @@ export function canonicalMessagesToOpenAi(messages) {
   });
 }
 
-// Registry record -> OpenAI function tool. `strict` is only emitted when the
-// resolved capability set says the provider honours strict schemas (D2).
+// Strict-mode projection of a JSON Schema: OpenAI strict tools require every
+// property to be listed in `required` and reject additional properties, so
+// optional fields are widened to `[type, "null"]` instead of being omitted.
+//
+// This is a canonical -> wire transform, so it lives here and nowhere else. The
+// tool registry re-exports it as part of its public surface; a second copy of
+// this rule is the two-copies anti-pattern the campaign exists to end.
+export function toStrictSchema(schema) {
+  const properties = {};
+  const sourceProperties = schema?.properties && typeof schema.properties === "object" ? schema.properties : {};
+  const required = Array.isArray(schema?.required) ? schema.required : [];
+
+  Object.keys(sourceProperties).forEach((name) => {
+    const property = { ...sourceProperties[name] };
+
+    if (!required.includes(name)) {
+      property.type = Array.isArray(property.type)
+        ? [...new Set([...property.type, "null"])]
+        : [property.type || "string", "null"];
+
+      // Strict mode requires every property, so an optional enum'd field with a
+      // null-less enum would have no legal sendable value. The widened type and
+      // the enum must agree, or the schema is a dead end for the model.
+      if (Array.isArray(property.enum) && !property.enum.includes(null)) {
+        property.enum = [...property.enum, null];
+      }
+    }
+
+    properties[name] = Object.freeze(property);
+  });
+
+  return Object.freeze({
+    additionalProperties: false,
+    properties: Object.freeze(properties),
+    required: Object.freeze(Object.keys(properties)),
+    type: "object"
+  });
+}
+
+// Tool definition -> OpenAI function tool. Accepts BOTH shapes that exist in the
+// product:
+//
+//   record shape    { name, description, schema, riskClass, handler, ... }
+//   assembled shape { name, description, parameters, riskClass, strict }
+//
+// `assembleVisibleToolList` produces the assembled shape and `buildRequest` used
+// to read only `record.schema`, so the per-session visible list arrived at the
+// transport with `parameters: undefined` (audit-2 finding 2). Both shapes compose
+// here now, which is the one seam that makes registry output POSTable.
+//
+// Strict widening is applied HERE, not left to the caller: a `strict: true`
+// definition whose `required` omits optional properties and whose optional enum
+// carries no null is a dead end for the model (audit-2 finding 1).
 export function toolRecordToOpenAiTool(record, { strict = false } = {}) {
   if (!record || typeof record !== "object" || !record.name) {
     throw new Error("A tool record with a name is required to build a tool definition.");
+  }
+
+  const sourceSchema = record.parameters && typeof record.parameters === "object" ? record.parameters : record.schema;
+  const strictRequested = strict === true || record.strict === true;
+  const parameters = strictRequested ? toStrictSchema(sourceSchema) : sourceSchema;
+
+  if (parameters === undefined) {
+    throw new Error(`Tool record ${String(record.name)} carries no parameter schema.`);
   }
 
   const definition = {
     function: {
       description: normalizeText(record.description),
       name: record.name,
-      parameters: record.schema
+      parameters
     },
     type: "function"
   };
 
-  if (strict === true) {
+  if (strictRequested) {
     definition.function.strict = true;
   }
 

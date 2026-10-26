@@ -86,6 +86,32 @@ function resolveConfigIdentity(settings) {
   return `${provider}/${model || "unknown"}`;
 }
 
+// Build provenance: an explicit runtime envelope wins, then the server-injected
+// `space-config` metas (`SPACE_APP_COMMIT` / `SPACE_APP_VERSION`, resolved from the
+// running checkout and emitted on framework-backed shells). Without this fallback
+// a live session could never populate the manifest fields the artifact contract
+// carries — the P1 carryover audit-2 recorded.
+function readBuildProvenance({ runtime = null, configReader = globalThis.space?.config } = {}) {
+  let commit = String(runtime?.appCommit || "").trim();
+  let version = String(runtime?.appVersion || "").trim();
+
+  if ((!commit || !version) && configReader && typeof configReader.get === "function") {
+    try {
+      if (!commit) {
+        commit = String(configReader.get("SPACE_APP_COMMIT", "") || "").trim();
+      }
+
+      if (!version) {
+        version = String(configReader.get("SPACE_APP_VERSION", "") || "").trim();
+      }
+    } catch {
+      // A config read must never break a turn; unknown provenance is honest.
+    }
+  }
+
+  return Object.freeze({ commit, version });
+}
+
 async function ensureShadowSession({ runtime = null, settings = null } = {}) {
   if (shadowSession) {
     return shadowSession;
@@ -96,10 +122,11 @@ async function ensureShadowSession({ runtime = null, settings = null } = {}) {
     apiEndpoint: settings?.apiEndpoint,
     model: settings?.model
   });
+  const provenance = readBuildProvenance({ runtime });
 
   shadowSession = loaded.session.createShadowSession({
-    appCommit: String(runtime?.appCommit || ""),
-    appVersion: String(runtime?.appVersion || ""),
+    appCommit: provenance.commit,
+    appVersion: provenance.version,
     configId: resolveConfigIdentity(settings),
     runId: `p1-onscreen-${Date.now().toString(36)}`,
     suite: "live-shadow",

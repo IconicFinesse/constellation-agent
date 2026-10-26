@@ -1107,3 +1107,60 @@
     max-width: calc(100% - 46px);
   }
 }
+
+/* Engine-swap destructive gate (D3): inline consent affordance.
+
+   Sits above the composer inside the same panel, so the question appears exactly
+   where the user is already looking. The accent is the shared danger token, and
+   the surface stays shadowless like the rest of the glass treatment. */
+.onscreen-agent-confirm-bar {
+  align-items: center;
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
+  border-radius: var(--radius-md, 10px);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  justify-content: space-between;
+  margin: 0 0 0.5em;
+  padding: 0.55em 0.7em;
+}
+
+.onscreen-agent-confirm-text {
+  color: var(--color-text, #e8ecf4);
+  flex: 1 1 12em;
+  font-size: 0.86em;
+  line-height: 1.35;
+  min-width: 0;
+}
+
+.onscreen-agent-confirm-text strong {
+  color: var(--color-danger);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.onscreen-agent-confirm-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.4em;
+}
+
+/* Both controls stay enabled and keep a stationary hitbox: consent must never
+   depend on a busy flag, and hover changes color rather than position. */
+.onscreen-agent-confirm-deny,
+.onscreen-agent-confirm-accept {
+  cursor: pointer;
+  font-size: 0.82em;
+  padding: 0.35em 0.8em;
+}
+
+.onscreen-agent-confirm-accept {
+  border-color: color-mix(in srgb, var(--color-danger) 55%, transparent);
+  color: var(--color-danger);
+}
+
+.onscreen-agent-confirm-accept:hover,
+.onscreen-agent-confirm-accept:focus-visible {
+  background: color-mix(in srgb, var(--color-danger) 18%, transparent);
+}

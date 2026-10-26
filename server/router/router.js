@@ -13,7 +13,7 @@ import { applyApiCorsHeaders, handleApiPreflight } from "./cors.js";
 import { handleModuleRequest } from "./mod_handler.js";
 import { handleAppFetchRequest } from "./app_fetch_handler.js";
 import { readParsedRequestBody } from "./request_body.js";
-import { resolveProjectVersion } from "../lib/utils/project_version.js";
+import { resolveProjectCommit, resolveProjectVersion } from "../lib/utils/project_version.js";
 import {
   STATE_VERSION_HEADER,
   normalizeStateVersionHeaderValue
@@ -305,6 +305,7 @@ function createRequestHandler(options) {
     pagesDir,
     port,
     projectVersion: providedProjectVersion,
+    appCommit: providedAppCommit,
     projectRoot,
     runtimeParams,
     stateSystem,
@@ -317,6 +318,12 @@ function createRequestHandler(options) {
     providedProjectVersion === undefined
       ? resolveProjectVersion(projectRoot)
       : String(providedProjectVersion || "");
+  // Build provenance for engine-swap artifacts: resolved once per handler, from
+  // the same Git checkout `resolveProjectVersion` already reads. "" means "no
+  // checkout" (packaged build), which the page layer reports as an explicit
+  // unknown rather than inventing a hash.
+  const appCommit =
+    providedAppCommit === undefined ? resolveProjectCommit(projectRoot) : String(providedAppCommit || "");
 
   return async function requestHandler(req, res) {
     installStateResponseHeaders(res, stateSync, workerNumber);
@@ -411,6 +418,7 @@ function createRequestHandler(options) {
       }
 
       await handlePageRequest(res, requestUrl, {
+        appCommit,
         auth,
         mutationSync,
         pagesDir,

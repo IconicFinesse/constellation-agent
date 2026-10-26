@@ -6,6 +6,19 @@ import {
 } from "/modules/_core/agent_prompt/prompt-items.js";
 import * as execution from "/modules/_core/onscreen_agent/execution.js";
 import { maybeObserveEngineSwapShadowTurn } from "/modules/_core/onscreen_agent/engine-swap-shadow.js";
+import {
+  canonicalMessagesToTypedEntries,
+  isToolResultEntry,
+  normalizeTypedHistoryFields,
+  projectHistoryEntryForDisplay,
+  projectHistoryEntryForPrompt,
+  serializeTypedHistoryFields
+} from "/modules/_core/framework/js/engine-swap/history-shapes.js";
+import {
+  resolveOnscreenTier1Plan,
+  runOnscreenTier1Turn,
+  shapeOnscreenSystemPromptForTier
+} from "/modules/_core/onscreen_agent/engine-swap-dispatch.js";
 import * as agentLlm from "/modules/_core/onscreen_agent/llm.js";
 import * as llmParams from "/modules/_core/onscreen_agent/llm-params.js";
 import * as skills from "/modules/_core/onscreen_agent/skills.js";
@@ -545,7 +558,7 @@ function createRuntimeMessageSnapshot(message) {
 }
 
 function normalizeStoredMessage(message) {
-  return {
+  const entry = {
     attachments: Array.isArray(message?.attachments)
       ? message.attachments.map((attachment) => normalizeStoredAttachment(attachment))
       : [],
@@ -557,6 +570,14 @@ function normalizeStoredMessage(message) {
     kind: typeof message?.kind === "string" ? message.kind : "",
     role: message?.role === "assistant" ? "assistant" : "user",
     streaming: message?.streaming === true
+  };
+
+  // Typed tool entries (engine-swap Tier 1) restore their payload through the SAME
+  // shared mapping the writer used. A legacy text-protocol entry has neither field,
+  // so its normalized shape is unchanged.
+  return {
+    ...entry,
+    ...normalizeTypedHistoryFields(message)
   };
 }
 
@@ -1371,6 +1392,8 @@ const model = {
   isShellVisible: false,
   isUiBubbleMounted: false,
   isSending: false,
+  engineSwapPendingHold: null,
+  engineSwapTier1Session: null,
   pendingHistorySnapshot: null,
   pendingStreamingDelta: "",
   pendingStreamingDeltaFrame: 0,
@@ -3191,7 +3214,7 @@ const model = {
     const history = Array.isArray(options.history) ? options.history : this.history;
     const promptInput = await this.ensurePromptRuntime().build({
       defaultSystemPrompt: this.defaultSystemPrompt,
-      historyMessages: history,
+      historyMessages: this.projectHistoryForPrompt(history),
       options: this.getPromptBuildOptions(),
       systemPrompt: this.systemPrompt,
       transientSections: this.getPromptTransientSections()
@@ -3203,7 +3226,7 @@ const model = {
 
   async refreshPromptInputFromHistory(history = this.history) {
     await this.ensurePromptDependencies();
-    const promptInput = await this.ensurePromptRuntime().updateHistory(history, {
+    const promptInput = await this.ensurePromptRuntime().updateHistory(this.projectHistoryForPrompt(history), {
       defaultSystemPrompt: this.defaultSystemPrompt,
       options: this.getPromptBuildOptions(),
       systemPrompt: this.systemPrompt,
@@ -3217,7 +3240,7 @@ const model = {
     await this.ensurePromptDependencies();
     return agentLlm.prepareOnscreenAgentCompletionRequest({
       defaultSystemPrompt: this.defaultSystemPrompt,
-      messages: history,
+      messages: this.projectHistoryForPrompt(history),
       promptInstance: this.ensurePromptRuntime(),
       options: this.getPromptBuildOptions(),
       settings: this.settings,
@@ -3258,19 +3281,46 @@ const model = {
   },
 
   serializeHistoryMessages(history = this.history) {
-    return (Array.isArray(history) ? history : []).map((message) => ({
-      attachments: Array.isArray(message.attachments)
-        ? message.attachments.map((attachment) => serializeAttachmentMetadata(attachment))
-        : [],
-      content: message.content,
-      id: message.id,
-      kind: message.kind || "",
-      role: message.role
-    }));
+    return (Array.isArray(history) ? history : []).map((message) => {
+      const entry = {
+        attachments: Array.isArray(message.attachments)
+          ? message.attachments.map((attachment) => serializeAttachmentMetadata(attachment))
+          : [],
+        content: message.content,
+        id: message.id,
+        kind: message.kind || "",
+        role: message.role
+      };
+
+      // Typed tool entries (engine-swap Tier 1) carry their payload in dedicated
+      // fields. The mapping lives in ONE place — the shared history layer — so the
+      // writer and the reader cannot drift. Legacy messages have neither field and
+      // serialize byte-identically to before.
+      return {
+        ...entry,
+        ...serializeTypedHistoryFields(message)
+      };
+    });
   },
 
   serializeHistory() {
     return this.serializeHistoryMessages(this.history);
+  },
+
+  // Prompt projection (plan §3.5, both-shapes discipline): a conversation that ran
+  // on Tier 1 holds typed tool entries. If the config later resolves Tier 3, the
+  // text protocol must still SEE that history instead of silently dropping it. The
+  // shape decoding stays in the shared reader; this only maps.
+  projectHistoryForPrompt(history = this.history) {
+    return (Array.isArray(history) ? history : []).map(
+      (entry) => projectHistoryEntryForPrompt(entry) || entry
+    );
+  },
+
+  // Render projection: typed entries draw through the existing execution chip.
+  // Legacy entries come back untouched, so today's thread renders exactly as before.
+  getRenderHistory(history = this.history) {
+    return (Array.isArray(history) ? history : []).map((entry) => projectHistoryEntryForDisplay(entry));
   },
 
   async flushHistoryPersistence() {
@@ -4039,7 +4089,7 @@ const model = {
       return;
     }
 
-    agentView.renderMessages(this.refs.thread, this.history, {
+    agentView.renderMessages(this.refs.thread, this.getRenderHistory(), {
       isConversationBusy: this.isSending,
       outputOverrides: this.executionOutputOverrides,
       preserveScroll: options.preserveScroll === true,
@@ -4459,6 +4509,9 @@ const model = {
 
     this.stopRequested = true;
     this.activeRequestController?.abort();
+    // A held destructive call must not outlive the stop: the hold is a consent
+    // question, and "stop" is an answer. Guaranteed exit, no user tap required.
+    this.cancelEngineSwapHold();
     this.status = "Stopping after the current step...";
   },
 
@@ -4983,6 +5036,8 @@ const model = {
       immediate: true
     });
     this.render();
+    // Clearing the chat also clears any pending consent question.
+    this.cancelEngineSwapHold();
     this.status = "Chat cleared and execution context reset.";
   },
 
@@ -5280,6 +5335,265 @@ const model = {
     return executionResults;
   },
 
+  // --- engine-swap Tier 1 (P2) ---------------------------------------------
+  //
+  // Dispatch-ON turns for a tools-capable config run the typed tool loop from the
+  // shared engine-swap layer. Everything here is a call into that layer; the only
+  // surface-side work is translating its result into history entries and status.
+  // Flag OFF resolves tier `none` before importing anything, and the Tier 3 path
+  // below stays exactly as it was.
+  async runTier1ConversationTurn(requestMessages, preparedRequest, plan) {
+    // The Tier 1 conversation starts from the SAME prepared messages the streaming
+    // path just built. Re-deriving them would give the two tiers different prompts.
+    const preparedMessages = Array.isArray(preparedRequest?.messages) ? preparedRequest.messages : [];
+    const messages = preparedMessages.map((message) => ({
+      content: String(message?.content || ""),
+      role: message?.role === "assistant" ? "assistant" : message?.role === "system" ? "system" : message?.role === "tool" ? "tool" : "user"
+    }));
+
+    if (messages[0]?.role === "system") {
+      messages[0] = {
+        content: await shapeOnscreenSystemPromptForTier({
+          promptText: messages[0].content,
+          tier: plan.tier
+        }),
+        role: "system"
+      };
+    }
+
+    // Stop reuses the ONE mechanism the text path already owns: `requestStop()`
+    // sets `stopRequested` and aborts `activeRequestController`. The loop consults
+    // the flag between iterations, and the controller's signal reaches the
+    // tool-turn fetch so an in-flight request is cut instead of waited out (P2
+    // audit non-blocker 3). No second stop source is introduced.
+    const controller = new AbortController();
+    this.activeRequestController = controller;
+
+    try {
+      return await runOnscreenTier1Turn({
+        api: this.runtime?.api || globalThis.space?.api || null,
+        apiEndpoint: String(this.settings.apiEndpoint || ""),
+        executionContext: this.executionContext,
+        initialMessages: messages,
+        isStopRequested: () => this.stopRequested === true,
+        model: String(this.settings.model || ""),
+        params: llmParams.parseOnscreenAgentParamsText(this.settings.paramsText || ""),
+        providerKey: "",
+        sendCompletion: async ({ request }) =>
+          agentApi.completeOnscreenAgentToolTurn({
+            requestBody: request.body,
+            settings: this.settings,
+            signal: controller.signal
+          })
+      });
+    } finally {
+      if (this.activeRequestController === controller) {
+        this.activeRequestController = null;
+      }
+    }
+  },
+
+  // Runs one whole Tier 1 turn and commits it to history as typed entries. Returns
+  // the same outcome vocabulary the Tier 3 loop uses so callers need no new branch.
+  async runTier1TurnAndCommit(requestMessages, preparedRequest, plan) {
+    const baseline = Array.isArray(preparedRequest?.messages) ? preparedRequest.messages.length : 0;
+    const { result, session } = await this.runTier1ConversationTurn(requestMessages, preparedRequest, plan);
+    const tailEntries = canonicalMessagesToTypedEntries(result?.messages || [], { fromIndex: baseline });
+
+    if (result?.status === "held") {
+      // The destructive call is HELD: nothing executed, and the chat now renders an
+      // inline confirm affordance. The session is kept so confirm/deny can settle
+      // the exact call the user is looking at.
+      // One consent question at a time. A second hold in the same loop would
+      // overwrite the first, and the call the user is looking at would become
+      // unreachable.
+      if (this.engineSwapPendingHold) {
+        session.cancelHeld?.();
+        this.engineSwapTier1Session = null;
+        // The FIRST hold's confirm bar must go with the session it belonged to.
+        // Leaving it set left two buttons that both no-op on `!session`: an
+        // affordance that lied about being actionable (P2 audit non-blocker 1).
+        this.engineSwapPendingHold = null;
+        this.engineSwapHeldMessages = null;
+        this.history = [...requestMessages, ...tailEntries];
+        await this.persistHistory({ immediate: true });
+        this.render();
+        this.status = "A confirmation is already waiting; finish it before starting another.";
+        return "complete";
+      }
+
+      this.engineSwapTier1Session = session;
+      this.engineSwapPendingHold = result.hold || null;
+      // The canonical turn (assistant tool call + held result) is kept so a
+      // confirmation can resume the loop from it and let the model report what
+      // actually happened, instead of stranding the user with a chip.
+      this.engineSwapHeldMessages = Array.isArray(result.messages) ? [...result.messages] : null;
+      this.history = [...requestMessages, ...tailEntries];
+      await this.persistHistory({ immediate: true });
+      this.render();
+      this.status = "Waiting for your confirmation to delete.";
+      return "complete";
+    }
+
+    this.engineSwapTier1Session = null;
+    this.engineSwapPendingHold = null;
+    this.history = [...requestMessages, ...tailEntries];
+    await this.persistHistory({ immediate: true });
+
+    if (result?.status === "error") {
+      this.reportError("running the tool turn", new Error(result.error || "the tool turn failed"));
+      return "failed";
+    }
+
+    // A stop is its own ended state, never a silent completion: the user asked
+    // for it, no further calls executed, and the submission series reports it.
+    if (result?.status === "stopped") {
+      this.status = "Stopped: the tool turn ended at your stop request.";
+      this.render();
+      return "stopped";
+    }
+
+    const answer = String(result?.answer || "").trim();
+
+    if (answer) {
+      this.showCompactAssistantReplyBubble(answer, {
+        messageId: tailEntries[tailEntries.length - 1]?.id || ""
+      });
+    } else {
+      this.status = result?.status === "iteration-cap" ? "Stopped: the tool turn hit its iteration limit." : "The tool turn produced no answer.";
+    }
+
+    this.render();
+    return "complete";
+  },
+
+  // Replaces the held tool-result entry with the settled one. Exactly one result
+  // must exist per call id: appending a second would make the next Tier 1 request
+  // invalid on the wire, and duplicating a result is a lie about what happened.
+  replaceEngineSwapHeldResult({ content, isError, toolCallId }) {
+    const entries = canonicalMessagesToTypedEntries([
+      {
+        content,
+        isError: isError === true,
+        role: "tool",
+        toolCallId: String(toolCallId || "")
+      }
+    ]);
+    const history = Array.isArray(this.history) ? [...this.history] : [];
+    const index = history.findIndex(
+      (entry, position) =>
+        isToolResultEntry(entry) &&
+        String(entry?.toolResult?.callId || "") === String(toolCallId || "") &&
+        position === history.length - 1
+    );
+
+    if (index === -1 || !entries.length) {
+      return history;
+    }
+
+    history[index] = entries[entries.length - 1];
+    return history;
+  },
+
+  async confirmEngineSwapHold() {
+    const session = this.engineSwapTier1Session;
+    const hold = this.engineSwapPendingHold;
+
+    if (!session || !hold) {
+      return;
+    }
+
+    // The affordance disappears immediately: the user answered, and a second click
+    // must not re-enter this path.
+    this.engineSwapPendingHold = null;
+    this.status = "Executing the confirmed deletion...";
+
+    const executed = await session.confirmHeld();
+    const toolResultText = executed
+      ? session.formatOutcome(executed)
+      : "error: the held call could not be executed.";
+    const callId = executed?.call?.callId || hold.callId || "";
+
+    this.history = this.replaceEngineSwapHeldResult({
+      content: toolResultText,
+      isError: !executed || executed.status !== "ok",
+      toolCallId: callId
+    });
+    await this.persistHistory({ immediate: true });
+    this.render();
+
+    // §11: the agent reports exactly what happened. The loop resumes from the held
+    // turn with the REAL result, so the model's next words describe the execution
+    // rather than the hold.
+    const heldMessages = Array.isArray(this.engineSwapHeldMessages) ? this.engineSwapHeldMessages : [];
+
+    this.engineSwapTier1Session = null;
+    this.engineSwapHeldMessages = null;
+
+    if (!heldMessages.length) {
+      this.status = executed?.status === "ok" ? "Confirmed and executed." : "The confirmed call failed.";
+      return;
+    }
+
+    try {
+      const continuation = await session.runContinuation({
+        messages: heldMessages,
+        toolResultText
+      });
+      const tailEntries = canonicalMessagesToTypedEntries(continuation?.messages || [], {
+        fromIndex: heldMessages.length
+      });
+
+      this.history = [...this.history, ...tailEntries];
+      await this.persistHistory({ immediate: true });
+
+      const answer = String(continuation?.answer || "").trim();
+
+      if (answer) {
+        this.showCompactAssistantReplyBubble(answer, {
+          messageId: tailEntries[tailEntries.length - 1]?.id || ""
+        });
+      }
+
+      this.status = executed?.status === "ok" ? "Delete confirmed and executed." : "The confirmed call failed.";
+      this.render();
+    } catch (error) {
+      this.reportError("resuming the tool turn after confirmation", error);
+    }
+  },
+
+  async denyEngineSwapHold() {
+    const session = this.engineSwapTier1Session;
+
+    if (!session) {
+      return;
+    }
+
+    const settled = session.denyHeld();
+    const callId = settled?.callId || "";
+
+    this.engineSwapPendingHold = null;
+    this.engineSwapTier1Session = null;
+    this.engineSwapHeldMessages = null;
+    // Replace, never append: exactly one tool result may exist per call id, or the
+    // next Tier 1 request is invalid on the wire.
+    this.history = this.replaceEngineSwapHeldResult({
+      content: `policy: the user denied ${settled?.description || settled?.tool || "the action"}.`,
+      isError: true,
+      toolCallId: callId
+    });
+    await this.persistHistory({ immediate: true });
+    this.render();
+    this.status = "Deletion cancelled.";
+  },
+
+  cancelEngineSwapHold() {
+    this.engineSwapTier1Session?.cancelHeld?.();
+    this.engineSwapTier1Session = null;
+    this.engineSwapPendingHold = null;
+    this.engineSwapHeldMessages = null;
+  },
+
   async runConversationLoop(initialUserMessage) {
     this.chatRuntime.attachments.rememberMessageAttachments(
       initialUserMessage.id,
@@ -5343,6 +5657,24 @@ const model = {
 
       if (boundaryActionBeforeStream) {
         return boundaryActionBeforeStream;
+      }
+
+      // Engine-swap P2 gate. Resolved once per turn from the ONE capability seam;
+      // a config that does not resolve the tools capability keeps the text protocol
+      // byte-identically (with one diagnostics line, logged by the bridge).
+      const tierPlan = await resolveOnscreenTier1Plan({ settings: this.settings });
+
+      if (String(tierPlan?.tier || "") === "tier1") {
+        // Parity with the text path above: the prompt-history surface shows this
+        // turn, and the submitted user turn reaches disk before the request so a
+        // page teardown cannot lose it.
+        this.applyPromptInput(preparedRequest.promptInput);
+        this.activeTurnRequestMessages = requestMessages;
+        this.status = "Thinking...";
+        this.render();
+        await this.persistPendingTurnHistory(requestMessages);
+
+        return this.runTier1TurnAndCommit(requestMessages, preparedRequest, tierPlan);
       }
 
       this.applyPromptInput(preparedRequest.promptInput);

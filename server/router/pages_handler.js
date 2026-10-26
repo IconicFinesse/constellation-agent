@@ -105,6 +105,41 @@ function injectLoginAccountState(sourceText, options = {}) {
 ${sourceText}`;
 }
 
+// Build-derived provenance for the running build. Like `HAS_USERS`, this is not an
+// operator-set runtime parameter, so it is injected here instead of living in
+// params.yaml — but it is emitted through the SAME `space-config` meta channel, so
+// the frontend reads it with the existing `space.config.get(...)` and no second
+// mechanism exists. Engine-swap artifacts use it to say which build produced them.
+function injectProvenanceMetaTags(sourceText, options = {}) {
+  const appCommit = String(options.appCommit || "").trim();
+  const appVersion = String(options.appVersion || "").trim();
+
+  if (!appCommit && !appVersion) {
+    return sourceText;
+  }
+
+  const metaTags = [
+    appCommit
+      ? `    <meta name="${FRONTEND_CONFIG_META_NAME}" data-space-param="SPACE_APP_COMMIT" data-space-type="text" content="${escapeHtmlAttribute(appCommit)}" />`
+      : "",
+    appVersion
+      ? `    <meta name="${FRONTEND_CONFIG_META_NAME}" data-space-param="SPACE_APP_VERSION" data-space-type="text" content="${escapeHtmlAttribute(appVersion)}" />`
+      : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  if (!metaTags) {
+    return sourceText;
+  }
+
+  if (/<\/head>/iu.test(sourceText)) {
+    return sourceText.replace(/<\/head>/iu, `${metaTags}\n  </head>`);
+  }
+
+  return `${metaTags}\n${sourceText}`;
+}
+
 function injectFrontendConfigMetaTags(sourceText, runtimeParams) {
   const metaTags = buildFrontendConfigMetaTags(runtimeParams);
 
@@ -163,13 +198,19 @@ async function sendPageHtml(res, filePath, options = {}) {
 
   const body = injectLoginAccountState(
     injectFrontendConfigMetaTags(
-      injectProjectVersion(
-        injectEnterGuard(sourceText, {
-          pageName: options.pageName,
-          requestContext: options.requestContext,
-          runtimeParams: options.runtimeParams
-        }),
-        options.projectVersion
+      injectProvenanceMetaTags(
+        injectProjectVersion(
+          injectEnterGuard(sourceText, {
+            pageName: options.pageName,
+            requestContext: options.requestContext,
+            runtimeParams: options.runtimeParams
+          }),
+          options.projectVersion
+        ),
+        {
+          appCommit: options.appCommit,
+          appVersion: options.appVersion
+        }
       ),
       options.runtimeParams
     ),
@@ -353,6 +394,8 @@ async function handlePageRequest(res, requestUrl, options = {}) {
     }
 
     await sendPageHtml(res, sharePageRequest.filePath, {
+      appCommit: options.appCommit,
+      appVersion: options.projectVersion,
       headers: createSessionCleanupHeaders(requestContext, auth),
       pageName: sharePageRequest.pageName,
       projectVersion: options.projectVersion,
@@ -404,6 +447,8 @@ async function handlePageRequest(res, requestUrl, options = {}) {
       : hasAnyPasswordUser(projectRoot, runtimeParams);
 
   await sendPageHtml(res, pageRequest.filePath, {
+    appCommit: options.appCommit,
+    appVersion: options.projectVersion,
     hasPasswordUser,
     headers: createSessionCleanupHeaders(requestContext, auth),
     pageName: pageRequest.pageName,
