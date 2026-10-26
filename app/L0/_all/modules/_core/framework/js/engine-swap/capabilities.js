@@ -118,9 +118,13 @@ const MODEL_CAPABILITY_RULES = Object.freeze([
   })
 ]);
 
+// Confirmed endpoints first; the remaining entries are naming guesses. A miss
+// degrades safely to `unknown` (every optional capability off -> Tier 3), so a
+// wrong guess costs a tier, never correctness.
 const PROVIDER_ALIASES = Object.freeze({
   "api.neuralwatt.com": "neuralwatt",
   "api.openai.com": "openai",
+  "api.synthetic.new": "synthetic",
   "api.synthetic.ai": "synthetic",
   "api.syntheticlab.ai": "synthetic",
   "openrouter.ai": "openrouter"

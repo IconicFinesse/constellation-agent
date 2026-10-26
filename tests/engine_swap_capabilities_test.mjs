@@ -64,6 +64,16 @@ test("resolveProviderKey maps explicit keys and endpoint hosts", () => {
   assert.equal(resolveProviderKey({ provider: "synthetic" }), "synthetic");
 });
 
+// The owner-supplied working Synthetic endpoint. This is the real host, not a
+// naming guess, so it is pinned here: if the alias table drops it, this fails.
+test("the real Synthetic endpoint host maps to the synthetic provider", () => {
+  assert.equal(
+    resolveProviderKey({ apiEndpoint: "https://api.synthetic.new/v1/chat/completions" }),
+    "synthetic"
+  );
+  assert.equal(resolveCapabilities({ apiEndpoint: "https://api.synthetic.new/v1/chat/completions", model: "m" }).provider, "synthetic");
+});
+
 test("an unknown provider falls back conservatively to the unknown row", () => {
   assert.equal(resolveProviderKey({ apiEndpoint: "https://example.invalid/v1" }), UNKNOWN_PROVIDER_KEY);
   assert.equal(resolveProviderKey({ provider: "not-a-provider" }), UNKNOWN_PROVIDER_KEY);
