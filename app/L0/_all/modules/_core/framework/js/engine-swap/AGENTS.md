@@ -27,7 +27,7 @@ The live-path bridge lives with its surface at `_core/onscreen_agent/engine-swap
 ### Flag And Inertness
 
 - The flag is `ENGINE_SWAP_SHADOW`, declared in `commands/params.yaml` as a frontend-exposed boolean with `default: false` and read through `space.config.get(...)`. No second settings store.
-- OFF must stay genuinely inert: the bridge resolves the flag synchronously and returns before importing, allocating, or logging anything.
+- OFF must stay genuinely inert: the bridge statically imports only the dependency-free `config-flag.js` leaf, then resolves the flag synchronously and returns before importing the engine-swap machinery, allocating a session, logging, or writing anything.
 - ON must not change behavior either. Tier 3 executes exactly as before; the layer observes and records.
 - A flag read that throws resolves OFF; observation failures log once and never break a turn.
 
@@ -47,6 +47,7 @@ The live-path bridge lives with its surface at `_core/onscreen_agent/engine-swap
 - Tool descriptions are release-versioned content: editing one is a cache-invalidating change.
 - The dispatch-table stub never executes anything. Its honest answer in P1 is `{ dispatched: false }`.
 - Launch schemas mirror live server truth, not prose. `tests/engine_swap_registry_test.mjs` reads `ensureValidWriteOperation`, `ensureValidWriteEncoding`, and the `server/api/file_*.js` sources so a written-contract drift fails the build (the BUG-006 lesson).
+- Handler refs are identifiers too: a handler is either a real `space.api.<method>` on the api-client surface or a `/modules/<path>#<symbol>` ref that must resolve to a real function in that module. The same suite asserts every ref, so an invented namespace fails the build instead of waiting for P2.
 
 ### Shadow Artifacts (`ca.shadow-diff/1`)
 
@@ -73,11 +74,12 @@ The live-path bridge lives with its surface at `_core/onscreen_agent/engine-swap
 ## Verification
 
 - `tests/engine_swap_capabilities_test.mjs`: flag set, provider/model resolution, conservative unknown fallback, provider-scoped rules, the load-bearing transport clamp, the log line, and purity.
-- `tests/engine_swap_registry_test.mjs`: launch inventory shape, deterministic assembly and hash, canonical ordering, strict-schema projection, the inert dispatch stub, and live-server drift assertions.
+- `tests/engine_swap_registry_test.mjs`: launch inventory shape, deterministic assembly and hash, canonical ordering, strict-schema projection (null present in both type and enum for optional enum fields), the inert dispatch stub, live-server drift assertions, and a handler-ref assertion that every record's handler resolves to a real product identifier.
 - `tests/engine_swap_classifier_test.mjs`: the closed enum, one fixture per diff class including all four failing classes, and the shared fence contract (unterminated and tilde fences, fenced display beside a real execution).
 - `tests/engine_swap_artifacts_test.mjs`: field-by-field artifact shapes, payload redaction, no embedded code body, mapping, verdict, emit sink, and normalization rules.
 - `tests/engine_swap_projector_test.mjs`: typed-call projection, source order, unregistered methods, honest `run_code` fallback, and proof that projection does not execute.
-- `tests/engine_swap_flag_test.mjs`: flag resolution, OFF inertness, ON recording, the capability line, and the flush seam.
+- `tests/engine_swap_flag_test.mjs`: flag resolution, OFF inertness, ON recording, the capability line, the flush seam, and a wiring-level test that drives the bridge with the live call shape (settled identity + runtime envelope) and asserts collapsed paths and non-empty commit/version on the artifact.
+- `tests/engine_swap_transports_test.mjs`: the launch adapter set (four OpenAI-shape, none native), per-provider request assembly driven by the capability seam, canonical message wire shape (JSON-string tool arguments), provider resolution from the real Synthetic host, conservative unknown fallback, param merging, and purity.
 
 Every suite runs hermetically under `node --test` with no network, no real keys, and no app-data writes. Seeded mutations over this area must turn the owning suite red before a change is considered covered.
 
