@@ -34,6 +34,7 @@ This module owns:
 - `js/chat-messages.js`: shared chat-request message folding helpers that collapse consecutive `user` or `assistant` payload turns into alternating messages with blank-line joins
 - `js/state-version.js`: browser-side replicated-state version tracking for same-origin fetches, per-tab persistence, and short-lived redirect handoff cookies
 - Alpine directives and magic helpers registered during bootstrap, including delayed-target `x-inject`
+- `js/sse-stream.js`: the ONE OpenAI-compatible completion-body reader (P4a-2). It parses a `text/event-stream` body or a single buffered JSON completion and reports text deltas plus every RAW payload through one `onPayload` seam. TWO callers share this one copy — a text turn, which renders `onDelta` strings, and the engine-swap tool-turn transport, whose assembler needs the whole delta object because `tool_calls` fragments live outside `content`. A second copy of this parser anywhere is the drift defect it exists to prevent; dropping the `onPayload` forwarding at either reader callsite silently ends streaming tool calls.
 - shared browser API helpers in `js/api-client.js`, `js/api.js`, `js/fetch-proxy.js`, `js/download.js`, and `js/proxy-url.js`
 - small shared parsing and utility helpers such as markdown frontmatter, the browser YAML wrapper, and token counting
 - shared framework CSS and icon font assets under `css/`, including non-visual helper-tag defaults such as hidden `x-context` elements
