@@ -120,8 +120,15 @@ export function createStreamingToolCallAssembler() {
     const record = recordFor(index, id);
     const name = normalizeFragment(delta?.function?.name);
 
+    // THE NAME IS A REPLACEMENT, NOT A FRAGMENT (owner-reported live on v1.2.1+70).
+    //
+    // Arguments arrive as fragments and must be concatenated; a name does not. OpenAI sends
+    // it exactly once, but another provider repeats the full name on every delta, and
+    // appending each repeat produced the measured `run_coderun_coderun_code`. Last
+    // non-empty value wins, so a repeat is idempotent and a genuinely split name (never
+    // observed, and not what the wire says) still ends at the value the provider sent last.
     if (name) {
-      record.name += name;
+      record.name = name;
     }
 
     record.argumentsText += normalizeFragment(delta?.function?.arguments);

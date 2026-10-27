@@ -5515,12 +5515,21 @@ const model = {
       return false;
     }
 
-    const exists = this.engineSwapProvisionalCalls.some(
+    // THE FIRST SIGHTING IS USUALLY EMPTY (owner-reported live on v1.2.1+70). Providers
+    // announce a call's id and name on the first delta with an EMPTY arguments body, and an
+    // empty body is a LEGALLY COMPLETE payload (it is how a no-argument call is spelled) —
+    // so this fires before the JSON exists. The record is still created here, because the
+    // chip must appear the instant the model announces the call, as `Running` with honest
+    // empty arguments. The real payload arrives on a later delta and lands through the
+    // fill-in path below.
+    //
+    // Deduping by call id is unchanged and load bearing: exactly one chip per call, ever.
+    const index = this.engineSwapProvisionalCalls.findIndex(
       (entry) => String(entry?.callId || "") === callId
     );
 
-    if (exists) {
-      return false;
+    if (index !== -1) {
+      return this.updateEngineSwapProvisionalCall(index, call);
     }
 
     this.engineSwapProvisionalCalls = [
@@ -5542,6 +5551,71 @@ const model = {
         name
       }
     ];
+    this.scheduleEngineSwapChipRender();
+
+    return true;
+  },
+
+  // FILL IN A CHIP THAT WAS ANNOUNCED EMPTY (owner-reported live on v1.2.1+70).
+  //
+  // The record already exists, so this is the same call seen again with more truth. Two
+  // rules, both load bearing:
+  //
+  //   - `atChars` is NOT touched. It was frozen at the first sighting and it is what keeps
+  //     the chip where the user watched it appear; recomputing it here would slide every
+  //     chip to the bottom of the prose it interleaves with.
+  //   - nothing is APPENDED, to the array or to a field. The record is replaced in place at
+  //     the same index, so chip ORDER is the order the calls were announced in.
+  //
+  // AN EMPTY INCOMING VALUE NEVER CLOBBERS A NON-EMPTY ONE. Providers repeat a call in
+  // later deltas, sometimes with the argument body omitted entirely; treating that as
+  // "the arguments are now empty" would erase the payload the chip is showing. The first
+  // real value wins over any later blank, and the LAST non-empty value wins over an earlier
+  // one — which is what makes a repeated `name` a replacement rather than a concatenation
+  // (`run_coderun_coderun_code` was the measured defect).
+  //
+  // Returns true only when state actually changed, so a no-op repeat does not schedule a
+  // wasted repaint. Display-only: this never dispatches anything.
+  updateEngineSwapProvisionalCall(index, call = {}) {
+    const current = this.engineSwapProvisionalCalls[index];
+
+    if (!current) {
+      return false;
+    }
+
+    const incomingArguments = call?.arguments;
+    const incomingName = String(call?.name || "").trim();
+    const next = { ...current };
+    let changed = false;
+
+    // The raw JSON string the provider streamed, kept verbatim: the projection formats it
+    // through the shared canonical writer, which is what makes a filled-in chip byte-
+    // identical to the committed row.
+    if (typeof incomingArguments === "string" && incomingArguments.trim()) {
+      if (incomingArguments !== current?.arguments) {
+        next.arguments = incomingArguments;
+        changed = true;
+      }
+    } else if (incomingArguments !== undefined && incomingArguments !== null && current?.arguments === undefined) {
+      // A structured payload on a record that had none (a provider that sends an object
+      // instead of a fragment) still counts as arriving: the formatter accepts both.
+      next.arguments = incomingArguments;
+      changed = true;
+    }
+
+    if (incomingName && incomingName !== String(current?.name || "")) {
+      next.name = incomingName;
+      changed = true;
+    }
+
+    if (!changed) {
+      return false;
+    }
+
+    const calls = this.engineSwapProvisionalCalls.slice();
+
+    calls[index] = next;
+    this.engineSwapProvisionalCalls = calls;
     this.scheduleEngineSwapChipRender();
 
     return true;
