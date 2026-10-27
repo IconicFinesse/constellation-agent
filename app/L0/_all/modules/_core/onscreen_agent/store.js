@@ -16,13 +16,7 @@ import {
   projectHistoryEntryForPrompt,
   serializeTypedHistoryFields
 } from "/modules/_core/framework/js/engine-swap/history-shapes.js";
-import {
-  formatDisplayFormToolCallLine,
-  formatWireHygieneLine,
-  resolveTier1CorrectivePrompt,
-  resolveTier1CorrectiveRetry,
-  sanitizeTier1WireMessages
-} from "/modules/_core/framework/js/engine-swap/wire-hygiene.js";
+import { createTier1TurnDriver } from "/modules/_core/framework/js/engine-swap/turn-driver.js";
 import {
   resolveOnscreenTier1Plan,
   runOnscreenTier1Turn,
@@ -103,19 +97,6 @@ const DEFAULT_AVATAR_SIZE_PX = 120;
 // (framework/js/engine-swap/AGENTS.md, "Flag And Inertness"). These three words ARE the
 // closed `DISPATCH_OUTCOME` set, and a status outside it is not a settle signal — the chip
 // stays `Running` rather than having an outcome invented for it.
-const ENGINE_SWAP_CHIP_OUTCOME_BY_DISPATCH_STATUS = Object.freeze({
-  error: "error",
-  held: "held",
-  ok: "success"
-});
-
-// Outcomes that MEAN the thing happened (or was refused). `running` and `pending` describe
-// work still in flight, so they are not news and never settle a chip. `deferred` is included
-// for totality: the loop answers a held call's later siblings as `deferred:` without
-// emitting a dispatch event for them, so nothing can reach this word today — it is here so a
-// future emit settles correctly instead of silently regressing to `Running`.
-const ENGINE_SWAP_TERMINAL_CHIP_OUTCOMES = new Set(["deferred", "error", "held", "success"]);
-
 const HIDDEN_COMPOSER_STATUS_TEXTS = new Set([
   "Loading onscreen agent...",
   "Loading default system prompt..."
@@ -1405,11 +1386,56 @@ const model = {
   dragState: null,
   executionContext: null,
   executionOutputOverrides: Object.create(null),
-  // Tier 1 only: assistant message ids whose text carries an executable separator
-  // but was NEVER executed (the turn ended without a typed tool call). They render
-  // as a settled `Shown, not executed` chip instead of a running one. Cleared with
-  // the other per-turn render state so it can never outlive the turn it describes.
-  engineSwapDisplayOnlyMessageIds: new Set(),
+  // --- engine-shaped state: DELEGATED to the turn driver (P4a-1) -------------
+  //
+  // These six members describe what a TURN is doing, so the driver owns them and
+  // this surface exposes ONE accessor pair each. Accessors, never a second copy:
+  // a duplicated field could drift from what the driver is actually doing, and
+  // that drift is the defect class this extraction exists to remove.
+  //
+  // A setter is required, not optional. Callers legitimately reset this state
+  // (`store.engineSwapProvisionalCalls = []`, `store.engineSwapPreviewSealed =
+  // false`), so a getter-only accessor would silently drop those writes.
+  //
+  // Non-reactive by design, and provably safe: the only engine field any template
+  // reads is `engineSwapPendingHold` (the confirm bar), which stays a plain data
+  // property further down precisely so its reactivity cannot break.
+  get engineSwapDisplayOnlyMessageIds() {
+    return getTier1TurnDriver().state.engineSwapDisplayOnlyMessageIds;
+  },
+  set engineSwapDisplayOnlyMessageIds(value) {
+    getTier1TurnDriver().state.engineSwapDisplayOnlyMessageIds = value;
+  },
+  get engineSwapHeldMessages() {
+    return getTier1TurnDriver().state.engineSwapHeldMessages;
+  },
+  set engineSwapHeldMessages(value) {
+    getTier1TurnDriver().state.engineSwapHeldMessages = value;
+  },
+  get engineSwapPreviewSealed() {
+    return getTier1TurnDriver().state.engineSwapPreviewSealed;
+  },
+  set engineSwapPreviewSealed(value) {
+    getTier1TurnDriver().state.engineSwapPreviewSealed = value;
+  },
+  get engineSwapProvisionalCalls() {
+    return getTier1TurnDriver().state.engineSwapProvisionalCalls;
+  },
+  set engineSwapProvisionalCalls(value) {
+    getTier1TurnDriver().state.engineSwapProvisionalCalls = value;
+  },
+  get engineSwapStreamingPreview() {
+    return getTier1TurnDriver().state.engineSwapStreamingPreview;
+  },
+  set engineSwapStreamingPreview(value) {
+    getTier1TurnDriver().state.engineSwapStreamingPreview = value;
+  },
+  get engineSwapTier1Session() {
+    return getTier1TurnDriver().state.engineSwapTier1Session;
+  },
+  set engineSwapTier1Session(value) {
+    getTier1TurnDriver().state.engineSwapTier1Session = value;
+  },
   activeTurnRequestMessages: null,
   history: [],
   historyCheckpointAt: 0,
@@ -1427,25 +1453,17 @@ const model = {
   isShellVisible: false,
   isUiBubbleMounted: false,
   isSending: false,
+  // SURFACE-OWNED, deliberately NOT in the driver (P4a-1). This is the confirm
+  // affordance itself: `panel.html` binds `x-if` to it and prints the path it
+  // holds, so it must stay a plain reactive data property on this store. Behind a
+  // plain getter onto driver state its reactivity would break SILENTLY: the
+  // driver's write never passes through this store proxy's set trap, so no trigger
+  // would fire and the confirm bar would simply stop appearing on a real held
+  // deletion — a production regression the whole node suite is structurally blind
+  // to, because every suite stubs `render`. The driver owns the DECISION
+  // (second-hold refusal, hold outcome, status text) and reads and writes this
+  // field through its injected surface, so there is still exactly one copy.
   engineSwapPendingHold: null,
-  engineSwapTier1Session: null,
-  // Tier 1 streaming preview. Text deltas from the tool-turn transport accumulate
-  // here so the surface can paint prose while tool calls are still assembling.
-  // Deliberately NOT part of `this.history`: history stays exactly the committed
-  // turn, so persistence and the display-only derivation can never observe a
-  // half-streamed reply, and a reload cannot resurrect one.
-  engineSwapStreamingPreview: null,
-  // PROVISIONAL tool-call chips (chat-surface polish, item 2). A call whose streamed
-  // arguments COMPLETED gets a `running` chip immediately, so the user can see work
-  // accumulating instead of waiting for the turn to end. Like the streaming preview
-  // this is projection-only state: it never enters `this.history`, is never
-  // serialized, and nothing dispatches off it.
-  engineSwapProvisionalCalls: [],
-  // The preview belongs to ONE turn. Sealing it at commit is what makes the doubled
-  // row impossible: a late delta from a finished turn cannot resurrect a preview row
-  // next to the committed reply, and the commit render runs with the slot already
-  // empty (item 4).
-  engineSwapPreviewSealed: false,
   // Expanded state for grouped tool-call runs. Held HERE rather than on the DOM
   // because the thread view replaces rows on every render; a `<details open>`
   // boolean living only on a node would be lost as soon as a result landed.
@@ -5451,179 +5469,68 @@ const model = {
     return executionResults;
   },
 
-  // --- engine-swap Tier 1 streaming preview --------------------------------
-  //
-  // Tool turns STREAM text as well as tool calls. The transport already reports
-  // each text delta (`api.js` `onDelta`), but the Tier 1 path passed no callback,
-  // so the prose only appeared when the whole turn returned: "text arrives all at
-  // once". These three methods are the whole surface half of the fix.
-  //
-  // The preview lives OUTSIDE `this.history` on purpose. History is the committed
-  // turn: persistence serializes it, the display-only derivation reads it, and a
-  // reload replays it. A half-streamed reply has no business in any of those, so a
-  // preview that is merely ADDED TO THE RENDER PROJECTION cannot leak into them.
-  appendEngineSwapStreamingDelta(delta) {
-    const text = typeof delta === "string" ? delta : "";
 
-    // SEALED (item 4). The turn that owned this slot has committed, so a delta
-    // arriving late (an in-flight frame, a transport that resolved after abort) must
-    // not resurrect a preview row beside the committed reply. Dropping it here is the
-    // other half of the ordering guarantee; the projection's id check is the first.
-    if (this.engineSwapPreviewSealed) {
-      return;
-    }
 
-    if (!text) {
-      return;
-    }
-
-    if (!this.engineSwapStreamingPreview) {
-      const preview = createStreamingAssistantMessage();
-      // A stable, reserved id: the row patch looks its row up by id, and it must
-      // never collide with a committed message or a queued preview.
-      preview.id = "engine-swap-streaming-preview";
-      // ONE VOCABULARY PER TIER (chat-polish-3 item 1). This row belongs to a TYPED tier
-      // turn, where separator text is display by construction, so the surface must read it
-      // that way WHILE it streams — not only after commit. The mark lives on this
-      // projection-only preview (it never enters history, so it is never persisted and no
-      // reload can resurrect it); the committed row gets the same reading through the
-      // derived `engineSwapDisplayOnlyMessageIds` set.
-      //
-      // Tier 3 never builds a preview here, so its cards are untouched.
-      preview.tier1Turn = true;
-      this.engineSwapStreamingPreview = preview;
-    }
-
-    this.engineSwapStreamingPreview.content += text;
-    // Compact and full mode paint streaming text through different seams; feed
-    // both, exactly as the Tier 3 delta path does.
-    this.setStreamingAssistantStatus(this.engineSwapStreamingPreview.content);
-    this.maybeShowCompactStreamingAssistantBubble(this.engineSwapStreamingPreview);
-    this.scheduleStreamingMessageRender(this.engineSwapStreamingPreview);
-  },
-
-  // PROVISIONAL chips, painted as a call's streamed arguments complete.
-  //
-  // Deduped by call id: providers repeat a completed call in later deltas, and a
-  // second chip for one call would be a lie about how many calls are running. This
-  // NEVER dispatches anything — the loop dispatches from the assembled result only.
-  recordEngineSwapProvisionalCall(call = {}) {
-    const callId = String(call?.callId || call?.id || "");
-    const name = String(call?.name || "tool");
-
-    if (!callId || this.engineSwapPreviewSealed) {
-      return false;
-    }
-
-    // THE FIRST SIGHTING IS USUALLY EMPTY (owner-reported live on v1.2.1+70). Providers
-    // announce a call's id and name on the first delta with an EMPTY arguments body, and an
-    // empty body is a LEGALLY COMPLETE payload (it is how a no-argument call is spelled) —
-    // so this fires before the JSON exists. The record is still created here, because the
-    // chip must appear the instant the model announces the call, as `Running` with honest
-    // empty arguments. The real payload arrives on a later delta and lands through the
-    // fill-in path below.
-    //
-    // Deduping by call id is unchanged and load bearing: exactly one chip per call, ever.
-    const index = this.engineSwapProvisionalCalls.findIndex(
-      (entry) => String(entry?.callId || "") === callId
-    );
-
-    if (index !== -1) {
-      return this.updateEngineSwapProvisionalCall(index, call);
-    }
-
-    this.engineSwapProvisionalCalls = [
-      ...this.engineSwapProvisionalCalls,
-      {
-        // THE CALL'S ARGUMENTS (P3 provisional panes). The transport had them all along
-        // and simply did not pass them, so the chip had nothing real to show and fell back
-        // to whatever the projection wrote after the newline. They are kept verbatim — the
-        // raw JSON string the provider streamed — because the projection formats them
-        // through the shared canonical writer, which is what makes the mid-turn pane
-        // byte-identical to the committed row's.
-        arguments: call?.arguments,
-        // INTERLEAVE OFFSET (chat-polish-2 item C). The chip belongs WHERE IT APPEARED, so
-        // the preview's length at this instant is recorded with it and the projection
-        // splits the accumulated text there. Reading the length at paint time instead
-        // would move every chip to the bottom of the prose.
-        atChars: String(this.engineSwapStreamingPreview?.content || "").length,
-        callId,
-        name
-      }
-    ];
-    this.scheduleEngineSwapChipRender();
-
-    return true;
-  },
-
-  // FILL IN A CHIP THAT WAS ANNOUNCED EMPTY (owner-reported live on v1.2.1+70).
-  //
-  // The record already exists, so this is the same call seen again with more truth. Two
-  // rules, both load bearing:
-  //
-  //   - `atChars` is NOT touched. It was frozen at the first sighting and it is what keeps
-  //     the chip where the user watched it appear; recomputing it here would slide every
-  //     chip to the bottom of the prose it interleaves with.
-  //   - nothing is APPENDED, to the array or to a field. The record is replaced in place at
-  //     the same index, so chip ORDER is the order the calls were announced in.
-  //
-  // AN EMPTY INCOMING VALUE NEVER CLOBBERS A NON-EMPTY ONE. Providers repeat a call in
-  // later deltas, sometimes with the argument body omitted entirely; treating that as
-  // "the arguments are now empty" would erase the payload the chip is showing. The first
-  // real value wins over any later blank, and the LAST non-empty value wins over an earlier
-  // one — which is what makes a repeated `name` a replacement rather than a concatenation
-  // (`run_coderun_coderun_code` was the measured defect).
-  //
-  // Returns true only when state actually changed, so a no-op repeat does not schedule a
-  // wasted repaint. Display-only: this never dispatches anything.
-  updateEngineSwapProvisionalCall(index, call = {}) {
-    const current = this.engineSwapProvisionalCalls[index];
-
-    if (!current) {
-      return false;
-    }
-
-    const incomingArguments = call?.arguments;
-    const incomingName = String(call?.name || "").trim();
-    const next = { ...current };
-    let changed = false;
-
-    // The raw JSON string the provider streamed, kept verbatim: the projection formats it
-    // through the shared canonical writer, which is what makes a filled-in chip byte-
-    // identical to the committed row.
-    if (typeof incomingArguments === "string" && incomingArguments.trim()) {
-      if (incomingArguments !== current?.arguments) {
-        next.arguments = incomingArguments;
-        changed = true;
-      }
-    } else if (incomingArguments !== undefined && incomingArguments !== null && current?.arguments === undefined) {
-      // A structured payload on a record that had none (a provider that sends an object
-      // instead of a fragment) still counts as arriving: the formatter accepts both.
-      next.arguments = incomingArguments;
-      changed = true;
-    }
-
-    if (incomingName && incomingName !== String(current?.name || "")) {
-      next.name = incomingName;
-      changed = true;
-    }
-
-    if (!changed) {
-      return false;
-    }
-
-    const calls = this.engineSwapProvisionalCalls.slice();
-
-    calls[index] = next;
-    this.engineSwapProvisionalCalls = calls;
-    this.scheduleEngineSwapChipRender();
-
-    return true;
-  },
 
   // Same frame discipline as streamed text: one coalesced repaint, never a render per
   // delta. Full mode only, because that is the surface that draws the thread. Shared by
   // the two chip mutations (paint, settle) so the frame rules cannot drift apart.
+
+  // --- the turn driver (P4a-1) ---------------------------------------------
+  //
+  // The Tier 1 turn driver lives in the framework now (`engine-swap/turn-driver.js`)
+  // so another surface can run Tier 1 without importing THIS module's internals.
+  // Every member below is a pure delegation: the public names and signatures are
+  // unchanged, so existing call sites and the whole test battery keep addressing
+  // the surface they always have. The one implementation is the driver's.
+  appendEngineSwapStreamingDelta(delta) {
+    return getTier1TurnDriver().appendEngineSwapStreamingDelta(delta);
+  },
+
+  recordEngineSwapProvisionalCall(call) {
+    return getTier1TurnDriver().recordEngineSwapProvisionalCall(call);
+  },
+
+  settleEngineSwapProvisionalCall(settle = {}) {
+    return getTier1TurnDriver().settleEngineSwapProvisionalCall(settle);
+  },
+
+  updateEngineSwapProvisionalCall(index, call) {
+    return getTier1TurnDriver().updateEngineSwapProvisionalCall(index, call);
+  },
+
+  handleEngineSwapTurnEvent(event = {}) {
+    return getTier1TurnDriver().handleEngineSwapTurnEvent(event);
+  },
+
+  clearEngineSwapStreamingPreview() {
+    return getTier1TurnDriver().clearEngineSwapStreamingPreview();
+  },
+
+  sealEngineSwapPreview() {
+    return getTier1TurnDriver().sealEngineSwapPreview();
+  },
+
+  openEngineSwapPreview() {
+    return getTier1TurnDriver().openEngineSwapPreview();
+  },
+
+  runTier1ConversationTurn(requestMessages, preparedRequest, plan, options = {}) {
+    return getTier1TurnDriver().runTier1ConversationTurn(requestMessages, preparedRequest, plan, options);
+  },
+
+  collectEngineSwapDisplayOnlyIds(entries, outputOverrides = null) {
+    return getTier1TurnDriver().collectEngineSwapDisplayOnlyIds(entries, outputOverrides);
+  },
+
+  syncEngineSwapDisplayOnlyIds(history, outputOverrides = null) {
+    return getTier1TurnDriver().syncEngineSwapDisplayOnlyIds(history, outputOverrides);
+  },
+
+  runTier1TurnAndCommit(requestMessages, preparedRequest, plan, options = {}) {
+    return getTier1TurnDriver().runTier1TurnAndCommit(requestMessages, preparedRequest, plan, options);
+  },
+
   scheduleEngineSwapChipRender() {
     if (!this.isFullMode || this.streamingRenderFrame) {
       return;
@@ -5635,576 +5542,14 @@ const model = {
     });
   },
 
-  // SETTLE-ON-DISPATCH: the loop already knows the outcome when it dispatches, and this
-  // is where the surface finally listens (owner-reported: every chip read
-  // `run_code · Running` for the whole turn and only flipped at turn end).
-  //
-  // The record is edited IN PLACE, and that is the whole point:
-  //   - `atChars` is preserved, so the chip stays where the user watched it appear
-  //     instead of jumping to the end of the prose;
-  //   - the array is replaced with a copy at the SAME index, so chip ORDER is preserved;
-  //   - an unknown call id creates nothing. A provider that never streamed the call (a
-  //     single JSON body, or an assembled call with no completed-arguments hook) must not
-  //     have a chip invented for it: that would draw a row for a call the user never
-  //     watched arrive, with no offset to interleave at.
-  //
-  // Non-terminal words are refused HERE rather than downstream so exactly one place
-  // decides what "settled" means: an `ok`/`error`/`held` dispatch status settles, and
-  // anything else leaves the chip `Running` for the turn-exit clear to finish.
-  settleEngineSwapProvisionalCall({ callId, outcome, result = null } = {}) {
-    const id = String(callId || "");
-    const settledOutcome = String(outcome || "").trim();
 
-    // A sealed or cleared slot has nothing to settle: the turn this chip belonged to is
-    // over, and its committed row speaks for the call now.
-    if (!id || this.engineSwapPreviewSealed || !ENGINE_SWAP_TERMINAL_CHIP_OUTCOMES.has(settledOutcome)) {
-      return false;
-    }
 
-    const index = this.engineSwapProvisionalCalls.findIndex(
-      (entry) => String(entry?.callId || "") === id
-    );
 
-    if (index === -1) {
-      return false;
-    }
 
-    const current = this.engineSwapProvisionalCalls[index];
 
-    // Idempotent: providers repeat a completed call, and a settled chip must not flip
-    // back as duplicates arrive. First terminal outcome wins.
-    if (String(current?.outcome || "")) {
-      return false;
-    }
 
-    // THE RESULT PANE'S TEXT, taken from the loop's own committed tool message. The
-    // loop decides that string once and hands it over on the dispatch event, so this is
-    // not a second formatter: it is the very text history will hold, and the projection
-    // renders it through the same reader the committed row uses. A result that arrives
-    // without content (an older caller) leaves the field absent rather than inventing a
-    // payload, so the chip keeps the honest `No output yet.` reading.
-    const resultContent = typeof result?.content === "string" ? result.content : null;
 
-    const next = this.engineSwapProvisionalCalls.slice();
-    next[index] = resultContent === null
-      ? { ...current, outcome: settledOutcome }
-      : { ...current, outcome: settledOutcome, resultContent, resultIsError: result?.isError === true };
-    this.engineSwapProvisionalCalls = next;
 
-    this.scheduleEngineSwapChipRender();
-    return true;
-  },
-
-  // The ONE translation from a loop event to surface state. Every OTHER event the loop
-  // emits (`assistant-turn`, `turn-error`, `incomplete-arguments-refused`) already reaches
-  // the surface through the turn RESULT, so consuming those here would be a second source
-  // of the same truth.
-  //
-  // Defensive by construction: this runs inside the transport's event path, so a throw
-  // here would break a live turn over a cosmetic chip. A malformed event is ignored,
-  // never raised.
-  handleEngineSwapTurnEvent(event = {}) {
-    try {
-      if (String(event?.type || "") !== "dispatch") {
-        return false;
-      }
-
-      // The call id travels on the CALL, not on the outcome (`emit({ call, outcome,
-      // position, type })` in `tool-turn-loop.js`). Both spellings are read because a
-      // streamed fragment and a completion payload name the id differently.
-      const callId = String(event?.call?.id || event?.call?.callId || "");
-      const outcome = ENGINE_SWAP_CHIP_OUTCOME_BY_DISPATCH_STATUS[String(event?.outcome?.status || "")];
-
-      if (!outcome) {
-        return false;
-      }
-
-      // The loop's committed result text travels with the event so the chip's OUTPUT pane
-      // can show the same bytes the committed row will show. Absent on a caller that does
-      // not supply it (and on the held/deferred paths that never had one), which leaves the
-      // honest empty pane rather than a fabricated payload.
-      return this.settleEngineSwapProvisionalCall({ callId, outcome, result: event?.result || null });
-    } catch {
-      // A chip is presentation. It never gets to fail a turn.
-      return false;
-    }
-  },
-
-  // A streaming preview that outlived its turn would be a message the user never
-  // received, so every exit clears it: commit, hold, error, stop and a thrown
-  // transport all pass through the turn's `finally`.
-  //
-  // THE ONE CLEANUP SITE (items 2 and 4). Provisional chips are the same class of
-  // state as the text preview — projection-only, meaningless outside the turn that
-  // produced them — so they are cleared HERE rather than in a second place that
-  // could drift. Every provisional chip therefore ends its life at commit, at an
-  // error, at a stop, at a hold, or at a thrown transport: none can strand.
-  clearEngineSwapStreamingPreview() {
-    this.engineSwapStreamingPreview = null;
-    this.engineSwapProvisionalCalls = [];
-  },
-
-  // Sealing is what makes the ordering guarantee hold against a LATE delta: once a
-  // turn has committed, nothing may create preview state again until the next turn
-  // opens it explicitly.
-  sealEngineSwapPreview() {
-    this.engineSwapPreviewSealed = true;
-    this.clearEngineSwapStreamingPreview();
-  },
-
-  openEngineSwapPreview() {
-    this.engineSwapPreviewSealed = false;
-    this.clearEngineSwapStreamingPreview();
-  },
-
-  // --- engine-swap Tier 1 (P2) ---------------------------------------------
-  //
-  // Dispatch-ON turns for a tools-capable config run the typed tool loop from the
-  // shared engine-swap layer. Everything here is a call into that layer; the only
-  // surface-side work is translating its result into history entries and status.
-  // Flag OFF resolves tier `none` before importing anything, and the Tier 3 path
-  // below stays exactly as it was.
-  async runTier1ConversationTurn(requestMessages, preparedRequest, plan, options = {}) {
-    // The Tier 1 conversation starts from the SAME prepared messages the streaming
-    // path just built. Re-deriving them would give the two tiers different prompts.
-    const preparedMessages = Array.isArray(preparedRequest?.messages) ? preparedRequest.messages : [];
-    const normalizedMessages = preparedMessages.map((message) => ({
-      content: String(message?.content || ""),
-      role: message?.role === "assistant" ? "assistant" : message?.role === "system" ? "system" : message?.role === "tool" ? "tool" : "user"
-    }));
-
-    // WIRE HYGIENE: the conversation a Tier 1 model receives must not carry the
-    // protocol envelope as content, and must not carry an assistant turn that acts
-    // with the execution separator. Both re-teach the retired text protocol; a live
-    // capture proved the model imitates them even when the tool list is present.
-    //
-    // The marker vocabulary comes from `agentLlm` and the separator test from the
-    // SHARED fence-aware classifier — a second copy of either is the BUG-007
-    // anti-pattern. Tier 3 never reaches this function, so its wire is untouched.
-    const sanitized = sanitizeTier1WireMessages({
-      envelopeMarkers: agentLlm.ONSCREEN_AGENT_PREPARED_MESSAGE_BLOCK,
-      findSeparatorIndex: execution.findExecutableSeparatorIndex,
-      messages: normalizedMessages
-    });
-    const messages = sanitized.messages.map((message) => ({ ...message }));
-
-    // Observable, once per turn that actually changed something: a sanitization that
-    // silently rewrote the wire would be untestable from a live session.
-    if (sanitized.changed) {
-      try {
-        console.info(formatWireHygieneLine(sanitized));
-      } catch {
-        // Logging must never break a turn.
-      }
-    }
-
-    if (messages[0]?.role === "system") {
-      messages[0] = {
-        content: await shapeOnscreenSystemPromptForTier({
-          promptText: messages[0].content,
-          tier: plan.tier
-        }),
-        role: "system"
-      };
-    }
-
-    // Stop reuses the ONE mechanism the text path already owns: `requestStop()`
-    // sets `stopRequested` and aborts `activeRequestController`. The loop consults
-    // the flag between iterations, and the controller's signal reaches the
-    // tool-turn fetch so an in-flight request is cut instead of waited out (P2
-    // audit non-blocker 3). No second stop source is introduced.
-    const controller = new AbortController();
-    this.activeRequestController = controller;
-
-    // The preview ACCUMULATES across this turn's iterations (owner-reported
-    // transcript defect, 2026-10-27): it used to be cleared at the start of every
-    // `sendCompletion`, so iteration 1's prose blinked out the moment iteration 2
-    // began and the user only ever saw the LAST iteration's words. Every iteration's
-    // narration is part of what the user watched, so the slot is reset ONCE per turn
-    // here and appended to thereafter, with a blank-line boundary between iterations
-    // so two narrations do not run together. It is still cleared exactly once, in
-    // the `finally` below, and it still never enters `this.history`.
-    let previewStarted = false;
-    let previewBoundaryPending = false;
-
-    const appendPreviewDelta = (delta) => {
-      if (previewBoundaryPending) {
-        previewBoundaryPending = false;
-        this.appendEngineSwapStreamingDelta("\n\n");
-      }
-
-      this.appendEngineSwapStreamingDelta(delta);
-    };
-
-    try {
-      const turn = await runOnscreenTier1Turn({
-        api: this.runtime?.api || globalThis.space?.api || null,
-        apiEndpoint: String(this.settings.apiEndpoint || ""),
-        executionContext: this.executionContext,
-        initialMessages: messages,
-        isStopRequested: () => this.stopRequested === true,
-        model: String(this.settings.model || ""),
-        params: llmParams.parseOnscreenAgentParamsText(this.settings.paramsText || ""),
-        providerKey: "",
-        // SETTLE-ON-DISPATCH: the loop emits `{ type: "dispatch", call, outcome }` the
-        // moment a call has been dispatched. Display-only subscription: it settles the
-        // matching provisional chip and touches nothing else. Without it the outcome the
-        // loop already knew was simply dropped and every chip read `Running` until the
-        // commit-time history rewrite replaced it.
-        onEvent: (event) => this.handleEngineSwapTurnEvent(event),
-        // P3: tool turns STREAM. The transport assembles `tool_calls` fragments per
-        // call index and reports each call complete only when its arguments are
-        // complete JSON, so the loop can dispatch without ever seeing half a call.
-        sendCompletion: async ({ request }) => {
-          // One preview slot per TURN, appended to across iterations: iteration 1's
-          // prose is part of what the user watched and must not blink out when
-          // iteration 2 starts. Reset only on the FIRST request of the turn, and
-          // separate later iterations with a blank line so two narrations do not run
-          // together. The reserved id still makes the row patch REPLACE the same row
-          // instead of appending a second one.
-          if (!previewStarted) {
-            previewStarted = true;
-            // Opens the slot for THIS turn: clears any stale preview and lifts the
-            // seal the previous turn left behind (item 4).
-            this.openEngineSwapPreview();
-          } else {
-            previewBoundaryPending = true;
-          }
-
-          return agentApi.streamOnscreenAgentToolTurn({
-            // Text deltas reach the surface while tool-call fragments are still
-            // assembling. This is the "text appears all at once" fix: without it the
-            // transport buffered the prose and the turn returned it in one piece.
-            // Routed through the turn's accumulator so an iteration boundary is
-            // inserted between this iteration's prose and the next one's.
-            onDelta: (delta) => appendPreviewDelta(delta),
-            // A call whose arguments COMPLETE paints a provisional `running` chip
-            // immediately (item 2). Display only: the loop still dispatches from the
-            // assembled turn, and every chip is cleared at ONE cleanup site.
-            onToolCallComplete: (call) => this.recordEngineSwapProvisionalCall(call),
-            requestBody: request.body,
-            settings: this.settings,
-            signal: controller.signal
-          });
-        }
-      });
-
-      // BOUNDED CORRECTIVE RETRY. A sanitized wire is the fix; this is the belt for
-      // the case where a model still answered with separator prose and never made a
-      // single call. Without it that turn ends silently on the retired protocol and
-      // the user is told nothing. ONE retry, decided from the loop's own turn record
-      // rather than from parsing prose, and it continues from the turn's messages so
-      // the separator reply stays in context as a thing that already happened.
-      let finalTurn = turn;
-      // ONE decision, and it names the SHAPE (chat-polish-3 item 3). The detector runs over
-      // the answer the wire actually produced, using the shared fence classifier and the
-      // separator test — never a second copy of either. A fenced block of code with no call
-      // is legitimate display (BUG-007), so a catch only ever means "call-shaped display
-      // content AND nothing dispatched", which is exactly the turn that needs correcting.
-      const corrective = resolveTier1CorrectiveRetry({
-        answer: turn?.result?.answer,
-        attempts: 0,
-        fenceRegions: execution.findExecutionFenceRegions(turn?.result?.answer),
-        findSeparatorIndex: execution.findExecutableSeparatorIndex,
-        separator: execution.EXECUTION_SEPARATOR,
-        turns: turn?.result?.turns,
-        // The user's OWN request, so a "show me how you'd call it" turn cannot burn the
-        // single retry on code the human asked to see (p35 audit non-blocker 3). Display
-        // requests and actions need opposite handling, and only this turn says which it is.
-        userTurn: (() => {
-          const list = Array.isArray(requestMessages) ? requestMessages : [];
-
-          for (let index = list.length - 1; index >= 0; index -= 1) {
-            const entry = list[index];
-
-            if (entry?.role === "user" && !entry?.typedTool && !entry?.kind) {
-              return String(entry?.content || "");
-            }
-          }
-
-          return "";
-        })()
-      });
-      const retry = corrective.retry;
-      // Names the SPECIFIC mistake. More prompt steering is not the lever — the steering leg
-      // already says a tool call is the only thing that runs, and the model fenced anyway.
-      const correctivePrompt = resolveTier1CorrectivePrompt(corrective.shape);
-
-      if (retry) {
-        // Counted once per catch, on the existing diagnostics channel, with the SHAPE and
-        // no message content: the owner needs to know whether this is rare drift or a
-        // habitual pattern without the log carrying replies.
-        try {
-          console.info(formatDisplayFormToolCallLine(corrective.shape));
-        } catch {
-          // Logging must never break a turn.
-        }
-      }
-
-      if (retry && !this.stopRequested) {
-        const continuedMessages = [
-          ...(Array.isArray(turn?.result?.messages) ? turn.result.messages : messages),
-          { content: correctivePrompt, role: "user" }
-        ];
-        // INVARIANT: the coaching element sits EXACTLY at this index — it is the last
-        // entry of the list the retry starts from, so every earlier entry keeps its
-        // position and the retry's baseline is `correctiveIndex`. The removal below is
-        // POSITIONAL for that reason: matching on text alone would also delete a
-        // message the model happened to echo back.
-        const correctiveIndex = continuedMessages.length - 1;
-
-        // The retry CONTINUES the turn's one preview. The first attempt's prose is
-        // kept in the committed history (only the coaching turn is dropped), so
-        // resetting the slot here would make the user watch prose vanish that the
-        // transcript then keeps -- the same defect as a per-iteration reset, one
-        // level up. The coaching attempt's prose simply accumulates after it.
-        previewBoundaryPending = true;
-
-        try {
-          const second = await runOnscreenTier1Turn({
-            api: this.runtime?.api || globalThis.space?.api || null,
-            apiEndpoint: String(this.settings.apiEndpoint || ""),
-            executionContext: this.executionContext,
-            initialMessages: continuedMessages,
-            isStopRequested: () => this.stopRequested === true,
-            model: String(this.settings.model || ""),
-            params: llmParams.parseOnscreenAgentParamsText(this.settings.paramsText || ""),
-            providerKey: "",
-            // The corrective retry is a CONTINUATION of the same turn, so it subscribes
-            // through the same handler. A retry that dispatched silently would leave the
-            // chips of its calls running exactly like the main attempt used to.
-            onEvent: (event) => this.handleEngineSwapTurnEvent(event),
-            sendCompletion: async ({ request }) => {
-              // The turn's ONE accumulator continues here. The boundary before this
-              // attempt was set once, above; each further iteration of the retry sets
-              // another boundary, exactly as the main attempt does.
-              previewBoundaryPending = true;
-
-              return agentApi.streamOnscreenAgentToolTurn({
-                onDelta: (delta) => appendPreviewDelta(delta),
-                onToolCallComplete: (call) => this.recordEngineSwapProvisionalCall(call),
-                requestBody: request.body,
-                settings: this.settings,
-                signal: controller.signal
-              });
-            }
-          });
-
-          // The coaching turn is scaffolding, not conversation. Dropping it from
-          // the persisted message list keeps the transcript honest: the user never
-          // said it, so it must not become a user bubble they later scroll past.
-          // Positional, per the invariant above: the coaching turn is scaffolding the
-          // user never wrote, and it is removed by WHERE it sits, not by what it says.
-          const persistedMessages = (
-            Array.isArray(second?.result?.messages) ? second.result.messages : []
-          ).filter((_message, index) => index !== correctiveIndex);
-
-          finalTurn = {
-            result: {
-              ...second.result,
-              messages: persistedMessages,
-              turns: [
-                ...(Array.isArray(turn?.result?.turns) ? turn.result.turns : []),
-                ...(Array.isArray(second?.result?.turns) ? second.result.turns : [])
-              ]
-            },
-            session: second.session
-          };
-        } catch {
-          // A retry that fails must not replace a real answer with nothing. The
-          // first turn's result stands, and the chip-exit derivation still explains
-          // what the user is looking at.
-          finalTurn = turn;
-        }
-      }
-
-      // The WIRE length is the baseline the commit must slice from, not the length
-      // of the prepared conversation: sanitization can DROP messages, and a tail
-      // sliced at the pre-sanitization length would silently discard the assistant
-      // reply and its tool results. Reported here so there is one source of truth
-      // for what was actually sent. Deliberately the ORIGINAL wire length, so a
-      // corrective retry cannot erase the first attempt from history.
-      return {
-        correctiveRetry: retry,
-        result: finalTurn.result,
-        session: finalTurn.session,
-        wireHygiene: sanitized,
-        wireMessageCount: messages.length
-      };
-    } finally {
-      // The preview dies with the turn. Commit, hold, error, stop, iteration cap and
-      // a thrown transport all return through here, so a streamed reply the user
-      // watched can never linger as a row that history does not contain.
-      //
-      // SEAL + CLEAR in ONE call, in that order (items 2 and 4): sealing makes a LATE
-      // delta (an in-flight frame, a transport resolving after an abort) unable to
-      // recreate preview state beside the committed reply, and the same call settles
-      // every provisional chip. Both kinds of projection state therefore exit through
-      // a single line on every path.
-      this.sealEngineSwapPreview();
-
-      if (this.activeRequestController === controller) {
-        this.activeRequestController = null;
-      }
-    }
-  },
-
-  // Assistant text that carries an executable execution separator was SHOWN, not run.
-  //
-  // On Tier 1 nothing ever executes separator text: execution happens only through a
-  // typed tool call. So a reply that answers with separator prose ends the turn with
-  // no result coming, and a chip waiting for one would wait forever. Recording those
-  // ids makes the chip settle at `Shown, not executed` instead of spinning.
-  //
-  // The separator test is the SHARED fence-aware one: a separator inside a fence is
-  // display text and never starts an execution, and a second copy of fence logic is
-  // the BUG-007 anti-pattern.
-  //
-  // THE ONE derivation, used by the Tier 1 commit, by history restore and by a rerun.
-  // Deriving instead of remembering is the whole point: the set describes PERSISTED
-  // history, so it must survive a reload. Persisted ids are kept verbatim
-  // (`assistant-<n>`), so the same inputs derive the same ids and nothing is stored
-  // twice.
-  //
-  // Eligibility is three conditions, not two:
-  //   - assistant text (only assistant entries render a chip),
-  //   - carrying an EXECUTABLE separator (fenced separators are display),
-  //   - with NO execution results. A message that really executed — a Tier 3 turn
-  //     with its `execution-output` follow-up, or any message with a results
-  //     override — must keep its executed label. Without this condition a reload
-  //     would relabel real executions as `Shown, not executed`.
-  collectEngineSwapDisplayOnlyIds(entries, outputOverrides = null) {
-    const ids = new Set();
-    const list = Array.isArray(entries) ? entries : [];
-    const overrides = outputOverrides && typeof outputOverrides === "object" ? outputOverrides : {};
-
-    for (let index = 0; index < list.length; index += 1) {
-      const entry = list[index];
-
-      if (entry?.role !== "assistant" || typeof entry?.content !== "string" || !entry.id) {
-        continue;
-      }
-
-      if (execution.findExecutableSeparatorIndex(entry.content) === -1) {
-        continue;
-      }
-
-      const overrideResults = overrides[entry.id];
-      const hasOverrideResults = Array.isArray(overrideResults) && overrideResults.length > 0;
-      // The other results shape: the framework follow-up turn written under the
-      // assistant message by the text protocol (Tier 3) after real execution.
-      const next = list[index + 1];
-      const hasFollowUpResults = Boolean(next) && isFrameworkFollowUpKind(next.kind);
-
-      if (!hasOverrideResults && !hasFollowUpResults) {
-        ids.add(String(entry.id));
-      }
-    }
-
-    return ids;
-  },
-
-  // Applies the shared derivation to a history snapshot. Deterministic by design:
-  // calling it twice with the same inputs yields the same set, so restore cannot
-  // drift from commit and a rerun can truthfully REMOVE an id.
-  syncEngineSwapDisplayOnlyIds(history, outputOverrides = null) {
-    this.engineSwapDisplayOnlyMessageIds = this.collectEngineSwapDisplayOnlyIds(
-      history,
-      outputOverrides || this.executionOutputOverrides
-    );
-
-    return this.engineSwapDisplayOnlyMessageIds;
-  },
-
-  async runTier1TurnAndCommit(requestMessages, preparedRequest, plan, options = {}) {
-    const turn = await this.runTier1ConversationTurn(requestMessages, preparedRequest, plan, options);
-    const { result, session } = turn;
-    // Slice at the WIRE length, not the prepared length: sanitization can drop
-    // messages, and the loop's message list starts from the shorter wire. Using the
-    // pre-sanitization length here would silently discard the assistant reply and
-    // its tool results from persisted history.
-    const baseline = Number.isFinite(Number(turn?.wireMessageCount))
-      ? Number(turn.wireMessageCount)
-      : Array.isArray(preparedRequest?.messages)
-        ? preparedRequest.messages.length
-        : 0;
-    const tailEntries = canonicalMessagesToTypedEntries(result?.messages || [], { fromIndex: baseline });
-
-    // Derived from the WHOLE composed history with the one shared collector, the
-    // same call the restore path makes. A union with the previous set could only
-    // ever add ids: it could not see that a message had since acquired results, and
-    // it could not match what a reload would compute. Determinism here is what lets
-    // commit and restore agree (audit blocker 1).
-    const composedHistory = [...requestMessages, ...tailEntries];
-
-    this.syncEngineSwapDisplayOnlyIds(composedHistory);
-
-    if (result?.status === "held") {
-      // The destructive call is HELD: nothing executed, and the chat now renders an
-      // inline confirm affordance. The session is kept so confirm/deny can settle
-      // the exact call the user is looking at.
-      // One consent question at a time. A second hold in the same loop would
-      // overwrite the first, and the call the user is looking at would become
-      // unreachable.
-      if (this.engineSwapPendingHold) {
-        session.cancelHeld?.();
-        this.engineSwapTier1Session = null;
-        // The FIRST hold's confirm bar must go with the session it belonged to.
-        // Leaving it set left two buttons that both no-op on `!session`: an
-        // affordance that lied about being actionable (P2 audit non-blocker 1).
-        this.engineSwapPendingHold = null;
-        this.engineSwapHeldMessages = null;
-        this.history = [...requestMessages, ...tailEntries];
-        await this.persistHistory({ immediate: true });
-        this.render();
-        this.status = "A confirmation is already waiting; finish it before starting another.";
-        return "complete";
-      }
-
-      this.engineSwapTier1Session = session;
-      this.engineSwapPendingHold = result.hold || null;
-      // The canonical turn (assistant tool call + held result) is kept so a
-      // confirmation can resume the loop from it and let the model report what
-      // actually happened, instead of stranding the user with a chip.
-      this.engineSwapHeldMessages = Array.isArray(result.messages) ? [...result.messages] : null;
-      this.history = [...requestMessages, ...tailEntries];
-      await this.persistHistory({ immediate: true });
-      this.render();
-      this.status = "Waiting for your confirmation to delete.";
-      return "complete";
-    }
-
-    this.engineSwapTier1Session = null;
-    this.engineSwapPendingHold = null;
-    this.history = [...requestMessages, ...tailEntries];
-    await this.persistHistory({ immediate: true });
-
-    if (result?.status === "error") {
-      this.reportError("running the tool turn", new Error(result.error || "the tool turn failed"));
-      return "failed";
-    }
-
-    // A stop is its own ended state, never a silent completion: the user asked
-    // for it, no further calls executed, and the submission series reports it.
-    if (result?.status === "stopped") {
-      this.status = "Stopped: the tool turn ended at your stop request.";
-      this.render();
-      return "stopped";
-    }
-
-    const answer = String(result?.answer || "").trim();
-
-    if (answer) {
-      this.showCompactAssistantReplyBubble(answer, {
-        messageId: tailEntries[tailEntries.length - 1]?.id || ""
-      });
-    } else {
-      this.status = result?.status === "iteration-cap" ? "Stopped: the tool turn hit its iteration limit." : "The tool turn produced no answer.";
-    }
-
-    this.render();
-    return "complete";
-  },
 
   // Replaces the held tool-result entry with the settled one. Exactly one result
   // must exist per call id: appending a second would make the next Tier 1 request
@@ -6804,5 +6149,90 @@ const model = {
 
 const onscreenAgent = space.fw.createStore("onscreenAgent", model);
 ensureOnscreenAgentRuntimeNamespace(onscreenAgent);
+
+// --- the Tier 1 turn driver wiring (P4a-1) -----------------------------------
+//
+// The driver is built ONCE, lazily, and its members are reached through the store
+// accessors above. Two details are load-bearing:
+//
+//   1. LATE BINDING, NOT CAPTURE. Every surface member below is a thunk that calls
+//      through the store at call time. Copying method references at construction
+//      would freeze whichever implementation existed then, so a caller that replaces
+//      a paint seam afterwards (a suite collapsing a coalesced repaint into a
+//      synchronous one) would silently be bypassed and no paint would happen.
+//   2. NO SURFACE IDENTITY. The driver never asks WHICH surface it serves and this
+//      wiring never tells it. A `surface === admin` branch anywhere is the signal
+//      that the boundary is wrong, not a feature to add.
+//
+// `engineSwapPendingHold` is read and written THROUGH the store, never mirrored:
+// it is the confirm bar's reactive binding, so there is exactly one copy of it and
+// it lives where the template can see the write.
+let tier1TurnDriver = null;
+
+function getTier1TurnDriver() {
+  if (!tier1TurnDriver) {
+    tier1TurnDriver = createTier1TurnDriver({
+      inputs: {
+        createStreamingAssistantMessage,
+        // INJECTED vocabularies and classifiers (BUG-007 preventers): the fence-aware
+        // separator test and the protocol-envelope markers each have exactly one
+        // owner, and the driver never keeps a second copy of either.
+        envelopeMarkers: agentLlm.ONSCREEN_AGENT_PREPARED_MESSAGE_BLOCK,
+        executionContext: () => onscreenAgent.executionContext,
+        executionOutputOverrides: () => onscreenAgent.executionOutputOverrides,
+        fenceRegions: (content) => execution.findExecutionFenceRegions(content),
+        findSeparatorIndex: (content) => execution.findExecutableSeparatorIndex(content),
+        isFrameworkFollowUpKind: (kind) => isFrameworkFollowUpKind(kind),
+        parseParams: (text) => llmParams.parseOnscreenAgentParamsText(text),
+        runTier1Turn: (turnRequest) => runOnscreenTier1Turn(turnRequest),
+        runtime: () => onscreenAgent.runtime,
+        separator: execution.EXECUTION_SEPARATOR,
+        settings: () => onscreenAgent.settings,
+        shapeSystemPrompt: (shapeRequest) => shapeOnscreenSystemPromptForTier(shapeRequest),
+        stopRequested: () => onscreenAgent.stopRequested,
+        streamToolTurn: (transportRequest) => agentApi.streamOnscreenAgentToolTurn(transportRequest),
+        // THE COMPOSITION SEAMS. `runTier1TurnAndCommit` composes the conversation
+        // turn and the display-only derivation, and on this surface BOTH are public
+        // methods a caller may replace (the suites stub the conversation turn to
+        // drive the commit path with no transport at all). Routing composition
+        // through these thunks keeps that contract exactly as it was when the two
+        // methods lived here and called `this.<sibling>`: a replaced method is
+        // honoured, and no caller can be silently bypassed.
+        collectDisplayOnlyIds: (entries, overrides) =>
+          onscreenAgent.collectEngineSwapDisplayOnlyIds(entries, overrides),
+        runConversationTurn: (requestMessages, preparedRequest, plan, options) =>
+          onscreenAgent.runTier1ConversationTurn(requestMessages, preparedRequest, plan, options)
+      },
+      surface: {
+        getActiveRequestController: () => onscreenAgent.activeRequestController,
+        getPendingHold: () => onscreenAgent.engineSwapPendingHold,
+        maybeShowCompactStreamingAssistantBubble: (message) =>
+          onscreenAgent.maybeShowCompactStreamingAssistantBubble(message),
+        persistHistory: (options) => onscreenAgent.persistHistory(options),
+        render: (options) => onscreenAgent.render(options),
+        reportError: (context, error) => onscreenAgent.reportError(context, error),
+        scheduleEngineSwapChipRender: () => onscreenAgent.scheduleEngineSwapChipRender(),
+        scheduleStreamingMessageRender: (message) => onscreenAgent.scheduleStreamingMessageRender(message),
+        setActiveRequestController: (controller) => {
+          onscreenAgent.activeRequestController = controller;
+        },
+        setHistory: (history) => {
+          onscreenAgent.history = history;
+        },
+        setPendingHold: (hold) => {
+          onscreenAgent.engineSwapPendingHold = hold;
+        },
+        setStatus: (text) => {
+          onscreenAgent.status = text;
+        },
+        setStreamingAssistantStatus: (content) => onscreenAgent.setStreamingAssistantStatus(content),
+        showCompactAssistantReplyBubble: (answer, options) =>
+          onscreenAgent.showCompactAssistantReplyBubble(answer, options)
+      }
+    });
+  }
+
+  return tier1TurnDriver;
+}
 
 export { onscreenAgent };
