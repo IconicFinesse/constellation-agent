@@ -751,7 +751,9 @@ export function createAgentThreadView(config = {}) {
     deferred: "Deferred",
     error: "Error",
     held: "Held",
-    pending: "Pending",
+    // `pending` is the call-side outcome (a call whose result has not landed yet). The card
+    // renders it running, so the label says the same word: one vocabulary, one meaning.
+    pending: "Running",
     running: "Running",
     success: "Success"
   });
@@ -1209,6 +1211,10 @@ export function createAgentThreadView(config = {}) {
 
           if (narrationBlock) {
             narrationBlock.dataset.executionNarration = "true";
+            // The text the block was painted from, so a live tick that adds nothing does
+            // not repaint it (chat-polish-2 item C). Kept for committed rows too: it is how
+            // the streaming patch knows whether the prose actually moved.
+            narrationBlock.dataset.executionNarrationText = section.executeDisplay.narration.trim();
             sectionElement.append(narrationBlock);
           }
         }
@@ -1452,17 +1458,46 @@ export function createAgentThreadView(config = {}) {
     };
   }
 
+  // A RESULT entry's projected name is EMPTY by construction: the canonical writer stores a
+  // tool message as `{role, content, toolCallId}` with no name, and the display projection
+  // can only echo what the stored entry carries. A standalone result chip therefore read
+  // `tool · Success` instead of the tool that actually ran (chat-polish-2 item D). The name
+  // is recoverable from the CALL of the same id, which is in the same history, so it is
+  // resolved here rather than by re-reading or rewriting stored shapes.
+  function collectTypedToolNames(history) {
+    const names = new Map();
+
+    (Array.isArray(history) ? history : []).forEach((entry) => {
+      if (entry?.typedTool !== "call") {
+        return;
+      }
+
+      const callId = String(entry?.typedToolCallId || "");
+      const name = String(entry?.typedToolName || "");
+
+      if (callId && name && !names.has(callId)) {
+        names.set(callId, name);
+      }
+    });
+
+    return names;
+  }
+
   // A STANDALONE typed chip (ungrouped) keeps its pre-existing one-entry shape; this only
   // supplies the honest label for it (item D).
-  function createTypedToolDescriptor(entry) {
+  function createTypedToolDescriptor(entry, nameByCallId = null) {
     if (!entry?.typedTool) {
       return null;
     }
 
+    const callId = String(entry.typedToolCallId || "");
+    const resolvedName =
+      String(entry.typedToolName || "") || (nameByCallId?.get?.(callId) ?? "") || "";
+
     if (entry.typedTool === "call") {
       return {
         argumentsText: getTypedEntryBodyText(entry) || "{}",
-        name: String(entry.typedToolName || "tool"),
+        name: resolvedName || "tool",
         outcome: "running",
         outputText: ""
       };
@@ -1470,7 +1505,7 @@ export function createAgentThreadView(config = {}) {
 
     return {
       argumentsText: "",
-      name: String(entry.typedToolName || "tool"),
+      name: resolvedName || "tool",
       outcome: String(entry.typedToolOutcome || "success"),
       outputText: getTypedEntryBodyText(entry)
     };
@@ -1672,6 +1707,10 @@ export function createAgentThreadView(config = {}) {
     // history, not of an index, and recomputing it inside `collectToolRun` made this
     // O(n²) on every streamed frame (chat-polish audit non-blocker b, 2026-10-27).
     const withheldCallIds = groupToolRuns ? collectWithheldCallIds(history) : null;
+    // Same reasoning, and the same one-scan discipline: a typed RESULT entry carries no tool
+    // name of its own, so the name is resolved once per render from its sibling CALL. Doing
+    // it per row would be O(n²) on the frame path.
+    const typedToolNames = collectTypedToolNames(history);
 
     for (let index = 0; index < history.length; index += 1) {
       const message = history[index];
@@ -1750,7 +1789,7 @@ export function createAgentThreadView(config = {}) {
           // A typed chip gets an honest label and honest panes (item D) whether or not it
           // is grouped: the wording must not depend on how many siblings it happened to
           // have.
-          typedTool: createTypedToolDescriptor(message),
+          typedTool: createTypedToolDescriptor(message, typedToolNames),
           type: "standalone-output"
         });
         continue;
@@ -1918,6 +1957,19 @@ export function createAgentThreadView(config = {}) {
       row = createMessageRow("assistant", createAssistantSequenceBubble(group, options), "terminal-row", {
         showAvatar: group.showAvatar !== false
       });
+
+      // A STREAMING sequence row must still be findable by id (chat-polish-2 item C). A
+      // message carrying an execution separator renders as an assistant-sequence, and
+      // without this mark `updateStreamingAssistantMessage` could never locate the row: every
+      // delta fell through to a full thread re-render, which is why the prose above a tool
+      // card sat frozen and unformatted while the card itself updated. The id is the
+      // streaming message's own, so the existing in-place patch (and its narration repaint)
+      // reaches the row exactly as it does for a text turn.
+      const streamingSection = group.sections.find((section) => Boolean(section?.message?.streaming));
+
+      if (streamingSection) {
+        row.dataset.streamingMessageId = streamingSection.message.id;
+      }
     } else if (group.type === "tool-run") {
       row = createMessageRow("assistant", createToolRunCard(group, options), "terminal-row tool-run-row", {
         showAvatar: group.showAvatar !== false
@@ -1926,7 +1978,8 @@ export function createAgentThreadView(config = {}) {
       row = createMessageRow(
         "assistant",
         createStandaloneExecutionOutputBubble(group.outputResults, group.messageId, {
-          provisional: group.provisional === true
+          provisional: group.provisional === true,
+          typedTool: group.typedTool || null
         }),
         "terminal-row execution-output-row",
         {
