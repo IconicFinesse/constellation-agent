@@ -74,8 +74,25 @@ test("a tier 1 prompt keeps the fence contract, role, and behavioral norms", () 
   const firstHeading = PROMPT.split("\n").find((line) => line.trim());
 
   assert.ok(shaped.startsWith(firstHeading));
-  // And the prompt is still substantial, not truncated to a stub.
-  assert.ok(shaped.length > PROMPT.length * 0.5, "the shaped prompt keeps most of its body");
+  // The behavior-governing sections survive verbatim. This, not a byte ratio, is
+  // what makes the shaped prompt usable: the retired material is the old-idiom
+  // CORPUS (traces + task examples), never the rules that govern conduct.
+  for (const heading of ["base law", "rules", "invalid"]) {
+    assert.ok(
+      shaped.toLowerCase().split("\n").some((line) => line.trim() === heading),
+      `the ${heading} section governs behavior and must survive the cut`
+    );
+  }
+
+  // The prompt is still substantial, not truncated to a stub. The bound is a THIRD
+  // rather than a half because retiring the demonstration corpus is the approved
+  // contract for this tier (P2 live hotfix 2): several hundred lines of separator
+  // examples are removed on purpose, and a half-prompt bound would forbid the fix
+  // while measuring nothing about behavior.
+  assert.ok(
+    shaped.length > PROMPT.length / 3,
+    "the shaped prompt keeps its operational core, not just a stub"
+  );
 });
 
 test("the shaped tier 1 prompt is shorter than the full card prompt", () => {

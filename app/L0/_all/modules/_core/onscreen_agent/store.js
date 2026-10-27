@@ -15,6 +15,12 @@ import {
   serializeTypedHistoryFields
 } from "/modules/_core/framework/js/engine-swap/history-shapes.js";
 import {
+  formatWireHygieneLine,
+  needsTier1CorrectiveRetry,
+  sanitizeTier1WireMessages,
+  TIER1_CORRECTIVE_PROMPT
+} from "/modules/_core/framework/js/engine-swap/wire-hygiene.js";
+import {
   resolveOnscreenTier1Plan,
   runOnscreenTier1Turn,
   shapeOnscreenSystemPromptForTier
@@ -5358,14 +5364,39 @@ const model = {
   // surface-side work is translating its result into history entries and status.
   // Flag OFF resolves tier `none` before importing anything, and the Tier 3 path
   // below stays exactly as it was.
-  async runTier1ConversationTurn(requestMessages, preparedRequest, plan) {
+  async runTier1ConversationTurn(requestMessages, preparedRequest, plan, options = {}) {
     // The Tier 1 conversation starts from the SAME prepared messages the streaming
     // path just built. Re-deriving them would give the two tiers different prompts.
     const preparedMessages = Array.isArray(preparedRequest?.messages) ? preparedRequest.messages : [];
-    const messages = preparedMessages.map((message) => ({
+    const normalizedMessages = preparedMessages.map((message) => ({
       content: String(message?.content || ""),
       role: message?.role === "assistant" ? "assistant" : message?.role === "system" ? "system" : message?.role === "tool" ? "tool" : "user"
     }));
+
+    // WIRE HYGIENE: the conversation a Tier 1 model receives must not carry the
+    // protocol envelope as content, and must not carry an assistant turn that acts
+    // with the execution separator. Both re-teach the retired text protocol; a live
+    // capture proved the model imitates them even when the tool list is present.
+    //
+    // The marker vocabulary comes from `agentLlm` and the separator test from the
+    // SHARED fence-aware classifier — a second copy of either is the BUG-007
+    // anti-pattern. Tier 3 never reaches this function, so its wire is untouched.
+    const sanitized = sanitizeTier1WireMessages({
+      envelopeMarkers: agentLlm.ONSCREEN_AGENT_PREPARED_MESSAGE_BLOCK,
+      findSeparatorIndex: execution.findExecutableSeparatorIndex,
+      messages: normalizedMessages
+    });
+    const messages = sanitized.messages.map((message) => ({ ...message }));
+
+    // Observable, once per turn that actually changed something: a sanitization that
+    // silently rewrote the wire would be untestable from a live session.
+    if (sanitized.changed) {
+      try {
+        console.info(formatWireHygieneLine(sanitized));
+      } catch {
+        // Logging must never break a turn.
+      }
+    }
 
     if (messages[0]?.role === "system") {
       messages[0] = {
@@ -5386,7 +5417,7 @@ const model = {
     this.activeRequestController = controller;
 
     try {
-      return await runOnscreenTier1Turn({
+      const turn = await runOnscreenTier1Turn({
         api: this.runtime?.api || globalThis.space?.api || null,
         apiEndpoint: String(this.settings.apiEndpoint || ""),
         executionContext: this.executionContext,
@@ -5402,6 +5433,87 @@ const model = {
             signal: controller.signal
           })
       });
+
+      // BOUNDED CORRECTIVE RETRY. A sanitized wire is the fix; this is the belt for
+      // the case where a model still answered with separator prose and never made a
+      // single call. Without it that turn ends silently on the retired protocol and
+      // the user is told nothing. ONE retry, decided from the loop's own turn record
+      // rather than from parsing prose, and it continues from the turn's messages so
+      // the separator reply stays in context as a thing that already happened.
+      let finalTurn = turn;
+      const retry = needsTier1CorrectiveRetry({
+        answer: turn?.result?.answer,
+        attempts: 0,
+        findSeparatorIndex: execution.findExecutableSeparatorIndex,
+        turns: turn?.result?.turns
+      });
+
+      if (retry && !this.stopRequested) {
+        const continuedMessages = [
+          ...(Array.isArray(turn?.result?.messages) ? turn.result.messages : messages),
+          { content: TIER1_CORRECTIVE_PROMPT, role: "user" }
+        ];
+
+        try {
+          const second = await runOnscreenTier1Turn({
+            api: this.runtime?.api || globalThis.space?.api || null,
+            apiEndpoint: String(this.settings.apiEndpoint || ""),
+            executionContext: this.executionContext,
+            initialMessages: continuedMessages,
+            isStopRequested: () => this.stopRequested === true,
+            model: String(this.settings.model || ""),
+            params: llmParams.parseOnscreenAgentParamsText(this.settings.paramsText || ""),
+            providerKey: "",
+            sendCompletion: async ({ request }) =>
+              agentApi.completeOnscreenAgentToolTurn({
+                requestBody: request.body,
+                settings: this.settings,
+                signal: controller.signal
+              })
+          });
+
+          // The coaching turn is scaffolding, not conversation. Dropping it from
+          // the persisted message list keeps the transcript honest: the user never
+          // said it, so it must not become a user bubble they later scroll past.
+          const persistedMessages = (
+            Array.isArray(second?.result?.messages) ? second.result.messages : []
+          ).filter(
+            (message) =>
+              !(message?.role === "user" && message?.content === TIER1_CORRECTIVE_PROMPT)
+          );
+
+          finalTurn = {
+            result: {
+              ...second.result,
+              messages: persistedMessages,
+              turns: [
+                ...(Array.isArray(turn?.result?.turns) ? turn.result.turns : []),
+                ...(Array.isArray(second?.result?.turns) ? second.result.turns : [])
+              ]
+            },
+            session: second.session
+          };
+        } catch {
+          // A retry that fails must not replace a real answer with nothing. The
+          // first turn's result stands, and the chip-exit derivation still explains
+          // what the user is looking at.
+          finalTurn = turn;
+        }
+      }
+
+      // The WIRE length is the baseline the commit must slice from, not the length
+      // of the prepared conversation: sanitization can DROP messages, and a tail
+      // sliced at the pre-sanitization length would silently discard the assistant
+      // reply and its tool results. Reported here so there is one source of truth
+      // for what was actually sent. Deliberately the ORIGINAL wire length, so a
+      // corrective retry cannot erase the first attempt from history.
+      return {
+        correctiveRetry: retry,
+        result: finalTurn.result,
+        session: finalTurn.session,
+        wireHygiene: sanitized,
+        wireMessageCount: messages.length
+      };
     } finally {
       if (this.activeRequestController === controller) {
         this.activeRequestController = null;
@@ -5476,9 +5588,18 @@ const model = {
     return this.engineSwapDisplayOnlyMessageIds;
   },
 
-  async runTier1TurnAndCommit(requestMessages, preparedRequest, plan) {
-    const baseline = Array.isArray(preparedRequest?.messages) ? preparedRequest.messages.length : 0;
-    const { result, session } = await this.runTier1ConversationTurn(requestMessages, preparedRequest, plan);
+  async runTier1TurnAndCommit(requestMessages, preparedRequest, plan, options = {}) {
+    const turn = await this.runTier1ConversationTurn(requestMessages, preparedRequest, plan, options);
+    const { result, session } = turn;
+    // Slice at the WIRE length, not the prepared length: sanitization can drop
+    // messages, and the loop's message list starts from the shorter wire. Using the
+    // pre-sanitization length here would silently discard the assistant reply and
+    // its tool results from persisted history.
+    const baseline = Number.isFinite(Number(turn?.wireMessageCount))
+      ? Number(turn.wireMessageCount)
+      : Array.isArray(preparedRequest?.messages)
+        ? preparedRequest.messages.length
+        : 0;
     const tailEntries = canonicalMessagesToTypedEntries(result?.messages || [], { fromIndex: baseline });
 
     // Derived from the WHOLE composed history with the one shared collector, the
