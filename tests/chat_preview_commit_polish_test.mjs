@@ -99,7 +99,7 @@ const runtime = createHarness();
 const { buildChatRenderProjection, createProvisionalChipEntry, PROVISIONAL_CHIP_PREFIX } = await import(
   "/modules/_core/onscreen_agent/chat-projection.js"
 );
-const { paintPreviewMarkdown, PREVIEW_PAINT_MODE, PREVIEW_MARKDOWN_MAX_CHARS, resolvePreviewPaintMode } = await import(
+const { paintPreviewMarkdown, PREVIEW_PAINT_MODE, PREVIEW_MARKDOWN_MAX_CHARS, resolvePreviewPaintMode, MESSAGE_CONTENT_PAINTER, selectMessageContentPainter } = await import(
   "/modules/_core/visual/conversation/preview-markdown.js"
 );
 const { resolveExecutionCardState } = await import("/modules/_core/visual/conversation/thread-view.js");
@@ -277,6 +277,15 @@ test("preview work is bounded: past the cap it paints plain text", () => {
 });
 
 // THE BOUNDARY: the committed path is untouched, so the final output is unchanged.
+test("only a streaming message selects the preview painter", () => {
+  // This is what makes 'render the preview on commit' a RED change rather than an
+  // invisible style preference: a settled message must select COMMITTED, and the
+  // renderer dispatches on exactly this value.
+  assert.equal(selectMessageContentPainter({ streaming: true }), MESSAGE_CONTENT_PAINTER.PREVIEW);
+  assert.equal(selectMessageContentPainter({ streaming: false }), MESSAGE_CONTENT_PAINTER.COMMITTED);
+  assert.equal(selectMessageContentPainter({}), MESSAGE_CONTENT_PAINTER.COMMITTED, "settled is the default");
+});
+
 test("the committed path never travels the preview renderer", () => {
   // `paintPreviewMarkdown` is only reachable from the streaming branch, which the
   // renderer selects on `message.streaming`. A settled message takes
