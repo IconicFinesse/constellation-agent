@@ -358,16 +358,41 @@ test("a settled provisional paints its real outcome through the existing vocabul
   });
 });
 
-test("an UNsettled provisional stays byte-identical to the pre-fix running chip", () => {
-  const [descriptor] = descriptorsFor([chipEntry("c1", "run_code")]);
+test("an UNsettled provisional reads Running with its real arguments and NO invented output", () => {
+  // WHAT CHANGED AND WHY (P3 provisional panes). This case used to assert
+  // `content === "execution run_code call\nrunning"` — the chip's body was the OUTCOME
+  // WORD, which is exactly the owner-reported defect: the thread view reads everything
+  // after the first newline as the call's ARGUMENTS, so `running`/`success` appeared in the
+  // ARGUMENTS pane. Asserting those bytes pinned the bug. The contract is now: the body is
+  // the call's real argument JSON, and the outcome travels where it always belonged — in
+  // `typedToolOutcome`.
+  //
+  // The rest of the old case is preserved: same id, same `running` reading, and nothing is
+  // fabricated for a call that has not been dispatched.
+  const rawArguments = JSON.stringify({ code: "await space.api.fileList('~/');" });
+  const entry = createProvisionalChipEntry({
+    arguments: rawArguments,
+    atChars: 0,
+    callId: "c1",
+    name: "run_code"
+  });
+  const [descriptor] = descriptorsFor([entry]);
 
   assert.equal(descriptor.typedTool.outcome, "running");
   assert.equal(view.formatTypedToolLabel("run_code", "running"), "run_code · Running");
 
-  // The projection entry itself is unchanged too: same id, same prose, same outcome.
-  const [entry] = [chipEntry("c1", "run_code")];
+  // The ARGUMENTS pane is the real JSON the model sent — never the outcome word.
+  assert.equal(descriptor.typedTool.argumentsText, rawArguments);
+  assert.notEqual(descriptor.typedTool.argumentsText, "running");
+  assert.ok(
+    !descriptor.typedTool.argumentsText.includes("running"),
+    "the outcome word must never appear in the arguments pane"
+  );
 
-  assert.equal(entry.content, "execution run_code call\nrunning");
+  // Honest, not fabricated: an args-complete-but-undispatched call has NO result yet.
+  assert.equal(descriptor.typedTool.outputText, "");
+
+  // Identity and outcome are unchanged.
   assert.equal(entry.typedToolOutcome, "running");
   assert.equal(entry.id, "provisional-call-c1");
 });
@@ -411,21 +436,44 @@ test("a committed call entry resolves exactly as before: pending falls through t
 // ===========================================================================
 
 test("the projection paints a settled outcome and leaves an unsettled one running", () => {
+  // The OUTCOME belongs in `typedToolOutcome`, never in the entry body. The body is the
+  // call's real argument JSON — that is the pane the thread view reads it into, and
+  // `success` / `running` sitting there was the owner-reported defect (P3 provisional
+  // panes). This case previously asserted those exact bytes.
+  const readArguments = JSON.stringify({ path: "~/notes/a.md" });
+  const writeArguments = JSON.stringify({ content: "hi", path: "~/out.txt" });
   const projection = buildChatRenderProjection({
     history: [],
     preview: null,
     provisionalCalls: [
-      { atChars: 0, callId: "c1", name: "file_read", outcome: "success" },
-      { atChars: 12, callId: "c2", name: "file_write" }
+      {
+        arguments: readArguments,
+        atChars: 0,
+        callId: "c1",
+        name: "file_read",
+        outcome: "success",
+        resultContent: 'ok: {"content":"hello"}',
+        resultIsError: false
+      },
+      { arguments: writeArguments, atChars: 12, callId: "c2", name: "file_write" }
     ]
   });
 
   assert.equal(projection.length, 2);
+
+  // Settled: the outcome is the CHIP STATE, and the body is the arguments.
   assert.equal(projection[0].typedToolOutcome, "success");
-  assert.equal(projection[0].content, "execution file_read call\nsuccess");
-  // Unsettled: byte-identical to the pre-fix shape.
+  assert.equal(projection[0].content, `execution file_read call\n${readArguments}`);
+  assert.ok(
+    !projection[0].content.includes("success"),
+    "the outcome word must never be the body the arguments pane reads"
+  );
+
+  // Unsettled: still `running`, still the real arguments, and no invented output.
   assert.equal(projection[1].typedToolOutcome, "running");
-  assert.equal(projection[1].content, "execution file_write call\nrunning");
+  assert.equal(projection[1].content, `execution file_write call\n${writeArguments}`);
+  assert.ok(!projection[1].content.includes("running"));
+  assert.equal(projection[1].typedToolOutputText, "", "a pending call fabricates no output");
 });
 
 // ===========================================================================

@@ -20,6 +20,7 @@
 import {
   createAssistantTextMessage,
   createAssistantToolCallMessage,
+  createCanonicalToolCall,
   createToolResultMessage,
   createUserMessage
 } from "./canonical.js";
@@ -478,6 +479,78 @@ export function classifyToolResultOutcome(entry) {
   }
 
   return TOOL_RESULT_OUTCOME.SUCCESS;
+}
+
+// ONE BODY READER for the chip shape this module projects.
+//
+// `projectHistoryEntryForDisplay` writes `execution <name> call|result` followed by a
+// newline and the body; every reader of that shape takes everything after the first
+// newline. It lives here, beside the writer, because the mid-turn chip and the
+// committed row must slice the SAME string the SAME way or they cannot be byte-equal.
+//
+// This is a reader of the projected format, not a second formatter: the act of
+// formatting is `projectHistoryEntryForDisplay` below, and both paths call it.
+export function readProjectedChipBody(entry) {
+  const content = String(entry?.content || "");
+  const newlineIndex = content.indexOf("\n");
+
+  return newlineIndex === -1 ? "" : content.slice(newlineIndex + 1).trim();
+}
+
+// THE ONE ARGUMENTS FORMATTER, shared by the mid-turn provisional chip and the
+// committed call row.
+//
+// Parity is a construction property here, not a comparison of two hopeful
+// implementations: a provisional chip and a committed call entry are formatted by the
+// SAME functions in the SAME order — `createCanonicalToolCall` (the one argument
+// parser, so a raw JSON string and an object agree) then `createToolCallEntry` then
+// `projectHistoryEntryForDisplay` then `readProjectedChipBody`. If the committed row
+// ever changes its argument rendering, this helper changes with it, because there is
+// only one rendering.
+//
+export function projectToolCallForChip({ arguments: rawArguments, name = "" } = {}) {
+  const callName = normalizeText(name).trim() || "tool";
+
+  // A nameless call is not dispatchable, but the formatter must never throw: the chip
+  // is presentation. `createCanonicalToolCall` is given a name so it cannot reject.
+  const canonical = createCanonicalToolCall({ arguments: rawArguments, id: "projected-call", name: callName });
+  const entry = createToolCallEntry({
+    arguments: canonical.arguments,
+    callId: canonical.id,
+    name: canonical.name
+  });
+  const projected = projectHistoryEntryForDisplay(entry);
+
+  // The whole projected CONTENT is returned, not just the body: the chip shape is
+  // `execution <name> call` + newline + body, and letting a caller re-type that prefix
+  // would be a second copy of the format waiting to drift.
+  return Object.freeze({
+    argumentsText: readProjectedChipBody(projected),
+    content: String(projected.content || ""),
+    name: canonical.name
+  });
+}
+
+// THE ONE RESULT FORMATTER, with the same shared-by-construction property.
+//
+// The input is the LITERAL tool-message content the loop is about to commit
+// (`formatToolResultForModel` / `formatHeldToolResult` output), so this function never
+// re-derives a payload from a dispatch outcome: it projects the very string history
+// will hold, through the very reader history uses. That is what makes a settled chip's
+// output pane byte-identical to the committed row's — including the shapes that would
+// drift if this were written by hand (an `undefined` result commits as the quoted
+// `"the tool returned no value."` string, not as `undefined`).
+//
+export function projectToolResultText({ content = "", isError = false } = {}) {
+  const message = createToolResultMessage({
+    content: String(content ?? ""),
+    isError: isError === true,
+    toolCallId: "projected-result"
+  });
+  const entries = canonicalMessagesToTypedEntries([message], { fromIndex: 0 });
+  const resultEntry = entries.find((entry) => entry?.kind === HISTORY_ENTRY_KIND.TOOL_RESULT);
+
+  return resultEntry ? readProjectedChipBody(projectHistoryEntryForDisplay(resultEntry)) : "";
 }
 
 // Prompt projection for the text-protocol (Tier 3) path.

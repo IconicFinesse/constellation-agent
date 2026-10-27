@@ -25,6 +25,11 @@
 // (chat-polish audit blocker 2, 2026-10-27). The store calls `buildRenderHistory`,
 // which projects first.
 
+import {
+  projectToolCallForChip,
+  projectToolResultText
+} from "/modules/_core/framework/js/engine-swap/history-shapes.js";
+
 export const PROVISIONAL_CHIP_PREFIX = "provisional-call-";
 
 export const PREVIEW_SEGMENT_SUFFIX = "-seg-";
@@ -122,6 +127,23 @@ export function createProvisionalChipEntry(call = {}) {
   const callId = String(call?.callId || call?.id || "");
   const name = String(call?.name || "tool");
 
+  // ARGUMENTS AND OUTPUT COME FROM THE SHARED FORMATTERS, never from a local one.
+  //
+  // The projection's body used to be `execution <name> call\n<outcome>`, which is why the
+  // ARGUMENTS pane showed the outcome word: the reader takes everything after the first
+  // newline as the call's arguments. The body is now the real argument JSON, produced by
+  // `projectToolCallForChip` — the SAME writer the committed call row's projection uses,
+  // so the two cannot drift apart.
+  //
+  // The output text is likewise the committed tool message, projected through
+  // `projectToolResultText`. It is absent until the call is dispatched, which is the one
+  // case where an empty pane is the truth rather than a placeholder.
+  const projectedCall = projectToolCallForChip({ arguments: call?.arguments, name });
+  const outputText =
+    typeof call?.resultContent === "string"
+      ? projectToolResultText({ content: call.resultContent, isError: call.resultIsError === true })
+      : "";
+
   // SETTLE-ON-DISPATCH (owner-reported: every chip read `Running` for the whole turn).
   // The record carries a terminal `outcome` once the loop has dispatched that call, and
   // the chip must paint THAT instead of the hardcoded `running` it used to. An unsettled
@@ -133,15 +155,22 @@ export function createProvisionalChipEntry(call = {}) {
   const outcome = String(call?.outcome || "").trim() || "running";
 
   return Object.freeze({
-    content: `execution ${name} call\n${outcome}`,
+    // The committed call row's own projection, byte for byte: the shared formatter owns
+    // the `execution <name> call` prefix AND the JSON body, so the arguments pane here is
+    // the arguments pane there.
+    content: projectedCall.content,
     id: `${PROVISIONAL_CHIP_PREFIX}${callId || name}`,
     kind: "execution-output",
     provisional: true,
     role: "user",
     typedTool: "call",
+    typedToolArgumentsText: projectedCall.argumentsText,
     typedToolCallId: callId,
     typedToolName: name,
-    typedToolOutcome: outcome
+    typedToolOutcome: outcome,
+    // The OUTPUT pane. Empty until the call is dispatched: an args-complete-but-pending
+    // chip has no result, so it must not fabricate one.
+    typedToolOutputText: outputText
   });
 }
 
