@@ -103,6 +103,13 @@ const { paintPreviewMarkdown, PREVIEW_PAINT_MODE, PREVIEW_MARKDOWN_MAX_CHARS, re
   "/modules/_core/visual/conversation/preview-markdown.js"
 );
 const { resolveExecutionCardState } = await import("/modules/_core/visual/conversation/thread-view.js");
+const { canonicalMessagesToTypedEntries } = await import(
+  "/modules/_core/framework/js/engine-swap/history-shapes.js"
+);
+// The REAL store, so the stranding test exercises the production wiring instead of a
+// hand-built copy of it (audit blocker 2: the old fixture pre-projected its input and
+// stayed green while production stranded).
+const { onscreenAgent: store } = await import("/modules/_core/onscreen_agent/store.js");
 
 const PREVIEW_ID = "engine-swap-streaming-preview";
 
@@ -159,29 +166,77 @@ test("provisional chips are deduped by call id and never enter history", () => {
   );
 });
 
-// The stranding rule. Committed history always wins the identity, so a chip can never
-// outlive the call it describes; and the turn's single cleanup site empties the array.
-test("no provisional chip can strand: the committed call row supersedes it", () => {
-  const committedCall = {
-    content: "execution file_read call\n{}",
-    id: "tool-call-c1",
-    kind: "execution-output",
-    role: "user",
-    typedTool: "call",
-    typedToolCallId: "c1",
-    typedToolName: "file_read",
-    typedToolOutcome: "pending"
-  };
-  const projection = buildChatRenderProjection({
-    history: [committedCall],
-    provisionalCalls: [{ callId: "c1", name: "file_read" }]
-  });
+// The stranding rule, driven through the PRODUCTION wiring over RAW typed history.
+//
+// The previous version of this test fed a hand-built PRE-PROJECTED fixture, which is
+// why it stayed green while production stranded: `buildChatRenderProjection` matches
+// committed calls by `typedTool`/`typedToolCallId`, and those marks are added by
+// `projectHistoryEntryForDisplay`. Raw typed entries (`kind: "tool_call"`) carry
+// neither, so a caller that guards before projecting gets NO match and draws the chip
+// beside its own committed row (chat-polish audit blocker 2, 2026-10-27).
+//
+// So this drives `store.buildRenderHistory` — the one seam `render()` uses — with raw
+// history as the store actually holds it. Reverting projection-before-guard (or
+// re-adding a raw guard) reddens this.
+test("no provisional chip can strand: the committed call row supersedes it (real store seam, raw history)", () => {
+  const previousHistory = store.history;
+  const previousCalls = store.engineSwapProvisionalCalls;
+  const previousPreview = store.engineSwapStreamingPreview;
 
-  assert.deepEqual(projection.map((entry) => entry.id), ["tool-call-c1"]);
-  assert.ok(
-    !projection.some((entry) => entry.provisional === true),
-    "once the real call row exists the provisional chip is gone, so it cannot strand"
-  );
+  try {
+    // RAW typed history, exactly the shape `this.history` holds after a commit.
+    store.history = canonicalMessagesToTypedEntries([
+      { content: "read my notes", role: "user" },
+      { content: "Reading it.", role: "assistant", toolCalls: [{ arguments: {}, id: "c1", name: "file_read" }] },
+      { content: "ok: hello", role: "tool", toolCallId: "c1" }
+    ]);
+    store.engineSwapStreamingPreview = null;
+    // The chip for c1 is still in the array: this is the state a late cleanup would
+    // leave behind, and the projection alone must refuse to draw it.
+    store.engineSwapProvisionalCalls = [{ callId: "c1", name: "file_read" }];
+
+    const projection = store.buildRenderHistory();
+
+    assert.ok(
+      !projection.some((entry) => entry.provisional === true),
+      "the committed call row already speaks for c1, so its chip is not drawn"
+    );
+    assert.equal(
+      projection.filter((entry) => String(entry.typedToolCallId || "") === "c1").length,
+      2,
+      "exactly the committed call and its result — never a third provisional row"
+    );
+  } finally {
+    store.history = previousHistory;
+    store.engineSwapProvisionalCalls = previousCalls;
+    store.engineSwapStreamingPreview = previousPreview;
+  }
+});
+
+// The other direction, so the guard is not merely "always drop": an UNCOMMITTED call
+// keeps its live chip through the same seam. Without this, deleting the collector
+// would look identical to fixing it.
+test("a chip for a call the history has not committed yet still paints (real store seam)", () => {
+  const previousHistory = store.history;
+  const previousCalls = store.engineSwapProvisionalCalls;
+  const previousPreview = store.engineSwapStreamingPreview;
+
+  try {
+    store.history = canonicalMessagesToTypedEntries([{ content: "read two files", role: "user" }]);
+    store.engineSwapStreamingPreview = null;
+    store.engineSwapProvisionalCalls = [{ callId: "c9", name: "file_write" }];
+
+    const projection = store.buildRenderHistory();
+    const chips = projection.filter((entry) => entry.provisional === true);
+
+    assert.equal(chips.length, 1, "an in-flight call keeps its running chip");
+    assert.equal(chips[0].typedToolCallId, "c9");
+    assert.equal(chips[0].typedToolOutcome, "running");
+  } finally {
+    store.history = previousHistory;
+    store.engineSwapProvisionalCalls = previousCalls;
+    store.engineSwapStreamingPreview = previousPreview;
+  }
 });
 
 // --- ITEM 3: PROGRESSIVE PREVIEW MARKDOWN ----------------------------------
@@ -312,10 +367,13 @@ function previewEntry(text, id = PREVIEW_ID) {
 
 // The doubled shape the owner saw: the preview still holds the whole reply while the
 // committed history already ends with the same words. ONE render pass drew both.
+//
+// This is the CURRENT-TURN case: the committed reply follows the user message that
+// opened the turn, so it is in scope and the preview is refused.
 test("the commit render cannot draw the preview beside the committed reply", () => {
   const committed = [
     { content: "read my notes", id: "u1", role: "user" },
-    { content: "Your notes say hello.", id: "assistant-2", role: "assistant" }
+    { content: "Your notes say hello.", id: "assistant-1780000000000-abc123", role: "assistant" }
   ];
   const projection = buildChatRenderProjection({
     history: committed,
@@ -333,16 +391,72 @@ test("the commit render cannot draw the preview beside the committed reply", () 
   );
 });
 
-// Identity is the other half: a preview reusing a committed id is stale by definition.
-test("a preview whose id is already committed is never admitted", () => {
-  const committed = [{ content: "done", id: PREVIEW_ID, role: "assistant" }];
+// THE REGRESSION THE AUDIT FOUND (blocker 1). The guard used to compare the preview
+// against EVERY assistant message in the thread, so a chat that had ever said "Done."
+// made every later preview of that phrase invisible for the whole stream — the exact
+// paint-timing defect this campaign already fixed once. Scoping to the current turn is
+// what keeps the guard from suppressing legitimate live output.
+test("a phrase already committed in an EARLIER turn still streams", () => {
+  const committed = [
+    { content: "first question", id: "u1", role: "user" },
+    { content: "Done.", id: "assistant-1780000000001-def456", role: "assistant" },
+    { content: "ping again", id: "u2", role: "user" }
+  ];
   const projection = buildChatRenderProjection({
     history: committed,
-    preview: previewEntry("something else entirely")
+    preview: previewEntry("Done.")
+  });
+
+  assert.equal(projection.length, 4, "the earlier turn's identical text does not block this turn");
+  assert.equal(projection[3].id, PREVIEW_ID);
+  assert.equal(projection[3].content, "Done.", "the live preview is drawn as it streams");
+});
+
+// Same shape, but the earlier turn's phrase is the common one in practice, and the
+// partial-prefix frame is what the user actually sees arrive.
+test("a partial frame of a phrase from an earlier turn also paints", () => {
+  const committed = [
+    { content: "first question", id: "u1", role: "user" },
+    { content: "Let me check.", id: "assistant-1780000000002-aaa111", role: "assistant" },
+    { content: "and now?", id: "u2", role: "user" }
+  ];
+  const projection = buildChatRenderProjection({
+    history: committed,
+    preview: previewEntry("Let me check.")
+  });
+
+  assert.ok(
+    projection.some((entry) => entry.streaming === true),
+    "a repeated opening line must not silence the stream"
+  );
+});
+
+// Identity is the other half, and it is DEFENCE IN DEPTH rather than the mechanism that
+// fixes today's bug: in production the preview id is the reserved constant
+// `engine-swap-streaming-preview` while committed ids are
+// `${role}-${Date.now()}-${random}`, so the two can never collide. The assertion is
+// still worth keeping — it is what makes a future caller that hands the preview a real
+// message id fail here instead of drawing a duplicate row.
+test("a preview carrying a committed message id is never admitted", () => {
+  const committedId = "assistant-1780000000003-bee789";
+  const committed = [{ content: "done", id: committedId, role: "assistant" }];
+  const projection = buildChatRenderProjection({
+    history: committed,
+    preview: previewEntry("something else entirely", committedId)
   });
 
   assert.equal(projection.length, 1);
   assert.equal(projection[0].content, "done");
+});
+
+// The production id shape cannot collide with a committed id, which is why the guard's
+// text half is the one that matters at runtime. Asserted so the reserved constant and
+// the committed shape stay visibly different.
+test("the reserved preview id can never equal a committed message id", () => {
+  const committedId = `assistant-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+
+  assert.notEqual(committedId, PREVIEW_ID);
+  assert.match(committedId, /^assistant-\d+-[0-9a-f]{1,6}$/u);
 });
 
 // Sanity: while the turn is LIVE the preview is still drawn — the guard must not

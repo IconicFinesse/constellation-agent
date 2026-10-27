@@ -460,7 +460,16 @@ export function classifyToolResultOutcome(entry) {
 
   const text = typeof read.payload === "string" ? read.payload.trim() : "";
 
-  if (text.startsWith("held:") || text.startsWith("policy:")) {
+  // `held:` is the reachable non-terminal word: the loop reports a held call as a
+  // normal (non-error) tool message, so it lands here as a payload. The consent
+  // affordance the comment above describes is therefore real.
+  //
+  // `policy:` is deliberately NOT matched here. `canonicalMessagesToTypedEntries`
+  // classifies any `policy:` tool message as an ERROR result before it reaches this
+  // reader (`history-shapes.js:247`), so a payload can never begin with it and a check
+  // for it would be dead code that implies a consent affordance this branch cannot
+  // produce (chat-polish audit non-blocker a, 2026-10-27).
+  if (text.startsWith("held:")) {
     return TOOL_RESULT_OUTCOME.HELD;
   }
 

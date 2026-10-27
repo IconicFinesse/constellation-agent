@@ -3363,6 +3363,23 @@ const model = {
     return (Array.isArray(history) ? history : []).map((entry) => projectHistoryEntryForDisplay(entry));
   },
 
+  // The render history a paint actually consumes: committed display projection PLUS the
+  // two projection-only classes of state (provisional chips, streaming preview).
+  //
+  // ORDER IS THE FIX (chat-polish audit blocker 2, 2026-10-27):
+  // `buildChatRenderProjection` matches committed calls by `typedTool`/`typedToolCallId`,
+  // and those marks are added by `projectHistoryEntryForDisplay`. Guarding raw history
+  // therefore matched nothing and the stranding guard was inert in production — green
+  // tests only because the test fixture pre-projected its input. Projecting first makes
+  // the guarantee the report claims actually hold at the one call site that draws.
+  buildRenderHistory(history = this.history) {
+    return buildChatRenderProjection({
+      history: this.getRenderHistory(history),
+      preview: this.engineSwapStreamingPreview,
+      provisionalCalls: this.engineSwapProvisionalCalls
+    });
+  },
+
   async flushHistoryPersistence() {
     if (this.historyPersistPromise) {
       return this.historyPersistPromise;
@@ -4136,17 +4153,16 @@ const model = {
     // reply or a chip for a call that has not happened, and a reload cannot
     // resurrect either.
     //
-    // That helper also owns the commit-race guard: a preview whose id is already in
-    // the committed history is dropped, so "one assistant message, one row" is a
-    // property of the projection rather than a promise about call ordering (the
-    // doubled row the owner saw on the first turn of a session).
-    const renderHistory = this.getRenderHistory(
-      buildChatRenderProjection({
-        history: this.history,
-        preview: this.engineSwapStreamingPreview,
-        provisionalCalls: this.engineSwapProvisionalCalls
-      })
-    );
+    // That helper also owns the commit-race guard: a preview whose id is committed — or
+    // whose text THIS TURN already committed — is dropped, so "one assistant message,
+    // one row" is a property of the projection rather than a promise about call ordering
+    // (the doubled row the owner saw on the first turn of a session).
+    //
+    // `buildRenderHistory` projects the committed history FIRST and only then appends the
+    // projection-only state, because the stranding guard matches display-projection marks
+    // (`typedTool`/`typedToolCallId`) that raw stored entries do not carry. Handing raw
+    // history here made that guard inert in production (chat-polish audit blocker 2).
+    const renderHistory = this.buildRenderHistory();
 
     agentView.renderMessages(this.refs.thread, renderHistory, {
       displayOnlyMessageIds: this.engineSwapDisplayOnlyMessageIds,

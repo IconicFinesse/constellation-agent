@@ -1,8 +1,8 @@
 import { renderMarkdown } from "/modules/_core/framework/js/markdown-frontmatter.js";
 import {
   collectToolRun,
+  collectWithheldCallIds,
   formatToolRunLabel,
-  isToolRunExcludedEntry,
   summarizeToolRun,
   toolRunKey
 } from "/modules/_core/visual/conversation/tool-run.js";
@@ -1478,12 +1478,16 @@ export function createAgentThreadView(config = {}) {
     // surface's view config; off means every typed entry keeps its own row, which is
     // what the order-contract suites pin.
     const groupToolRuns = options.groupToolRuns === true;
+    // ONE scan of the whole list per render pass. The withheld set is a property of the
+    // history, not of an index, and recomputing it inside `collectToolRun` made this
+    // O(n²) on every streamed frame (chat-polish audit non-blocker b, 2026-10-27).
+    const withheldCallIds = groupToolRuns ? collectWithheldCallIds(history) : null;
 
     for (let index = 0; index < history.length; index += 1) {
       const message = history[index];
 
       if (groupToolRuns) {
-        const run = collectToolRun(history, index);
+        const run = collectToolRun(history, index, { withheldCallIds });
         const callCount = run ? run.entries.filter((entry) => entry.typedTool === "call").length : 0;
 
         // One call is already one row, so grouping it would only add a click. The

@@ -193,12 +193,16 @@ export function formatToolRunLabel(summary) {
 // Stable identity for one run, so an expanded card survives a re-render: the row is
 // rebuilt (its render signature changes as results land) but its open state is
 // remembered against this key rather than against a DOM node that no longer exists.
+//
+// FIRST id only, deliberately. A key that also carried the LAST id changed the moment a
+// result landed mid-run, which is exactly when the card must survive: the run is the
+// same run, and `chat-polish audit non-blocker c` found expansion collapsing on settle
+// because of it. The first call's id is stable for the life of the run.
 export function toolRunKey(entries) {
   const list = Array.isArray(entries) ? entries : [];
   const first = String(list[0]?.id || "");
-  const last = String(list[list.length - 1]?.id || "");
 
-  return `${TOOL_RUN_GROUP_TYPE}:${first}|${last}`;
+  return `${TOOL_RUN_GROUP_TYPE}:${first}`;
 }
 
 // Expanded state for run cards. Kept OUTSIDE the DOM on purpose: the thread view

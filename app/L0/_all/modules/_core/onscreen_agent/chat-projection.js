@@ -17,6 +17,13 @@
 // admitted a second time from the preview slot. That is a property of the projection
 // rather than of one call site's ordering, so no future caller can reintroduce the
 // duplication by rendering at the wrong moment.
+//
+// INPUT CONTRACT: `history` must be the DISPLAY projection, not raw stored history.
+// `typedTool` / `typedToolCallId` / `typedToolOutcome` only exist after
+// `projectHistoryEntryForDisplay`, so a caller that passes raw typed entries hands this
+// module a shape it cannot match and the stranding guard silently does nothing
+// (chat-polish audit blocker 2, 2026-10-27). The store calls `buildRenderHistory`,
+// which projects first.
 
 export const PROVISIONAL_CHIP_PREFIX = "provisional-call-";
 
@@ -37,6 +44,10 @@ function collectIds(entries) {
 // Call ids the committed history already speaks for. A committed typed call entry or
 // its result means the real row exists, so any provisional chip for that call is stale
 // by definition and must not be drawn — the structural half of "no chip may strand".
+//
+// Reads the DISPLAY projection: `typedTool`/`typedToolCallId` are added by
+// `projectHistoryEntryForDisplay`, so raw typed entries (`kind: "tool_call"`) never
+// match here.
 function collectCommittedCallIds(entries) {
   const ids = new Set();
 
@@ -49,6 +60,45 @@ function collectCommittedCallIds(entries) {
   });
 
   return ids;
+}
+
+// Assistant texts the CURRENT TURN has already committed.
+//
+// Scoping this to the turn is load-bearing, not tidiness. "Done.", "OK." and "Let me
+// check." repeat across turns constantly, so comparing a preview against EVERY
+// assistant message in the thread made every later preview of a common phrase invisible
+// for the whole stream — the paint-timing regression this campaign already fixed once.
+//
+// The turn boundary is derived, never remembered: a turn is opened by a real user
+// message, so committed assistant output belonging to THIS turn can only appear after
+// it. Deriving it from the same input keeps the guard deterministic across renders
+// (store state could drift; this cannot) and needs no extra bookkeeping at send.
+//
+// "Real" is load-bearing. Typed tool projections and provisional chips both wear
+// `role: "user"` (they are display rows, not turns), so a boundary search that accepted
+// any user role would land after this turn's own tool rows and let the narration ahead
+// of them slip past the guard — reintroducing the double row. A turn-opening entry is
+// therefore one that is a user message AND carries no typed-tool or provisional mark.
+//
+// With no such entry (a fresh chat) the whole list is considered, which is the
+// conservative direction: the guard's job is to stop a row being drawn twice.
+function collectTurnCommittedAssistantTexts(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  let from = 0;
+
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const entry = list[index];
+
+    if (entry?.role === "user" && !entry?.typedTool && entry?.provisional !== true) {
+      from = index + 1;
+      break;
+    }
+  }
+
+  return list
+    .slice(from)
+    .filter((entry) => entry?.role === "assistant")
+    .map((entry) => String(entry?.content || "").trim());
 }
 
 // The display shape of ONE provisional chip: a typed tool-call entry wearing the
@@ -91,18 +141,21 @@ export function buildChatRenderProjection({ history = [], preview = null, provis
 
   if (preview && String(preview.content || "").trim()) {
     // RACE GUARD (item 4). Two shapes of the SAME stale preview are excluded:
-    //   - identity: the committed turn already owns this id;
-    //   - content: the committed history already ends with an assistant message
-    //     carrying exactly this text.
+    //   - identity: the committed turn already owns this id. In production the preview
+    //     id is the reserved constant `engine-swap-streaming-preview` and committed ids
+    //     are `${role}-${Date.now()}-${random}`, so this half is a structural guard
+    //     against a future caller handing the preview a real message id — it is not the
+    //     half that fixes today's doubled row.
+    //   - content: THIS TURN already committed an assistant message carrying exactly
+    //     this text. That is the shape the owner saw: the preview had accumulated the
+    //     whole reply and the commit wrote the same words into history, so one render
+    //     pass drew them twice — once raw, once formatted.
     //
-    // The second is the shape the owner saw: the preview had accumulated the whole
-    // reply and the commit wrote the same words into history, so one render pass drew
-    // them twice — once raw, once formatted. Recognising it here makes "one assistant
-    // message, one row" a property of the projection rather than a promise about the
-    // order two call sites happen to run in.
-    const committedAssistantTexts = committed
-      .filter((entry) => entry?.role === "assistant")
-      .map((entry) => String(entry?.content || "").trim());
+    // The text match is scoped to the current turn (`collectTurnCommittedAssistantTexts`).
+    // An unscoped match silently killed live output on any chat that had ever used the
+    // phrase, which is a worse defect than the double row it guards: the user saw
+    // nothing until commit.
+    const committedAssistantTexts = collectTurnCommittedAssistantTexts(committed);
     const previewText = String(preview.content || "").trim();
 
     if (!seenIds.has(String(preview.id || "")) && !committedAssistantTexts.includes(previewText)) {

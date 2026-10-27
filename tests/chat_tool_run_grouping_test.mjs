@@ -325,8 +325,64 @@ test("expanded state survives a re-render and changes the row signature", () => 
   assert.ok(openState.isOpen(group.key), "the key still identifies the same run after a rebuild");
   assert.ok(expanded.includes("open"));
 
-  // A different run gets a different key: expansion is per run, not global.
-  assert.notEqual(group.key, "tool-run:tool-call-c1|tool-call-c1");
+  // FIRST id only: expansion is per run, not global, and the key does not carry the
+  // last id (which changes exactly when a result lands).
+  assert.equal(group.key, "tool-run:tool-call-c1");
+});
+
+// EXPANSION DURING SETTLE. This is the reason the key cannot carry the last id: as a
+// result lands the run gains an entry, so a first|last key would change under the user
+// and collapse a card they had opened (chat-polish audit non-blocker c, 2026-10-27).
+test("expanded state survives a result landing mid-run", () => {
+  const openState = createToolRunOpenState();
+  const callEntries = project(
+    typedHistory([
+      {
+        content: "Reading both.",
+        role: "assistant",
+        toolCalls: [
+          { arguments: {}, id: "c1", name: "file_read" },
+          { arguments: {}, id: "c2", name: "file_read" }
+        ]
+      }
+    ])
+  );
+  const beforeResults = view
+    .buildMessageDisplayGroups(callEntries, { groupToolRuns: true })
+    .find((group) => group.type === "tool-run");
+
+  assert.ok(beforeResults, "a run forms while the calls are still pending");
+
+  openState.setOpen(beforeResults.key, true);
+
+  // The FIRST result lands: the run now contains the same two calls plus one result.
+  const settledEntries = project(
+    typedHistory([
+      {
+        content: "Reading both.",
+        role: "assistant",
+        toolCalls: [
+          { arguments: {}, id: "c1", name: "file_read" },
+          { arguments: {}, id: "c2", name: "file_read" }
+        ]
+      },
+      { content: "ok: 1", role: "tool", toolCallId: "c1" }
+    ])
+  );
+  const afterResult = view
+    .buildMessageDisplayGroups(settledEntries, { groupToolRuns: true })
+    .find((group) => group.type === "tool-run");
+
+  assert.equal(afterResult.key, beforeResults.key, "the run keeps ONE key as results land");
+  assert.equal(afterResult.entries.length, beforeResults.entries.length + 1, "the result really joined the run");
+  assert.ok(
+    openState.isOpen(afterResult.key),
+    "the card the user opened is still expanded after the result landed"
+  );
+
+  const signature = view.getGroupRenderSignature(afterResult, { toolRunOpenState: openState });
+
+  assert.ok(signature.includes("open"), "and the rebuilt row renders open, not collapsed");
 });
 
 // The pure run collector is the single derivation; assert its boundary directly.
