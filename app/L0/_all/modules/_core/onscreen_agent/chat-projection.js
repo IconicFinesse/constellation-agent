@@ -258,6 +258,11 @@ function createPreviewSegment(preview, index, text, isTail = false) {
       ? String(preview?.id || "preview")
       : `${String(preview?.id || "preview")}${PREVIEW_SEGMENT_SUFFIX}${index}`,
     previewSegment: true,
+    // A frozen segment is preview TEXT that has already been scrolled past a chip. It is
+    // not a message the user can copy or inspect yet, so it must not mount its own action
+    // row: several segments would otherwise stack several copy buttons mid-stream. The tail
+    // keeps the row, which is exactly today's streaming behaviour.
+    previewSegmentFrozen: isTail !== true,
     streaming: true
   };
 }

@@ -1113,7 +1113,16 @@ export function createAgentThreadView(config = {}) {
         // below still goes through `createFormattedMessageBlock` unchanged.
         renderPreviewMarkdown(streamingBlock, message.content || "Streaming...");
         bubble.append(streamingBlock);
-        bubble.append(createAssistantMessageActionRow(message));
+
+        // ONE action row for the live preview, on its TAIL segment only (chat-polish-2 item
+        // C). The projection splits the preview at each chip, so a chip-bearing turn is
+        // several preview rows; giving each one its own copy/raw row would stack buttons
+        // mid-stream. A frozen segment is text the user has already scrolled past a chip —
+        // it is not a message they can copy yet.
+        if (message.previewSegmentFrozen !== true) {
+          bubble.append(createAssistantMessageActionRow(message));
+        }
+
         return bubble;
       }
 
