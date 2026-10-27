@@ -6,7 +6,12 @@ import {
   summarizeToolRun,
   toolRunKey
 } from "/modules/_core/visual/conversation/tool-run.js";
-import { paintPreviewMarkdown, PREVIEW_PAINT_MODE } from "/modules/_core/visual/conversation/preview-markdown.js";
+import {
+  MESSAGE_CONTENT_PAINTER,
+  paintPreviewMarkdown,
+  PREVIEW_PAINT_MODE,
+  selectMessageContentPainter
+} from "/modules/_core/visual/conversation/preview-markdown.js";
 
 const EXECUTION_STATUS_LINE_PATTERN = /^execution\s+(.+)$/iu;
 const EXECUTION_PRINT_LINE_PATTERN = /^(log|info|warn|error|debug|dir|table|assert)(:\s*|↓)$/iu;
@@ -977,13 +982,21 @@ export function createAgentThreadView(config = {}) {
     if (message.role === "assistant") {
       bubble.classList.add("assistant-message-shell");
 
-      if (message.streaming) {
+      // THE ONE committed-vs-preview decision for assistant text (item 3). It is a
+      // named seam rather than two inline branches so the boundary is assertable: a
+      // settled message takes the PRE-EXISTING formatted block, and only a streaming
+      // message may take the preview painter (bounded work, plain-text fallback per
+      // tick). Routing a commit through the preview painter therefore CHANGES the
+      // rendered output instead of being an invisible style preference.
+      const painter = selectMessageContentPainter({ streaming: message.streaming === true });
+
+      if (painter === MESSAGE_CONTENT_PAINTER.PREVIEW) {
         bubble.dataset.streamingMessageId = message.id;
         const streamingBlock = document.createElement("p");
         streamingBlock.className = "message-content";
         streamingBlock.dataset.streamingContent = "true";
         // PROGRESSIVE FORMATTING (item 3). This node exists only while the message
-        // is streaming, so it is the preview by construction; the committed bubble
+        // is streaming, so it is the preview by construction; the committed block
         // below still goes through `createFormattedMessageBlock` unchanged.
         renderPreviewMarkdown(streamingBlock, message.content || "Streaming...");
         bubble.append(streamingBlock);

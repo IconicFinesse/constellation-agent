@@ -27,6 +27,20 @@ export const PREVIEW_PAINT_MODE = Object.freeze({
   PLAIN: "plain"
 });
 
+// WHICH painter a message uses. This is the whole committed/preview boundary, in one
+// place, and it is deliberately not a place to be clever: a streaming message is a
+// preview, a settled message is committed. The committed painter is the pre-existing
+// formatted-markdown block, untouched, which is what keeps the final output
+// byte-identical to today.
+export const MESSAGE_CONTENT_PAINTER = Object.freeze({
+  COMMITTED: "committed",
+  PREVIEW: "preview"
+});
+
+export function selectMessageContentPainter({ streaming = false } = {}) {
+  return streaming === true ? MESSAGE_CONTENT_PAINTER.PREVIEW : MESSAGE_CONTENT_PAINTER.COMMITTED;
+}
+
 // The decision, separated from the painting so it can be asserted directly.
 export function resolvePreviewPaintMode(text) {
   const source = String(text === undefined || text === null ? "" : text);
