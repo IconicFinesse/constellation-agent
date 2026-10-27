@@ -828,6 +828,18 @@ export function createAgentThreadView(config = {}) {
     success: Object.freeze({ iconName: "check_circle", tone: "is-success" })
   });
 
+  // SETTLE-ON-DISPATCH vocabulary guard (owner-reported: chips read `Running` for the
+  // whole turn). A provisional chip settles on the loop's dispatch event, and only a
+  // TERMINAL word may describe it. This set is deliberately narrow: `running` and
+  // `pending` mean "work is still in flight", so an entry carrying one of them is not
+  // settled news and must fall through to the pre-existing resolution in the descriptor.
+  //
+  // That restriction is what keeps COMMITTED call rows byte-identical: a committed typed
+  // call entry carries `pending` from the shared history reader (history-shapes.js), and
+  // its outcome must keep coming from its own result entry exactly as it did before this
+  // change.
+  const TYPED_TOOL_TERMINAL_OUTCOMES = new Set(["deferred", "error", "held", "success"]);
+
   function resolveTypedToolCardState(name, outcome) {
     const key = String(outcome || "").trim();
     const state = TYPED_TOOL_CARD_STATES[key] || TYPED_TOOL_CARD_STATES.success;
@@ -1598,14 +1610,28 @@ export function createAgentThreadView(config = {}) {
       String(entry.typedToolName || "") || (callFacts?.names?.get?.(callId) ?? "") || "";
 
     if (entry.typedTool === "call") {
-      // The CLASSIFIED outcome of this call's own result when one exists; `running` only
-      // when nothing has answered this call yet, which is the one case where it is true.
       const settledOutcome = callFacts?.outcomes?.get?.(callId) ?? "";
 
+      // THE OUTCOME THE ENTRY ITSELF CARRIES, when it carries a terminal one.
+      //
+      // This is the seam that makes settle-on-dispatch visible at all. A provisional chip
+      // is painted from a call whose args completed mid-turn and which has NO result entry
+      // yet, so `callFacts.outcomes` — built only from `typedTool === "result"` entries —
+      // can never describe it. Without this line the chip painted the settled outcome into
+      // its projection and then rendered `Running` anyway.
+      //
+      // TERMINAL ONLY, deliberately. A committed call entry carries `pending` here, so
+      // preferring the entry unconditionally would rewrite every committed row on every
+      // thread; the fallback below keeps those byte-identical.
+      const ownOutcome = String(entry.typedToolOutcome || "").trim();
+      const ownTerminalOutcome = TYPED_TOOL_TERMINAL_OUTCOMES.has(ownOutcome) ? ownOutcome : "";
+
+      // The CLASSIFIED outcome of this call's own result when one exists; `running` only
+      // when nothing has answered this call yet, which is the one case where it is true.
       return {
         argumentsText: getTypedEntryBodyText(entry) || "{}",
         name: resolvedName || "tool",
-        outcome: settledOutcome || "running",
+        outcome: ownTerminalOutcome || settledOutcome || "running",
         outputText: ""
       };
     }
@@ -2040,10 +2066,16 @@ export function createAgentThreadView(config = {}) {
     }
 
     if (group.type === "standalone-output") {
+      // THE RESOLVED OUTCOME IS PART OF THE SIGNATURE. A provisional chip's rows are
+      // REBUILT as state lands, and a row keyed only on "provisional" would be reused
+      // when the dispatch event settles it — which is precisely how a chip keeps a
+      // spinner after the work finished. This is the same class of defect the execute
+      // section's busy-state signature fixed; the outcome travels with it.
       return [
         avatarSignature,
         group.messageId || "",
         group.provisional === true ? "provisional" : "settled",
+        String(group.typedTool?.outcome || ""),
         getExecutionResultsRenderSignature(group.outputResults)
       ].join("\u241f");
     }
@@ -2444,6 +2476,12 @@ export function createAgentThreadView(config = {}) {
     // and neither may drift into the other (chat-polish-2 item D).
     formatExecutionSummaryLabel,
     formatTypedToolLabel,
+    // Exposed so the ICON and TONE vocabulary for a typed chip is assertable at the real
+    // code path, not asserted against a fixture's expectations table. Resolving a chip's
+    // state is the one place that decides which icon and tone the user sees, and before
+    // this export the settle suite could only confirm the LABEL while the icon half sat
+    // in a vacuous assertion (P3 chip-settle audit N2).
+    resolveTypedToolCardState,
     // Exposed so the render-reuse contract is testable at the real code path: the
     // execute-section signature must CHANGE when a chip settles, or the row built
     // mid-turn is reused and its spinner never stops.

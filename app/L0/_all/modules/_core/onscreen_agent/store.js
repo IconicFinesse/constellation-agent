@@ -95,6 +95,27 @@ const RAW_DIALOG_ELEMENT_ID = "onscreen-agent-raw-dialog";
 const SETTINGS_DIALOG_ELEMENT_ID = "onscreen-agent-settings-dialog";
 const VIEWPORT_VISIBILITY_CHECK_INTERVAL_MS = 2000;
 const DEFAULT_AVATAR_SIZE_PX = 120;
+
+// DISPATCH STATUS -> CHIP OUTCOME (settle-on-dispatch).
+//
+// Deliberately literal instead of importing `DISPATCH_OUTCOME`: `store.js` must not
+// statically pull the dispatch layer in, because the flag-OFF path has to stay inert
+// (framework/js/engine-swap/AGENTS.md, "Flag And Inertness"). These three words ARE the
+// closed `DISPATCH_OUTCOME` set, and a status outside it is not a settle signal — the chip
+// stays `Running` rather than having an outcome invented for it.
+const ENGINE_SWAP_CHIP_OUTCOME_BY_DISPATCH_STATUS = Object.freeze({
+  error: "error",
+  held: "held",
+  ok: "success"
+});
+
+// Outcomes that MEAN the thing happened (or was refused). `running` and `pending` describe
+// work still in flight, so they are not news and never settle a chip. `deferred` is included
+// for totality: the loop answers a held call's later siblings as `deferred:` without
+// emitting a dispatch event for them, so nothing can reach this word today — it is here so a
+// future emit settles correctly instead of silently regressing to `Running`.
+const ENGINE_SWAP_TERMINAL_CHIP_OUTCOMES = new Set(["deferred", "error", "held", "success"]);
+
 const HIDDEN_COMPOSER_STATUS_TEXTS = new Set([
   "Loading onscreen agent...",
   "Loading default system prompt..."
@@ -5514,16 +5535,104 @@ const model = {
         name
       }
     ];
-    // Same frame discipline as streamed text: one coalesced repaint, never a render
-    // per delta. Full mode only, because that is the surface that draws the thread.
-    if (this.isFullMode && !this.streamingRenderFrame) {
-      this.streamingRenderFrame = window.requestAnimationFrame(() => {
-        this.streamingRenderFrame = 0;
-        this.render({ preserveScroll: true });
-      });
-    }
+    this.scheduleEngineSwapChipRender();
 
     return true;
+  },
+
+  // Same frame discipline as streamed text: one coalesced repaint, never a render per
+  // delta. Full mode only, because that is the surface that draws the thread. Shared by
+  // the two chip mutations (paint, settle) so the frame rules cannot drift apart.
+  scheduleEngineSwapChipRender() {
+    if (!this.isFullMode || this.streamingRenderFrame) {
+      return;
+    }
+
+    this.streamingRenderFrame = window.requestAnimationFrame(() => {
+      this.streamingRenderFrame = 0;
+      this.render({ preserveScroll: true });
+    });
+  },
+
+  // SETTLE-ON-DISPATCH: the loop already knows the outcome when it dispatches, and this
+  // is where the surface finally listens (owner-reported: every chip read
+  // `run_code · Running` for the whole turn and only flipped at turn end).
+  //
+  // The record is edited IN PLACE, and that is the whole point:
+  //   - `atChars` is preserved, so the chip stays where the user watched it appear
+  //     instead of jumping to the end of the prose;
+  //   - the array is replaced with a copy at the SAME index, so chip ORDER is preserved;
+  //   - an unknown call id creates nothing. A provider that never streamed the call (a
+  //     single JSON body, or an assembled call with no completed-arguments hook) must not
+  //     have a chip invented for it: that would draw a row for a call the user never
+  //     watched arrive, with no offset to interleave at.
+  //
+  // Non-terminal words are refused HERE rather than downstream so exactly one place
+  // decides what "settled" means: an `ok`/`error`/`held` dispatch status settles, and
+  // anything else leaves the chip `Running` for the turn-exit clear to finish.
+  settleEngineSwapProvisionalCall({ callId, outcome } = {}) {
+    const id = String(callId || "");
+    const settledOutcome = String(outcome || "").trim();
+
+    // A sealed or cleared slot has nothing to settle: the turn this chip belonged to is
+    // over, and its committed row speaks for the call now.
+    if (!id || this.engineSwapPreviewSealed || !ENGINE_SWAP_TERMINAL_CHIP_OUTCOMES.has(settledOutcome)) {
+      return false;
+    }
+
+    const index = this.engineSwapProvisionalCalls.findIndex(
+      (entry) => String(entry?.callId || "") === id
+    );
+
+    if (index === -1) {
+      return false;
+    }
+
+    const current = this.engineSwapProvisionalCalls[index];
+
+    // Idempotent: providers repeat a completed call, and a settled chip must not flip
+    // back as duplicates arrive. First terminal outcome wins.
+    if (String(current?.outcome || "")) {
+      return false;
+    }
+
+    const next = this.engineSwapProvisionalCalls.slice();
+    next[index] = { ...current, outcome: settledOutcome };
+    this.engineSwapProvisionalCalls = next;
+
+    this.scheduleEngineSwapChipRender();
+    return true;
+  },
+
+  // The ONE translation from a loop event to surface state. Every OTHER event the loop
+  // emits (`assistant-turn`, `turn-error`, `incomplete-arguments-refused`) already reaches
+  // the surface through the turn RESULT, so consuming those here would be a second source
+  // of the same truth.
+  //
+  // Defensive by construction: this runs inside the transport's event path, so a throw
+  // here would break a live turn over a cosmetic chip. A malformed event is ignored,
+  // never raised.
+  handleEngineSwapTurnEvent(event = {}) {
+    try {
+      if (String(event?.type || "") !== "dispatch") {
+        return false;
+      }
+
+      // The call id travels on the CALL, not on the outcome (`emit({ call, outcome,
+      // position, type })` in `tool-turn-loop.js`). Both spellings are read because a
+      // streamed fragment and a completion payload name the id differently.
+      const callId = String(event?.call?.id || event?.call?.callId || "");
+      const outcome = ENGINE_SWAP_CHIP_OUTCOME_BY_DISPATCH_STATUS[String(event?.outcome?.status || "")];
+
+      if (!outcome) {
+        return false;
+      }
+
+      return this.settleEngineSwapProvisionalCall({ callId, outcome });
+    } catch {
+      // A chip is presentation. It never gets to fail a turn.
+      return false;
+    }
   },
 
   // A streaming preview that outlived its turn would be a message the user never
@@ -5642,6 +5751,12 @@ const model = {
         model: String(this.settings.model || ""),
         params: llmParams.parseOnscreenAgentParamsText(this.settings.paramsText || ""),
         providerKey: "",
+        // SETTLE-ON-DISPATCH: the loop emits `{ type: "dispatch", call, outcome }` the
+        // moment a call has been dispatched. Display-only subscription: it settles the
+        // matching provisional chip and touches nothing else. Without it the outcome the
+        // loop already knew was simply dropped and every chip read `Running` until the
+        // commit-time history rewrite replaced it.
+        onEvent: (event) => this.handleEngineSwapTurnEvent(event),
         // P3: tool turns STREAM. The transport assembles `tool_calls` fragments per
         // call index and reports each call complete only when its arguments are
         // complete JSON, so the loop can dispatch without ever seeing half a call.
@@ -5760,6 +5875,10 @@ const model = {
             model: String(this.settings.model || ""),
             params: llmParams.parseOnscreenAgentParamsText(this.settings.paramsText || ""),
             providerKey: "",
+            // The corrective retry is a CONTINUATION of the same turn, so it subscribes
+            // through the same handler. A retry that dispatched silently would leave the
+            // chips of its calls running exactly like the main attempt used to.
+            onEvent: (event) => this.handleEngineSwapTurnEvent(event),
             sendCompletion: async ({ request }) => {
               // The turn's ONE accumulator continues here. The boundary before this
               // attempt was set once, above; each further iteration of the retry sets

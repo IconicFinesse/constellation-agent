@@ -122,8 +122,18 @@ export function createProvisionalChipEntry(call = {}) {
   const callId = String(call?.callId || call?.id || "");
   const name = String(call?.name || "tool");
 
+  // SETTLE-ON-DISPATCH (owner-reported: every chip read `Running` for the whole turn).
+  // The record carries a terminal `outcome` once the loop has dispatched that call, and
+  // the chip must paint THAT instead of the hardcoded `running` it used to. An unsettled
+  // record has no outcome at all, so this falls back to the exact previous value and the
+  // entry stays byte-identical — a pending chip must look exactly like it did before.
+  //
+  // The outcome is one of the closed set the chip vocabulary already renders (`success`,
+  // `error`, `held`, `deferred`); no new word or icon is introduced here.
+  const outcome = String(call?.outcome || "").trim() || "running";
+
   return Object.freeze({
-    content: `execution ${name} call\nrunning`,
+    content: `execution ${name} call\n${outcome}`,
     id: `${PROVISIONAL_CHIP_PREFIX}${callId || name}`,
     kind: "execution-output",
     provisional: true,
@@ -131,7 +141,7 @@ export function createProvisionalChipEntry(call = {}) {
     typedTool: "call",
     typedToolCallId: callId,
     typedToolName: name,
-    typedToolOutcome: "running"
+    typedToolOutcome: outcome
   });
 }
 

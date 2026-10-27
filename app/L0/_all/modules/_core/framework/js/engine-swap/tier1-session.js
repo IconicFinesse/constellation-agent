@@ -297,7 +297,12 @@ export function createTier1Session({
         dispatch: pipeline,
         history: base,
         isStopRequested: typeof isStopRequested === "function" ? isStopRequested : () => false,
-        onEvent: null,
+        // The post-hold continuation is still a turn of the SAME session, so it
+        // reports through the same observer. Nulling it here silently dropped every
+        // `dispatch` event of a continuation (the confirmed call's own execution and
+        // anything after it), which is exactly the class of hole this seam exists to
+        // close: the surface cannot settle a chip from an event it never receives.
+        onEvent,
         sendTurn: async ({ messages: turnMessages }) => {
           const request = buildTurnRequest(turnMessages);
           const payload = await sendCompletion({ request });
