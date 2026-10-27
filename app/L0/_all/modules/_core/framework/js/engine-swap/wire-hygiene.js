@@ -248,7 +248,24 @@ const PROSE_TOOL_CALL_INLINE_PATTERN = /\b(?:tool[ \t]*call|tool_call)[ \t]*[:\-
 const SHOW_ME_PATTERN = /\b(?:show|display|example|sample|snippet|illustrate|demonstrate|explain|teach|walk me through|for reference|how (?:do|would|could|can) i|what would)\b/iu;
 
 // The user asked for something to BE DONE in their own turn.
-const ACTION_REQUEST_PATTERN = /\b(?:read|write|create|delete|remove|rename|move|copy|run|execute|fetch|open|save|update|list|find|search|install|uninstall|check|get|send|post|edit|append|replace|fix|build|start|stop|restart)\b/iu;
+//
+// A CLOSED VERB LIST is not enough (p35 audit round 3, non-blocker). Real requests arrive
+// phrased off-list — "please pull up my notes", "grab the contents", "what does my notes
+// file say", "summarize notes.md" — and each one silently skipped the correction that item
+// 3 exists to send. The list stays (terse imperatives like "read my notes" are the common
+// case) and three wider legs are added: request PHRASING aimed at an action, a request
+// whose OBJECT is the user's own files/system, and a question ABOUT such an object.
+const ACTION_REQUEST_PATTERN = /\b(?:read|write|create|delete|remove|rename|move|copy|run|execute|fetch|open|save|update|list|find|search|install|uninstall|check|get|send|post|edit|append|replace|fix|build|start|stop|restart|pull(?:\s+up)?|bring\s+up|grab|summari[sz]e|extract|inspect|review|scan|parse|tell me|look at|check on)\b/iu;
+
+// "please …", "can you …", "I need you to …": the request is aimed at DOING something.
+const ACTION_REQUEST_PHRASING_PATTERN = /\b(?:please|can you|could you|would you|will you|i need you to|i want you to|i(?:'d| would) like you to|go ahead|help me(?: to)?|let(?:'s| us))\b/iu;
+
+// The OBJECT of the request is the user's own material — files, docs, the app itself.
+// Matched with a possessive/article so idle prose ("the browser is nice") does not qualify.
+const CONTENT_TARGET_PATTERN = /\b(?:my|the|your|this|that)\s+(?:\w+\s+){0,2}(?:files?|notes?|docs?|documents?|folders?|director(?:y|ies)|repos?(?:itory)?|projects?|workspace|system|browser|window|screen|pages?|tabs?|logs?|config|settings|code|contents?)\b/iu;
+
+// A question ABOUT that material: "what does my notes file say".
+const CONTENT_QUESTION_PATTERN = /\bwhat (?:does|do|is|are|did|was|were)\b/iu;
 
 // The model's own narration claims the work happened. Such a turn was trying to ACT, so a
 // fenced call body beside that claim is the drift worth one correction.
@@ -290,6 +307,17 @@ function fenceRegionTexts(content, fenceRegions) {
       return content.slice(Math.max(0, start), Math.min(content.length, end));
     })
     .filter(Boolean);
+}
+
+// Inline code spans, removed from the prose before the `tool call:` test (p35 audit
+// round 3, non-blocker). A model that WRITES ABOUT the protocol — `I wrote `+'`tool call:
+// {"x":1}`'+` in my notes.` — is quoting a shape, not attempting one.
+//
+// This pairing is a DIAGNOSTIC convenience, not a security boundary: a wrong pairing here
+// can only cost a missed nudge or an extra one, never a raw-HTML path (escaping no longer
+// depends on knowing where code is). Same-line runs only, which covers the quoting shape.
+function stripInlineCodeSpans(text) {
+  return String(text || "").replace(/(`+)[^`\n]*?\1/gu, " ");
 }
 
 // The prose outside every fence: what the model wrote as CHAT rather than as code.
@@ -362,7 +390,20 @@ function fencedCallBodyIsActionAttempt({ fenceRegionTexts: regionTexts = [], nar
     return false;
   }
 
-  return ACTION_REQUEST_PATTERN.test(request);
+  // A closed verb list alone produced false NEGATIVES on real requests phrased off-list
+  // ("please pull up my notes", "summarize notes.md", "what does my notes file say").
+  // Four legs, each one legible on its own: a listed verb, request PHRASING aimed at
+  // doing something, or a QUESTION about the user's own material. Any of them means the
+  // turn was trying to act.
+  if (ACTION_REQUEST_PATTERN.test(request)) {
+    return true;
+  }
+
+  if (ACTION_REQUEST_PHRASING_PATTERN.test(request)) {
+    return true;
+  }
+
+  return CONTENT_QUESTION_PATTERN.test(request) && CONTENT_TARGET_PATTERN.test(request);
 }
 
 export function detectTier1DisplayFormToolCall({
@@ -394,7 +435,12 @@ export function detectTier1DisplayFormToolCall({
     return TIER1_DISPLAY_FORM_SHAPE.FENCED_SEPARATOR;
   }
 
-  if (PROSE_TOOL_CALL_LINE_PATTERN.test(prose) || PROSE_TOOL_CALL_INLINE_PATTERN.test(prose)) {
+  const proseWithoutCodeMentions = stripInlineCodeSpans(prose);
+
+  if (
+    PROSE_TOOL_CALL_LINE_PATTERN.test(proseWithoutCodeMentions) ||
+    PROSE_TOOL_CALL_INLINE_PATTERN.test(proseWithoutCodeMentions)
+  ) {
     return TIER1_DISPLAY_FORM_SHAPE.PROSE_TOOL_CALL;
   }
 

@@ -325,8 +325,12 @@ test("a quoted code body renders real quotes, not entities (item 2)", () => {
 
   const inlineAngled = renderHtml("tag `<div>` here");
 
-  assert.ok(inlineAngled.includes("&lt;div&gt;"), `inline code keeps one level of bracket escape: ${inlineAngled}`);
+  // The SENTINEL ESCAPE (p35 audit round 3) needs no region heuristic at all, so the
+  // cosmetic cost direction (b) would have accepted is GONE: an inline span renders ONE
+  // clean level of entity. What matters either way is that no raw tag is emitted.
+  assert.ok(inlineAngled.includes("&lt;div&gt;"), `inline code keeps one level of escape: ${inlineAngled}`);
   assert.ok(!inlineAngled.includes("&amp;lt;"), "inline code is not double-escaped");
+  assert.ok(!/<div/iu.test(inlineAngled), "inline code never emits a raw tag");
 
   const prose = renderHtml('he said "hi" and it is fine');
 
@@ -390,8 +394,8 @@ test("a backslash-escaped backtick never opens a code span (audit blocker)", () 
   // the parser, a triple fence still makes a code block, and a double-backtick span works.
   const realSpan = renderHtml("tag `<div>` here");
 
-  assert.ok(realSpan.includes("<code>") && realSpan.includes("&lt;div&gt;"), `a real span still renders as code: ${realSpan}`);
-  assert.ok(!realSpan.includes("&amp;lt;"), "a real span is not double-escaped");
+  assert.ok(realSpan.includes("<code>"), `a real span still renders as code: ${realSpan}`);
+  assert.ok(!/<div/iu.test(realSpan), "a real span never emits a raw tag");
 
   const fence = renderHtml("```\n<script>alert(1)</script>\n```");
 
@@ -400,6 +404,144 @@ test("a backslash-escaped backtick never opens a code span (audit blocker)", () 
   const doubleSpan = renderHtml("``a ` b`` and <b>x</b>");
 
   assert.ok(!doubleSpan.includes("<b>x</b>"), "prose outside a double-backtick span is still escaped");
+});
+
+// --- ITEM 2's PROPERTY TEST (p35 audit round 3, required) --------------------
+//
+// Hand-written fixtures have now missed this class TWICE: round 1's literals collapsed
+// the backslash, and round 2's cases covered same-line spans while the parser pairs
+// backticks across newlines within a paragraph. A generated, seeded property test is the
+// answer: it does not depend on my imagining the shape.
+//
+// The check is STRUCTURAL, not a substring test. `&lt;img` is text; `<img` is a tag. This
+// scans for actual tag tokens, so an escaped sample can never be mistaken for a leak and
+// a leak can never hide behind an entity.
+const FORBIDDEN_TAGS = Object.freeze([
+  "img", "script", "svg", "iframe", "object", "embed", "form", "input",
+  "style", "link", "meta", "base", "math", "video", "audio", "source",
+  "template", "frame", "frameset", "applet"
+]);
+
+function collectRealTags(html) {
+  const source = String(html || "");
+  const tags = [];
+
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] !== "<") {
+      continue;
+    }
+
+    const match = /^<\/?([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/u.exec(source.slice(index));
+
+    if (!match) {
+      continue;
+    }
+
+    tags.push({ attrs: match[2] || "", name: match[1].toLowerCase() });
+    index += match[0].length - 1;
+  }
+
+  return tags;
+}
+
+function createSeededRandom(seed) {
+  let state = seed >>> 0;
+
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+const HOSTILE_TAGS = Object.freeze([
+  "<img src=x onerror=alert(1)>",
+  "<script>alert(1)</script>",
+  "<svg onload=alert(1)>",
+  "<iframe src=javascript:alert(1)></iframe>"
+]);
+
+function buildFuzzAtoms() {
+  const TICK = String.fromCharCode(96);
+  const E = String.fromCharCode(92) + TICK;
+
+  return [
+    "plain text ",
+    " more prose.",
+    `${TICK}`, `${TICK}${TICK}`, `${TICK}${TICK}${TICK}`,
+    E, `${E}${TICK}`,
+    "\n", "\n\n", "\n\n\n",
+    "- item ", "1. item ", "> quote ",
+    "`inline`", "``double``",
+    "```\nfenced\n```", "~~~\ntilde\n~~~",
+    "word `a b` word",
+    "text `", "` end"
+  ];
+}
+
+function buildFuzzDocuments({ count = 2500, seed = 20261027 } = {}) {
+  const random = createSeededRandom(seed);
+  const atoms = buildFuzzAtoms();
+  const documents = [];
+
+  for (let index = 0; index < count; index += 1) {
+    const parts = [];
+    const atomCount = 3 + Math.floor(random() * 9);
+
+    for (let part = 0; part < atomCount; part += 1) {
+      parts.push(atoms[Math.floor(random() * atoms.length)]);
+    }
+
+    const hostile = HOSTILE_TAGS[Math.floor(random() * HOSTILE_TAGS.length)];
+    const insertAt = Math.floor(random() * (parts.length + 1));
+
+    parts.splice(insertAt, 0, hostile);
+    documents.push(parts.join(""));
+  }
+
+  return documents;
+}
+
+test("PROPERTY: no generated document ever yields a raw tag node (item 2)", () => {
+  const documents = buildFuzzDocuments({ count: 2500, seed: 20261027 });
+  const leaks = [];
+
+  documents.forEach((document, index) => {
+    const html = renderHtml(document);
+    const bad = collectRealTags(html).filter(
+      (tag) => FORBIDDEN_TAGS.includes(tag.name) || /\son[a-z]+\s*=/iu.test(tag.attrs)
+    );
+
+    if (bad.length) {
+      leaks.push({ document, html, tags: [...new Set(bad.map((tag) => tag.name))] });
+    }
+  });
+
+  assert.deepEqual(
+    leaks.slice(0, 3),
+    [],
+    `${leaks.length}/${documents.length} generated documents leaked a raw tag`
+  );
+});
+
+// The specific newline-crossing shapes that failed: an odd backtick EARLIER in the
+// paragraph changes the parser's pairing, and our collector used to pair per line.
+test("an odd backtick earlier in a paragraph never disables escaping (item 2)", () => {
+  const TICK = String.fromCharCode(96);
+  const hostile = '<img src=x onerror=alert(1)>';
+  const cases = [
+    `Use the ${TICK} character to open code.\nThen ${TICK}${hostile}${TICK} works.`,
+    `Here is the fix: ${TICK}\n${TICK}${hostile}`,
+    `${TICK}a\n${TICK}<svg onload=alert(1)>`,
+    `${TICK}\n${TICK}<script>alert(1)</script>`,
+    `${TICK}${TICK}${TICK}odd\n\nstill ${TICK}${hostile}${TICK}`
+  ];
+
+  cases.forEach((document) => {
+    const html = renderHtml(document);
+    const bad = collectRealTags(html).filter((tag) => FORBIDDEN_TAGS.includes(tag.name));
+
+    assert.deepEqual(bad, [], `no raw tag for ${JSON.stringify(document)} → ${html}`);
+  });
 });
 
 // ---------------------------------------------------------------- item 1 ----
@@ -577,6 +719,53 @@ test("a prose tool call written MID-REPLY is detected (audit non-blocker 2)", ()
 // DISPLAY vs ACTION (audit non-blocker 3). A fence containing a call is a MISTAKE only
 // when the turn was trying to act. When the user asked to SEE code, it is the correct
 // answer (BUG-007), and burning the single retry there nags about an unrequested action.
+test("a BACKTICKED tool-call mention is prose about the protocol, not an attempt (round 3)", () => {
+  // The detector must not fire on a model that QUOTES the shape while explaining it. The
+  // prose test therefore runs over span-stripped prose.
+  const TICK = String.fromCharCode(96);
+  const quoted = `I wrote ${TICK}tool call: {"x":1}${TICK} in my notes.`;
+
+  assert.equal(
+    wireHygiene.detectTier1DisplayFormToolCall({
+      answer: quoted,
+      fenceRegions: onscreenExecution.findExecutionFenceRegions(quoted),
+      findSeparatorIndex: onscreenExecution.findExecutableSeparatorIndex,
+      separator: SEPARATOR
+    }),
+    "",
+    "a quoted example must not be counted as drift"
+  );
+
+  // ...while the SAME text written bare is still caught.
+  assert.equal(
+    detect('I wrote tool call: {"x":1} in my notes.'),
+    wireHygiene.TIER1_DISPLAY_FORM_SHAPE.PROSE_TOOL_CALL
+  );
+});
+
+test("off-whitelist action requests still count as intent (round 3)", () => {
+  // A closed verb list produced false NEGATIVES on ordinary requests. Each of these is an
+  // action request even though none uses a listed verb, and each must earn the correction.
+  const fencedCall = '```javascript\nreturn await space.api.fileRead({"path":"~/n"})\n```';
+  const requests = [
+    "please pull up my notes",
+    "grab the contents",
+    "what does my notes file say",
+    "summarize notes.md"
+  ];
+
+  requests.forEach((userTurn) => {
+    assert.equal(
+      decide(fencedCall, { userTurn }).shape,
+      wireHygiene.TIER1_DISPLAY_FORM_SHAPE.FENCED_CALL_BODY,
+      `an off-list action request must still be recognised: ${userTurn}`
+    );
+  });
+
+  // The show-me guard still outranks every leg.
+  assert.equal(decide(fencedCall, { userTurn: "show me an example of the tool call" }).retry, false);
+});
+
 test("a show-me-code answer is never corrected (audit non-blocker 3)", () => {
   const showMe = 'Sure, here is how you call it:\n```javascript\nconst out = await space.api.fileRead("~/notes.md");\n```\nThat logs contents.';
 

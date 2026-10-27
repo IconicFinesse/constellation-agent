@@ -1,8 +1,5 @@
 import { marked } from "./marked.esm.js";
 import * as yaml from "./yaml-lite.js";
-// The fence classifier is REUSED, never copied: `execution-blocks.js` owns what counts
-// as fenced code for every first-party surface (BUG-007 contract).
-import { collectExecutionFenceRegions } from "./execution-blocks.js";
 
 const SAFE_MARKDOWN_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 const MARKDOWN_ROOT_CLASS = "markdown";
@@ -13,195 +10,54 @@ function normalizeMarkdownText(text = "") {
   return typeof text === "string" ? text.replace(/\r\n/gu, "\n").replace(/\r/gu, "\n") : "";
 }
 
-// Neutralize the ONLY thing the parser would otherwise pass through as markup: a raw
-// `<`/`>` in prose. `marked` sanitizes nothing, so `<img onerror=...>` typed in a chat
-// reply would become live HTML; escaping the angle brackets before parse is what keeps
-// prose inert, and it is still applied.
-function escapeProseAngleBrackets(text) {
-  return String(text || "").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+// THE ESCAPING INVARIANT (p35 audit, round 3): WE ESCAPE MORE, NEVER LESS.
+//
+// No raw angle bracket ever reaches the markdown parser. Both characters are swapped for
+// private-use sentinels BEFORE `marked.parse`, and restored AFTER it as ENTITIES
+// (`&lt;` / `&gt;`), never as raw characters. Raw HTML requires a `<` in the parser's input,
+// and there is none left to find.
+//
+// WHY EVERY REGION HEURISTIC WAS ABANDONED. Three rounds tried to predict where `marked`
+// would escape text itself so the escape could be skipped there:
+//   round 1 — treated a backslash-escaped tick as a delimiter (the parser does not);
+//   round 2 — paired ticks per LINE while the parser pairs per PARAGRAPH;
+//   round 3 — paired via the SHARED execution fence classifier, which disagrees with the
+//             parser on shapes like `~~~<iframe …>` (fence to the classifier, paragraph
+//             text to `marked`).
+// Every one of them was fail-OPEN in the same way: the region we skipped was prose to the
+// parser, so the tag inside it went straight into `innerHTML`. Measured by fuzz, the
+// line-scoped pairing leaked 205/3000 generated documents and the paragraph-scoped pairing
+// 218/3000 — a different guess only relocates the mismatch.
+//
+// The sentinel swap has no guess to get wrong: it cannot fail open, because the parser is
+// never shown the character it would need. It is also BETTER for display than the original
+// code, which escaped before parsing and therefore produced a double entity inside code:
+// here every region gets exactly one level, so `{"intent": "run_code"}` keeps its quotes
+// and `<div>` inside a fenced block renders as `<div>`.
+const ANGLE_LT_SENTINEL = "\uE000";
+const ANGLE_GT_SENTINEL = "\uE001";
+// Parked copies, so text that genuinely CONTAINS a sentinel character survives a round
+// trip instead of turning into a bracket.
+const PARKED_LT_SENTINEL = "\uE002";
+const PARKED_GT_SENTINEL = "\uE003";
+
+function neutralizeAngleBrackets(text) {
+  return String(text || "")
+    .replaceAll(ANGLE_LT_SENTINEL, PARKED_LT_SENTINEL)
+    .replaceAll(ANGLE_GT_SENTINEL, PARKED_GT_SENTINEL)
+    .replaceAll("<", ANGLE_LT_SENTINEL)
+    .replaceAll(">", ANGLE_GT_SENTINEL);
 }
 
-// Escape prose WITHOUT creating a second entity (chat-polish-3 item 2).
-//
-// `marked` already escapes quotes, apostrophes and ampersands itself, in text AND in
-// code: `"intent": "x"` renders as `&quot;intent&quot;: &quot;x&quot;` from RAW input.
-// Escaping those characters BEFORE the parse therefore produced a SECOND entity
-// (`&amp;quot;`), which the parser then rendered literally — the owner-visible
-// `&quot;` in code bodies.
-//
-// Fenced regions are skipped entirely, for the same reason: the parser escapes fenced
-// code itself, so an escape applied there is precisely the double-escape being removed.
-// Skipping cannot widen the HTML surface — whatever sits in a fence is still escaped by
-// the parser before it reaches `innerHTML` (the hostile-fence case is pinned by tests).
-// Inline code spans, for the same reason fenced regions are skipped: the parser
-// escapes a span's content itself, so escaping it first would double it
-// (`<div>` in backticks rendered as `&amp;lt;div&amp;gt;`).
-//
-// A run of backticks with NO matching closing run on the same line is NOT treated as
-// code here: `marked` would render those backticks literally and pass a raw `<` in
-// between straight through, so that text must keep the angle-bracket escape.
-const INLINE_BACKTICK_RUN_PATTERN = /`+/gu;
-const BACKSLASH = String.fromCharCode(92);
-
-// FAIL-CLOSED DELIMITER RULE (p35 audit blocker).
-//
-// A backslash-escaped backtick is a LITERAL backtick to `marked`, not a code-span
-// delimiter: `\`x <img onerror=…> y\`` renders as literal backticks around RAW HTML.
-// Treating an escaped run as a span, and therefore skipping the angle-bracket escape,
-// put that raw tag straight into `innerHTML` — a fail-OPEN regression. A run preceded by
-// an ODD number of backslashes is therefore never an opener, and never a closer.
-//
-// This can only ever ADD escaping, never remove it: a shape we refuse to call a span is
-// prose, and prose is always escaped.
-function isBackslashEscapedAt(text, index) {
-  let slashCount = 0;
-  let cursor = index - 1;
-
-  while (cursor >= 0 && text[cursor] === BACKSLASH) {
-    slashCount += 1;
-    cursor -= 1;
-  }
-
-  return slashCount % 2 === 1;
-}
-
-function collectInlineCodeRegions(text, from, to) {
-  const regions = [];
-  const slice = text.slice(from, to);
-  const lineBreaks = [];
-
-  for (let index = 0; index < slice.length; index += 1) {
-    if (slice[index] === "\n") {
-      lineBreaks.push(index);
-    }
-  }
-
-  const lineEndAfter = (index) => {
-    const nextBreak = lineBreaks.find((lineBreak) => lineBreak > index);
-    return nextBreak === undefined ? slice.length : nextBreak;
-  };
-
-  INLINE_BACKTICK_RUN_PATTERN.lastIndex = 0;
-
-  let match = INLINE_BACKTICK_RUN_PATTERN.exec(slice);
-
-  while (match) {
-    const opener = match[0];
-    const openStart = match.index;
-    const openEnd = openStart + opener.length;
-    const lineEnd = lineEndAfter(openStart);
-    let searchIndex = openEnd;
-    let closed = null;
-
-    // An ESCAPED run cannot OPEN a span: to the parser it is a literal backtick, so the
-    // text that follows is prose and must be escaped. Skipping it here is what closes the
-    // raw-HTML hole (p35 audit blocker).
-    if (isBackslashEscapedAt(slice, openStart)) {
-      INLINE_BACKTICK_RUN_PATTERN.lastIndex = openEnd;
-      match = INLINE_BACKTICK_RUN_PATTERN.exec(slice);
-      continue;
-    }
-
-    while (searchIndex < lineEnd) {
-      const closeIndex = slice.indexOf(opener, searchIndex);
-
-      if (closeIndex === -1 || closeIndex >= lineEnd) {
-        break;
-      }
-
-      // The closing run must be exactly as long as the opener; a longer run belongs
-      // to a different span.
-      const afterClose = slice[closeIndex + opener.length] || "";
-
-      if (afterClose === "`") {
-        searchIndex = closeIndex + opener.length;
-        continue;
-      }
-
-      // An ESCAPED run cannot CLOSE a span either. If we accepted it, the "span" would
-      // end at a literal backtick and the raw text between would be skipped by the
-      // escape — the same fail-open in the other direction.
-      if (isBackslashEscapedAt(slice, closeIndex)) {
-        searchIndex = closeIndex + opener.length;
-        continue;
-      }
-
-      closed = { closeEnd: closeIndex + opener.length, closeStart: closeIndex, openEnd, openStart };
-      break;
-    }
-
-    if (!closed) {
-      INLINE_BACKTICK_RUN_PATTERN.lastIndex = openEnd;
-      match = INLINE_BACKTICK_RUN_PATTERN.exec(slice);
-      continue;
-    }
-
-    regions.push({ end: from + closed.closeEnd, start: from + closed.openStart });
-    INLINE_BACKTICK_RUN_PATTERN.lastIndex = closed.closeEnd;
-    match = INLINE_BACKTICK_RUN_PATTERN.exec(slice);
-  }
-
-  return regions;
-}
-
-// The byte ranges the parser escapes itself: fenced blocks and inline code spans.
-// Everything OUTSIDE them is prose, which is where a raw angle bracket must be
-// neutralized before the parse.
-function collectParserEscapedRegions(text) {
-  const fenced = collectExecutionFenceRegions(text);
-  const regions = fenced.slice();
-  let cursor = 0;
-
-  fenced.forEach((region) => {
-    if (region.start > cursor) {
-      collectInlineCodeRegions(text, cursor, region.start).forEach((inlineRegion) => regions.push(inlineRegion));
-    }
-
-    cursor = Math.max(cursor, region.end);
-  });
-
-  if (cursor < text.length) {
-    collectInlineCodeRegions(text, cursor, text.length).forEach((inlineRegion) => regions.push(inlineRegion));
-  }
-
-  return regions.sort((left, right) => left.start - right.start);
-}
-
-function escapeHtml(text) {
-  const source = String(text || "");
-
-  if (!source) {
-    return source;
-  }
-
-  const escapedRegions = collectParserEscapedRegions(source);
-
-  if (!escapedRegions.length) {
-    return escapeProseAngleBrackets(source);
-  }
-
-  let escaped = "";
-  let cursor = 0;
-
-  escapedRegions.forEach((region) => {
-    // Overlapping regions (an inline span that begins before a fence closes, which the
-    // fence scan already swallowed) are clamped so nothing is ever escaped twice.
-    const start = Math.max(cursor, region.start);
-    const end = Math.max(start, region.end);
-
-    if (start > cursor) {
-      escaped += escapeProseAngleBrackets(source.slice(cursor, start));
-    }
-
-    escaped += source.slice(start, end);
-    cursor = end;
-  });
-
-  if (cursor < source.length) {
-    escaped += escapeProseAngleBrackets(source.slice(cursor));
-  }
-
-  return escaped;
+// Restores the brackets as ENTITIES in the rendered HTML string. This inserts text that
+// the browser decodes into `<`/`>` inside a text node; it can never become markup, because
+// markup is decided by the parser, which has already run.
+function restoreAngleBrackets(html) {
+  return String(html || "")
+    .replaceAll(ANGLE_LT_SENTINEL, "&lt;")
+    .replaceAll(ANGLE_GT_SENTINEL, "&gt;")
+    .replaceAll(PARKED_LT_SENTINEL, ANGLE_LT_SENTINEL)
+    .replaceAll(PARKED_GT_SENTINEL, ANGLE_GT_SENTINEL);
 }
 
 function joinClassNames(...classNames) {
@@ -312,7 +168,7 @@ export function renderMarkdown(text = "", targetElement = null, options = {}) {
   root.className = joinClassNames(MARKDOWN_ROOT_CLASS, customClassName);
 
   try {
-    const renderedHtml = marked.parse(escapeHtml(sourceText), {
+    const renderedHtml = marked.parse(neutralizeAngleBrackets(sourceText), {
       async: false,
       breaks: true,
       gfm: true
@@ -321,7 +177,7 @@ export function renderMarkdown(text = "", targetElement = null, options = {}) {
     if (renderedHtml && typeof renderedHtml.then === "function") {
       renderMarkdownFallback(root, sourceText);
     } else {
-      root.innerHTML = String(renderedHtml || "");
+      root.innerHTML = restoreAngleBrackets(String(renderedHtml || ""));
       finalizeMarkdownLinks(root);
       finalizeMarkdownTables(root);
     }
