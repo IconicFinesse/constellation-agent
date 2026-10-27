@@ -442,20 +442,36 @@ test("A: each row carries its OWN outcome, so a failure is not masked by a sibli
   );
 });
 
-test("A: a standalone call+result pair still draws its two ordered rows", () => {
-  // Report-only contract the lane brief asked to check: a pair that is NOT grouped still
-  // renders a call row and a result row, in stored order, exactly as before.
+test("A: a single call+result pair draws ONE chip, and two ordered rows only when grouping is OFF", () => {
+  // CORRECTED (owner-reported live defect, 2026-10-27). This case used to assert that a
+  // single pair draws `tool-call-s1` then `tool-result-s1` under grouping ON, on the same
+  // false premise as the grouping suite's old case: "one call is already one row". One call
+  // stores TWO entries, so that layout drew the call twice — arguments above
+  // `No output yet.`, then `ARGUMENTS {}` above the real payload. Owner screenshots show it;
+  // the expectation was wrong, not the product.
+  //
+  // The intent is preserved and strengthened: ONE row per CALL when grouping is on, and the
+  // original one-row-per-ENTRY order still holds byte-identically when it is off.
   const entries = typed([
     { content: "Just one.", role: "assistant", toolCalls: [{ arguments: {}, id: "s1", name: "file_read" }] },
     { content: JSON.stringify({ ok: 1 }), role: "tool", toolCallId: "s1" }
   ]);
-  const thread = renderThread(entries);
+  const grouped = renderThread(entries);
 
-  assert.equal(findToolRunCards(thread).length, 0, "a single call is not grouped");
+  assert.equal(findToolRunCards(grouped).length, 0, "a single call is never a tool-run card");
   assert.deepEqual(
-    thread.querySelectorAll("[data-execution-message-id]").map((card) => card.dataset.executionMessageId),
+    grouped.querySelectorAll("[data-execution-message-id]").map((card) => card.dataset.executionMessageId),
+    ["tool-call-s1"],
+    "one row per CALL: the result is that chip's output pane, not a second chip"
+  );
+
+  // GROUPING OFF is untouched: one row per ENTRY, in stored order.
+  const ungrouped = renderThread(entries, { groupToolRuns: false });
+
+  assert.deepEqual(
+    ungrouped.querySelectorAll("[data-execution-message-id]").map((card) => card.dataset.executionMessageId),
     ["tool-call-s1", "tool-result-s1"],
-    "the pair keeps one row per ENTRY — unchanged behaviour, not a regression"
+    "with grouping OFF the pair keeps one row per ENTRY — unchanged behaviour"
   );
 });
 
@@ -719,18 +735,29 @@ test("D: a typed chip's rendered label comes from the tool, not from its project
     { content: "One.", role: "assistant", toolCalls: [{ arguments: {}, id: "d1", name: "file_read" }] },
     { content: JSON.stringify({ ok: 1 }), role: "tool", toolCallId: "d1" }
   ]);
+  // CORRECTED (owner-reported live defect, 2026-10-27). Under grouping ON a single call is
+  // ONE chip, so there is no separate `tool-result-d1` row to label; the result is that
+  // chip's output pane. The ruling this case carries is unchanged and still asserted below:
+  // the label comes from the tool's identity, and a settled call reads its own result's
+  // outcome instead of a hardcoded `running`.
   const thread = renderThread(entries);
   const callRow = thread
     .querySelectorAll("[data-execution-message-id]")
     .find((card) => card.dataset.executionMessageId === "tool-call-d1");
-  const resultRow = thread
-    .querySelectorAll("[data-execution-message-id]")
-    .find((card) => card.dataset.executionMessageId === "tool-result-d1");
+
+  assert.ok(callRow, "the single call still has its own chip");
 
   // RE-AUDIT BLOCKER 2: a SETTLED single call reads its own result's outcome. It used to
   // hardcode `running`, which claimed work was in progress beside its own Success row,
   // permanently and across reloads.
   assert.equal(summaryTitleOf(callRow), "file_read · Success");
+
+  // GROUPING OFF keeps the second, per-ENTRY result row and its honest label.
+  const ungrouped = renderThread(entries, { groupToolRuns: false });
+  const resultRow = ungrouped
+    .querySelectorAll("[data-execution-message-id]")
+    .find((card) => card.dataset.executionMessageId === "tool-result-d1");
+
   assert.equal(summaryTitleOf(resultRow), "file_read · Success");
 });
 

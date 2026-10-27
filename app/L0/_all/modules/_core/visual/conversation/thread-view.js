@@ -1853,8 +1853,44 @@ export function createAgentThreadView(config = {}) {
         const run = collectToolRun(history, index, { withheldCallIds });
         const callCount = run ? run.entries.filter((entry) => entry.typedTool === "call").length : 0;
 
-        // One call is already one row, so grouping it would only add a click. The
-        // win the owner asked for is a ten-call turn reading as one line.
+        // A TEN-CALL turn reading as one line is the win the owner asked for, and a run
+        // of two or more keeps the collapsible card.
+        //
+        // ONE CALL IS ONE CHIP, NOT TWO ROWS (owner-reported live defect, 2026-10-27).
+        // The old gate fell through for a single call on the premise that "one call is
+        // already one row". That premise is false in the only sense a reader cares
+        // about: one call stores TWO ENTRIES (its call and its result), and each entry
+        // drew its own row. The owner saw the same call twice — arguments above
+        // `No output yet.`, then `ARGUMENTS {}` above the real payload (the call entry
+        // has no output, the result entry has no arguments).
+        //
+        // Folding it into a TOOL-RUN card would be worse, not better: a one-item summary
+        // you must click to see one call. So a single call takes the STANDALONE chip
+        // shape, built from `collectToolRunCalls` — the SAME per-call fold the grouped
+        // card uses, so there is exactly one derivation of call+result pairing and a
+        // second pairing reader cannot drift from it. The descriptor carries the call's
+        // arguments AND its result's output, so the chip shows both panes in one click.
+        // Nothing is invented: an unanswered call keeps `running` and no output.
+        if (run && callCount === 1) {
+          const [record] = collectToolRunCalls(run.entries);
+
+          if (record) {
+            groups.push({
+              // The CALL's id, so the row keeps the identity (and the scroll keys) the
+              // pre-fold call chip had.
+              messageId: record.id,
+              outputResults: null,
+              provisional: false,
+              typedTool: createTypedToolDescriptorForCall(record),
+              type: "standalone-output"
+            });
+            // Consume the whole run: the result entry is this chip's output pane, not a
+            // row of its own.
+            index = run.endIndex;
+            continue;
+          }
+        }
+
         if (run && callCount >= 2) {
           groups.push({
             entries: run.entries,
@@ -2071,11 +2107,23 @@ export function createAgentThreadView(config = {}) {
       // when the dispatch event settles it — which is precisely how a chip keeps a
       // spinner after the work finished. This is the same class of defect the execute
       // section's busy-state signature fixed; the outcome travels with it.
+      //
+      // THE DESCRIPTOR'S OWN TEXT IS PART OF IT TOO, for the same reason and one more.
+      // A single call now folds its result into its chip, so the payload lives in the
+      // DESCRIPTOR and not in `outputResults`. Without these terms the row built before
+      // the result landed (empty output, `No output yet.`) would be REUSED afterwards and
+      // the chip would keep claiming no output forever — the exact "settled but never
+      // repainted" class this campaign has already fixed twice. Arguments and the tool
+      // name ride along for free because an entry that changes identity must not reuse a
+      // row either.
       return [
         avatarSignature,
         group.messageId || "",
         group.provisional === true ? "provisional" : "settled",
+        String(group.typedTool?.name || ""),
         String(group.typedTool?.outcome || ""),
+        String(group.typedTool?.argumentsText || ""),
+        String(group.typedTool?.outputText || group.typedTool?.resultText || ""),
         getExecutionResultsRenderSignature(group.outputResults)
       ].join("\u241f");
     }
