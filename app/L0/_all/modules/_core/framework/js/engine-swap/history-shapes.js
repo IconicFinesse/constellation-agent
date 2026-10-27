@@ -385,6 +385,14 @@ export function normalizeTypedHistoryFields(stored) {
 export function projectHistoryEntryForDisplay(entry) {
   const read = readHistoryEntry(entry);
 
+  // `typedTool` marks a projection as a TYPED entry wearing the chip shape. It exists
+  // for ONE reason: the chip shape is also what the text protocol's execution follow-up
+  // wears, and the thread renderer's execute-section branch is allowed to CONSUME such a
+  // follow-up as its own output pane. A typed chip is a row of its own, never a pane
+  // belonging to the message above it, so the renderer must be able to tell the two
+  // apart. Without this mark a narration containing an execution separator swallowed the
+  // tool-call chip that followed it and then claimed the swallowed output as a real
+  // execution result (P3 transcript-fidelity audit, 2026-10-27).
   if (read.kind === HISTORY_ENTRY_KIND.TOOL_CALL) {
     const args = JSON.stringify(read.arguments || {});
 
@@ -392,7 +400,8 @@ export function projectHistoryEntryForDisplay(entry) {
       content: `execution ${read.name || "tool"} call\n${args}`,
       id: read.id || `tool-call-${read.callId}`,
       kind: "execution-output",
-      role: "user"
+      role: "user",
+      typedTool: "call"
     });
   }
 
@@ -405,7 +414,8 @@ export function projectHistoryEntryForDisplay(entry) {
       content: `execution ${read.name || "tool"} result\n${detail}`,
       id: read.id || `tool-result-${read.callId}`,
       kind: "execution-output",
-      role: "user"
+      role: "user",
+      typedTool: "result"
     });
   }
 

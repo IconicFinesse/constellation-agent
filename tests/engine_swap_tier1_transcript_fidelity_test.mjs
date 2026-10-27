@@ -116,7 +116,13 @@ const {
   readHistoryEntry,
   serializeTypedHistoryFields
 } = historyShapes;
-const { createAgentThreadView } = await import("/modules/_core/visual/conversation/thread-view.js");
+const { createAgentThreadView, resolveExecutionCardState } = await import(
+  "/modules/_core/visual/conversation/thread-view.js"
+);
+// The REAL execution module the product view is constructed with: without it the thread
+// view cannot parse an execute display at all, so a stub would make the chip-swallow
+// contract untestable.
+const onscreenExecution = await import("/modules/_core/onscreen_agent/execution.js");
 const { onscreenAgent: store } = await import("/modules/_core/onscreen_agent/store.js");
 
 const PREVIEW_ID = "engine-swap-streaming-preview";
@@ -599,6 +605,213 @@ test("a transport failure mid-turn still clears the accumulated preview", async 
 
   assert.equal(turn?.result?.status, "error", "the failure surfaces as a structured error turn");
   assert.equal(store.engineSwapStreamingPreview, null, "an error must not strand a half-streamed row");
+});
+
+// --- D2. the corrective retry CONTINUES the same preview ---------------------
+
+// The retry is a second attempt with its own request, so a per-attempt reset would make
+// the first attempt's prose blink out -- the same defect as a per-iteration reset, one
+// level up. The first attempt's prose is KEPT in the committed history (only the
+// coaching turn is dropped), so what the user watched must stay too.
+test("a corrective retry accumulates both attempts' prose and clears once", async (t) => {
+  const surface = stubSurface(t);
+
+  withFetch(t, [
+    // Attempt 1: separator prose, ZERO tool calls -> the bounded corrective retry fires.
+    [
+      textFrame("Reading notes.txt from your root now.\n"),
+      textFrame("_____javascript\nreturn await space.api.fileRead({\n  path: \"~/notes.txt\"\n});"),
+      stopFrame(),
+      "data: [DONE]\n\n"
+    ],
+    // Attempt 2: a real answer.
+    [textFrame("Here is your notes content."), stopFrame(), "data: [DONE]\n\n"]
+  ]);
+
+  store.settings = baseSettings();
+  store.stopRequested = false;
+  store.history = [...REQUEST_MESSAGES];
+  store.engineSwapStreamingPreview = null;
+  runtime.api.fileRead = async () => ({ content: "hello" });
+
+  const turn = await store.runTier1ConversationTurn(REQUEST_MESSAGES, PREPARED, { tier: "tier1" });
+
+  assert.equal(turn?.correctiveRetry, true, "the fixture must really trigger the retry");
+
+  const contents = surface.paintSteps.map((step) => step.content);
+  const last = contents[contents.length - 1] || "";
+
+  // BOTH attempts' prose survive in the one preview, in the order they were watched.
+  assert.ok(
+    last.includes("Reading notes.txt from your root now."),
+    `attempt 1's prose must survive the retry (saw ${JSON.stringify(last)})`
+  );
+  assert.ok(
+    last.includes("Here is your notes content."),
+    `attempt 2's prose must accumulate after it (saw ${JSON.stringify(last)})`
+  );
+  assert.ok(
+    last.indexOf("Reading notes.txt") < last.indexOf("Here is your notes content."),
+    "the preview reads chronologically across attempts"
+  );
+
+  // Only growth within the turn: a shorter step means the slot was reset mid-turn.
+  for (let index = 1; index < contents.length; index += 1) {
+    assert.ok(
+      contents[index].length >= contents[index - 1].length,
+      `the preview must only grow across attempts (step ${index}: ${JSON.stringify(contents[index])})`
+    );
+  }
+
+  // ...and it is cleared exactly once, at the end of the whole turn.
+  assert.equal(store.engineSwapStreamingPreview, null);
+  assert.ok(
+    !surface.paintSteps.some((step) => step.historyIds.includes(PREVIEW_ID)),
+    "no attempt's prose may become history through the preview"
+  );
+});
+
+// --- C2. the separator narration must not swallow the chip -------------------
+
+// The audit blocker (2026-10-27). A Tier 1 narration CAN contain an executable
+// separator, and the iteration that produced it also emits typed calls. The renderer's
+// execute-section branch PEEK-AHEADS and consumes the next entry as its own output pane
+// -- correct for the text protocol, whose execution follow-up really is that shape --
+// but `projectHistoryEntryForDisplay` projects typed calls onto the SAME shape. Before
+// the guard, the card absorbed the tool-call chip (entries 3 -> groups 2) and then
+// reported `check_circle` / `is-success` for code that never ran.
+const SEPARATOR_NARRATION =
+  "Let me read that.\n_____javascript\nreturn await space.api.fileRead({\n  path: \"~/notes.txt\"\n});";
+
+function separatorNarrationTurn() {
+  return [
+    {
+      content: SEPARATOR_NARRATION,
+      role: "assistant",
+      toolCalls: [{ arguments: { path: "~/notes.txt" }, id: "c1", name: "file_read" }]
+    },
+    { content: 'ok: {"content":"hi"}', role: "tool", toolCallId: "c1" }
+  ];
+}
+
+function executorView() {
+  // The REAL product construction: the thread view only parses an execute display when
+  // the execution module is wired (see `_core/onscreen_agent/view.js`).
+  return createAgentThreadView({ execution: onscreenExecution });
+}
+
+test("a separator-bearing narration does not swallow the tool-call chip", () => {
+  const view = executorView();
+  const entries = canonicalMessagesToTypedEntries(separatorNarrationTurn(), { fromIndex: 0 });
+  const groups = view.buildMessageDisplayGroups(
+    entries.map((entry) => projectHistoryEntryForDisplay(entry)),
+    {}
+  );
+
+  assert.equal(entries.length, 3, "narration plus call plus result");
+  assert.equal(
+    groups.length,
+    3,
+    "the chip and its result must each keep their OWN row; a consumed chip is a lost row"
+  );
+  assert.deepEqual(
+    groups.map((group) => group.type),
+    ["assistant-sequence", "standalone-output", "standalone-output"]
+  );
+
+  const section = groups[0].sections[0];
+
+  assert.equal(section.outputResults, null, "a typed chip is never another message's output pane");
+
+  const state = resolveExecutionCardState({
+    displayOnly: section.displayOnly === true,
+    hasResults: Array.isArray(section.outputResults) && section.outputResults.length > 0
+  });
+
+  assert.notEqual(state.tone, "is-success", "code that never ran must never read as a success");
+  assert.notEqual(state.iconName, "check_circle");
+});
+
+test("a separator narration settles display-only while the chips keep their own rows", () => {
+  const view = executorView();
+  const entries = canonicalMessagesToTypedEntries(separatorNarrationTurn(), { fromIndex: 0 });
+  // Derived by the STORE's own collector, so this is the set a reload would compute.
+  const displayOnlyIds = store.collectEngineSwapDisplayOnlyIds(entries, null);
+
+  assert.deepEqual([...displayOnlyIds], ["assistant-0"], "the narration is the display-only turn");
+
+  const groups = view.buildMessageDisplayGroups(
+    entries.map((entry) => projectHistoryEntryForDisplay(entry)),
+    { displayOnlyMessageIds: displayOnlyIds }
+  );
+  const section = groups[0].sections[0];
+  const state = resolveExecutionCardState({
+    displayOnly: section.displayOnly === true,
+    hasResults: Array.isArray(section.outputResults) && section.outputResults.length > 0
+  });
+
+  assert.equal(groups.length, 3);
+  assert.equal(state.pendingState, "display-only", "the honest label survives the separation");
+  assert.equal(state.iconName, "visibility");
+
+  // ...and the derivation is still reload-safe with this shape in the trail.
+  assert.deepEqual(
+    [...store.collectEngineSwapDisplayOnlyIds(entries, null)].sort(),
+    [...displayOnlyIds].sort()
+  );
+});
+
+test("a deployed Tier 1 turn keeps the chip and never claims execution end to end", async (t) => {
+  stubSurface(t);
+  withFetch(t, [
+    [
+      textFrame("Let me read that.\n"),
+      textFrame("_____javascript\nreturn await space.api.fileRead({\n  path: \"~/notes.txt\"\n});"),
+      toolCallFrame("c1", "file_read", '{"path":"~/notes.txt"}'),
+      "data: [DONE]\n\n"
+    ],
+    [textFrame("Your notes say hello."), stopFrame(), "data: [DONE]\n\n"]
+  ]);
+
+  store.settings = baseSettings();
+  store.stopRequested = false;
+  store.history = [...REQUEST_MESSAGES];
+  store.engineSwapStreamingPreview = null;
+  runtime.api.fileRead = async () => ({ content: "hello" });
+
+  await store.runTier1TurnAndCommit(REQUEST_MESSAGES, PREPARED, { tier: "tier1" });
+
+  const view = executorView();
+  const groups = view.buildMessageDisplayGroups(store.getRenderHistory(), {
+    displayOnlyMessageIds: store.engineSwapDisplayOnlyMessageIds
+  });
+
+  // Every persisted entry draws as its own row: nothing was absorbed.
+  assert.equal(groups.length, store.history.length, "one row per persisted entry");
+
+  const narrationGroup = groups.find(
+    (group) =>
+      group.type === "assistant-sequence" &&
+      String(group.sections?.[0]?.message?.content || "").includes("Let me read that.")
+  );
+
+  assert.ok(narrationGroup, "the narration must keep its own card");
+
+  const section = narrationGroup.sections[0];
+  const state = resolveExecutionCardState({
+    displayOnly: section.displayOnly === true,
+    hasResults: Array.isArray(section.outputResults) && section.outputResults.length > 0
+  });
+
+  assert.equal(section.outputResults, null, "the chip was not eaten as a result pane");
+  assert.notEqual(state.tone, "is-success");
+  assert.equal(state.pendingState, "display-only");
+
+  // Reload determinism still holds with the separator narration present.
+  assert.deepEqual(
+    [...store.engineSwapDisplayOnlyMessageIds].sort(),
+    [...store.collectEngineSwapDisplayOnlyIds(store.history, store.executionOutputOverrides)].sort()
+  );
 });
 
 // --- the commit keeps the derivation reload-safe -----------------------------

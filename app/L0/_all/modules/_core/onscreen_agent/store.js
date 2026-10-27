@@ -5561,20 +5561,12 @@ const model = {
         // message the model happened to echo back.
         const correctiveIndex = continuedMessages.length - 1;
 
-        // The retry is a SEPARATE attempt, so it gets its own accumulator: the
-        // abandoned first attempt's prose must not survive into the coaching turn's
-        // preview, and this attempt's iterations accumulate among themselves.
-        let retryPreviewStarted = false;
-        let retryPreviewBoundaryPending = false;
-
-        const appendRetryPreviewDelta = (delta) => {
-          if (retryPreviewBoundaryPending) {
-            retryPreviewBoundaryPending = false;
-            this.appendEngineSwapStreamingDelta("\n\n");
-          }
-
-          this.appendEngineSwapStreamingDelta(delta);
-        };
+        // The retry CONTINUES the turn's one preview. The first attempt's prose is
+        // kept in the committed history (only the coaching turn is dropped), so
+        // resetting the slot here would make the user watch prose vanish that the
+        // transcript then keeps -- the same defect as a per-iteration reset, one
+        // level up. The coaching attempt's prose simply accumulates after it.
+        previewBoundaryPending = true;
 
         try {
           const second = await runOnscreenTier1Turn({
@@ -5587,20 +5579,13 @@ const model = {
             params: llmParams.parseOnscreenAgentParamsText(this.settings.paramsText || ""),
             providerKey: "",
             sendCompletion: async ({ request }) => {
-              // Same one preview slot, but the retry starts it over: the coaching turn
-              // is scaffolding, so what the user watches must be THIS attempt's prose,
-              // not the abandoned first attempt's. Within the retry it accumulates
-              // across iterations like the main turn does.
-              if (!retryPreviewStarted) {
-                retryPreviewStarted = true;
-                previewStarted = true;
-                this.clearEngineSwapStreamingPreview();
-              } else {
-                retryPreviewBoundaryPending = true;
-              }
+              // The turn's ONE accumulator continues here. The boundary before this
+              // attempt was set once, above; each further iteration of the retry sets
+              // another boundary, exactly as the main attempt does.
+              previewBoundaryPending = true;
 
               return agentApi.streamOnscreenAgentToolTurn({
-                onDelta: (delta) => appendRetryPreviewDelta(delta),
+                onDelta: (delta) => appendPreviewDelta(delta),
                 requestBody: request.body,
                 settings: this.settings,
                 signal: controller.signal
