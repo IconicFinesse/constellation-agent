@@ -916,6 +916,10 @@ export function createAgentThreadView(config = {}) {
           hasError: executionResultsHaveError(displayOutputResults),
           hasResults: Array.isArray(displayOutputResults) && displayOutputResults.length > 0,
           isConversationBusy,
+          // NON-BLOCKER 4 (chat-polish-2 re-audit): this parameter was threaded in and
+          // destructured but never forwarded, so a provisional chip could not resolve
+          // `running` through the card at all — the flag existed and did nothing.
+          isProvisional,
           isRerunning: rerunningMessageId === messageId,
           isStreaming
         });
@@ -1473,41 +1477,63 @@ export function createAgentThreadView(config = {}) {
   // `tool · Success` instead of the tool that actually ran (chat-polish-2 item D). The name
   // is recoverable from the CALL of the same id, which is in the same history, so it is
   // resolved here rather than by re-reading or rewriting stored shapes.
-  function collectTypedToolNames(history) {
-    const names = new Map();
+  //
+  // THE SAME SCAN CARRIES THE SETTLED OUTCOME (chat-polish-2 re-audit blocker 2). A
+  // standalone CALL has no result of its own to consult, so it used to hardcode `running` —
+  // which meant the commonest shape of all, a single-call turn, rendered `file_read · Running`
+  // FOREVER beside its own settled result row, and survived reload because it is derived from
+  // stored entries. A `running` claim about finished work is the same class of lie the item D
+  // labels exist to remove.
+  function collectTypedToolCallFacts(history) {
+    const facts = { names: new Map(), outcomes: new Map() };
 
     (Array.isArray(history) ? history : []).forEach((entry) => {
-      if (entry?.typedTool !== "call") {
+      const callId = String(entry?.typedToolCallId || "");
+
+      if (!callId) {
         return;
       }
 
-      const callId = String(entry?.typedToolCallId || "");
-      const name = String(entry?.typedToolName || "");
+      if (entry?.typedTool === "call") {
+        const name = String(entry?.typedToolName || "");
 
-      if (callId && name && !names.has(callId)) {
-        names.set(callId, name);
+        if (name && !facts.names.has(callId)) {
+          facts.names.set(callId, name);
+        }
+
+        return;
+      }
+
+      // First result wins: exactly one result exists per call id by contract, so a second
+      // one is a duplicate rather than a newer truth.
+      if (entry?.typedTool === "result" && !facts.outcomes.has(callId)) {
+        facts.outcomes.set(callId, String(entry?.typedToolOutcome || "success"));
       }
     });
 
-    return names;
+    return facts;
   }
 
   // A STANDALONE typed chip (ungrouped) keeps its pre-existing one-entry shape; this only
   // supplies the honest label for it (item D).
-  function createTypedToolDescriptor(entry, nameByCallId = null) {
+  function createTypedToolDescriptor(entry, callFacts = null) {
     if (!entry?.typedTool) {
       return null;
     }
 
     const callId = String(entry.typedToolCallId || "");
     const resolvedName =
-      String(entry.typedToolName || "") || (nameByCallId?.get?.(callId) ?? "") || "";
+      String(entry.typedToolName || "") || (callFacts?.names?.get?.(callId) ?? "") || "";
 
     if (entry.typedTool === "call") {
+      // The CLASSIFIED outcome of this call's own result when one exists; `running` only
+      // when nothing has answered this call yet, which is the one case where it is true.
+      const settledOutcome = callFacts?.outcomes?.get?.(callId) ?? "";
+
       return {
         argumentsText: getTypedEntryBodyText(entry) || "{}",
         name: resolvedName || "tool",
-        outcome: "running",
+        outcome: settledOutcome || "running",
         outputText: ""
       };
     }
@@ -1717,9 +1743,10 @@ export function createAgentThreadView(config = {}) {
     // O(n²) on every streamed frame (chat-polish audit non-blocker b, 2026-10-27).
     const withheldCallIds = groupToolRuns ? collectWithheldCallIds(history) : null;
     // Same reasoning, and the same one-scan discipline: a typed RESULT entry carries no tool
-    // name of its own, so the name is resolved once per render from its sibling CALL. Doing
-    // it per row would be O(n²) on the frame path.
-    const typedToolNames = collectTypedToolNames(history);
+    // name of its own, and a typed CALL carries no outcome of its own, so both are resolved
+    // once per render from the sibling entry of the same call id (chat-polish-2 re-audit
+    // blockers 1/2). Doing it per row would be O(n²) on the frame path.
+    const typedToolCallFacts = collectTypedToolCallFacts(history);
 
     for (let index = 0; index < history.length; index += 1) {
       const message = history[index];
@@ -1798,7 +1825,7 @@ export function createAgentThreadView(config = {}) {
           // A typed chip gets an honest label and honest panes (item D) whether or not it
           // is grouped: the wording must not depend on how many siblings it happened to
           // have.
-          typedTool: createTypedToolDescriptor(message, typedToolNames),
+          typedTool: createTypedToolDescriptor(message, typedToolCallFacts),
           type: "standalone-output"
         });
         continue;
@@ -2174,8 +2201,23 @@ export function createAgentThreadView(config = {}) {
         return false;
       }
 
+      // PAINT THE TAIL SLICE, NOT THE WHOLE PREVIEW (chat-polish-2 re-audit blocker 1).
+      //
+      // Once a chip has split the preview, the row carrying the plain preview id is only the
+      // TAIL segment: the frozen segments above it hold their own slices. Repainting this row
+      // with the full accumulated text therefore duplicated every segment above it, and the
+      // duplication grew with each delta (the patch returns true, so no full re-render
+      // repaired it until the next chip or commit).
+      //
+      // `options.previewTailContent` comes from `resolvePreviewTailContent`, i.e. from the
+      // projection itself, so there is still ONE derivation of what the tail holds. `null`
+      // means "the preview was not split" and the whole content is what this row holds.
+      const tailContent =
+        typeof options.previewTailContent === "string" ? options.previewTailContent : null;
+      const previewSource = tailContent === null ? message.content || "Streaming..." : tailContent;
+
       // Same preview path as the row build: this node exists only while streaming.
-      renderPreviewMarkdown(textBlock, message.content || "Streaming...");
+      renderPreviewMarkdown(textBlock, previewSource);
       setRowRenderState(
         row,
         buildStreamingRenderGroup(message, {

@@ -224,20 +224,43 @@ export function buildChatRenderProjection({ history = [], preview = null, provis
     projection.push(chip.entry);
   });
 
-  if (cursor < previewText.length) {
-    const tail = previewText.slice(cursor);
-
-    if (tail.trim()) {
-      // THE TAIL KEEPS THE PLAIN PREVIEW ID. `updateStreamingAssistantMessage` patches the
-      // live row by looking its id up, and only the tail can change as more text arrives:
-      // every earlier segment is frozen text that ends at a chip boundary. Given the
-      // reserved id, the tail row is patched in place instead of the whole thread being
-      // rebuilt on every streamed frame.
-      projection.push(createPreviewSegment(preview, segmentIndex, tail, true));
-    }
-  }
+  // THE TAIL IS ALWAYS EMITTED, even when it is empty (chat-polish-2 re-audit non-blocker 3).
+  // It is the ONLY row that carries the plain preview id, and the live patch finds its row by
+  // that id; skipping it when the last chip sits at the end of the text (or when the tail is
+  // just an inter-iteration blank boundary) left the patch with no row to find, so every
+  // frame fell back to a full thread re-render — precisely the regression this item exists to
+  // stop. An empty tail paints an empty preview block, which is honest: nothing follows yet.
+  projection.push(createPreviewSegment(preview, segmentIndex, previewText.slice(cursor), true));
 
   return projection;
+}
+
+// The text the LIVE TAIL ROW holds, derived from the projection itself (chat-polish-2
+// re-audit blocker 1).
+//
+// The patch path used to paint the store's whole accumulated preview into the row carrying
+// the plain preview id. Once a chip splits that preview, the row with the plain id is only the
+// TAIL slice, so repainting it with the full text duplicated every frozen segment above it and
+// the duplication grew with each delta.
+//
+// The fix keeps ONE source of truth: this asks the projection what the tail holds instead of
+// re-deriving the split (or letting the caller guess). `null` means "no chips, no split" — the
+// caller then paints the whole preview, which is what that shape genuinely holds.
+export function resolvePreviewTailContent({ history = [], preview = null, provisionalCalls = [] } = {}) {
+  if (!preview) {
+    return null;
+  }
+
+  const projection = buildChatRenderProjection({ history, preview, provisionalCalls });
+  const tail = projection.find(
+    (entry) => entry?.previewSegment === true && entry.previewSegmentFrozen !== true
+  );
+
+  if (!tail) {
+    return null;
+  }
+
+  return String(tail.content || "");
 }
 
 function normalizeChipOffset(value) {

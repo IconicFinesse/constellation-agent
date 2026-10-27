@@ -322,7 +322,7 @@ const {
   formatToolRunLabel,
   summarizeToolRun
 } = await import("/modules/_core/visual/conversation/tool-run.js");
-const { buildChatRenderProjection, PREVIEW_SEGMENT_SUFFIX, PROVISIONAL_CHIP_PREFIX } = await import(
+const { buildChatRenderProjection, createProvisionalChipEntry, PREVIEW_SEGMENT_SUFFIX, PROVISIONAL_CHIP_PREFIX, resolvePreviewTailContent } = await import(
   "/modules/_core/onscreen_agent/chat-projection.js"
 );
 const { selectMessageContentPainter, paintPreviewMarkdown, MESSAGE_CONTENT_PAINTER, PREVIEW_PAINT_MODE } =
@@ -727,6 +727,163 @@ test("D: a typed chip's rendered label comes from the tool, not from its project
     .querySelectorAll("[data-execution-message-id]")
     .find((card) => card.dataset.executionMessageId === "tool-result-d1");
 
-  assert.equal(summaryTitleOf(callRow), "file_read · Running");
+  // RE-AUDIT BLOCKER 2: a SETTLED single call reads its own result's outcome. It used to
+  // hardcode `running`, which claimed work was in progress beside its own Success row,
+  // permanently and across reloads.
+  assert.equal(summaryTitleOf(callRow), "file_read · Success");
   assert.equal(summaryTitleOf(resultRow), "file_read · Success");
+});
+
+// --- RE-AUDIT: BLOCKER 2 -----------------------------------------------------
+
+test("D: a standalone call resolves its outcome from its own result, and only a truly unanswered call reads Running", () => {
+  const settled = typed([
+    { content: "One.", role: "assistant", toolCalls: [{ arguments: {}, id: "s1", name: "file_read" }] },
+    { content: JSON.stringify({ ok: 1 }), role: "tool", toolCallId: "s1" }
+  ]);
+  const settledThread = renderThread(settled);
+  const settledCallRow = settledThread
+    .querySelectorAll("[data-execution-message-id]")
+    .find((card) => card.dataset.executionMessageId === "tool-call-s1");
+
+  assert.equal(summaryTitleOf(settledCallRow), "file_read · Success", "a settled single call is not Running");
+  assert.equal(
+    settledCallRow.querySelector("[data-execution-status]")?.className,
+    "execution-status is-success",
+    "and its tone settles too — no permanent spinner"
+  );
+
+  // A FAILED call must show the failure on the CALL row as well (classified outcome, never
+  // prose re-parsing: the projected status line would read `file_write result`, not `error`).
+  const failed = typed([
+    { content: "One.", role: "assistant", toolCalls: [{ arguments: {}, id: "f1", name: "file_write" }] },
+    { content: "error (io): denied", role: "tool", toolCallId: "f1" }
+  ]);
+  const failedThread = renderThread(failed);
+  const failedCallRow = failedThread
+    .querySelectorAll("[data-execution-message-id]")
+    .find((card) => card.dataset.executionMessageId === "tool-call-f1");
+
+  assert.equal(summaryTitleOf(failedCallRow), "file_write · Error");
+  assert.equal(
+    failedCallRow.querySelector("[data-execution-status]")?.className,
+    "execution-status is-error",
+    "a failed typed call never draws a success icon"
+  );
+
+  // GENUINELY PENDING: no result exists for this call, so Running is the only honest word.
+  const pending = typed([
+    { content: "One.", role: "assistant", toolCalls: [{ arguments: {}, id: "p1", name: "file_read" }] }
+  ]);
+  const pendingThread = renderThread(pending);
+  const pendingCallRow = pendingThread
+    .querySelectorAll("[data-execution-message-id]")
+    .find((card) => card.dataset.executionMessageId === "tool-call-p1");
+
+  assert.equal(summaryTitleOf(pendingCallRow), "file_read · Running");
+});
+
+// --- RE-AUDIT: BLOCKER 1 -----------------------------------------------------
+
+function paintedPreviewRows(thread) {
+  return thread.querySelectorAll("[data-streaming-content]").map((node) => node.textContent);
+}
+
+function countOccurrences(haystack, needle) {
+  let count = 0;
+  let index = haystack.indexOf(needle);
+
+  while (index !== -1) {
+    count += 1;
+    index = haystack.indexOf(needle, index + needle.length);
+  }
+
+  return count;
+}
+
+test("C: the REAL patch path repaints the tail slice, so a chip-bearing preview never duplicates prose", () => {
+  // The audit's shape: frozen segments plus a tail row. The patch used to paint the WHOLE
+  // accumulated preview into the tail row, duplicating every segment above it — and because
+  // the patch reports success, nothing repaired it until the next chip or commit.
+  //
+  // The assertion counts each unique prose token across ALL painted preview rows. Markup makes
+  // a plain string comparison useless here, but duplication is exactly "a token appears more
+  // than once", and that is what the owner saw: the frozen slice repeated inside the tail.
+  const history = [{ content: "read it", id: "u1", kind: "", role: "user" }];
+  const frozenSlice = "ALPHA beta,";
+  const firstTail = " GAMMA delta.";
+  const previewOne = `${frozenSlice}${firstTail}`;
+  const chipOffset = frozenSlice.length;
+  const provisionalCalls = [{ atChars: chipOffset, callId: "n1", name: "file_read" }];
+  const preview = { content: previewOne, id: PREVIEW_ID, role: "assistant", streaming: true };
+
+  const projection = buildChatRenderProjection({ history, preview, provisionalCalls });
+  const thread = new StubNode("div");
+  view.renderMessages(thread, projection, { groupToolRuns: true, scroller: null });
+
+  const firstRows = paintedPreviewRows(thread);
+
+  assert.ok(firstRows.length >= 2, "the frozen slice and the tail are separate rows, so the chip stays between them");
+  assert.equal(countOccurrences(firstRows.join("\u241e"), "ALPHA"), 1, "the first paint holds the prose exactly once");
+
+  // Two deltas, each patched through the production seam with the projection-derived tail.
+  let accumulated = previewOne;
+
+  for (const delta of [" EPSILON one.", " ZETA two."]) {
+    accumulated += delta;
+    const nextPreview = { ...preview, content: accumulated };
+    const painted = view.updateStreamingAssistantMessage(thread, nextPreview, {
+      previewTailContent: resolvePreviewTailContent({ history, preview: nextPreview, provisionalCalls }),
+      scroller: null
+    });
+
+    assert.equal(painted, true, "the live row is patched in place");
+
+    const rows = paintedPreviewRows(thread);
+    const joined = rows.join("\u241e");
+
+    assert.equal(countOccurrences(joined, "ALPHA"), 1, "the frozen slice is NOT repeated inside the tail");
+    assert.equal(countOccurrences(joined, "GAMMA"), 1, "nor is any earlier tail text");
+    assert.equal(
+      countOccurrences(joined, delta.trim()),
+      1,
+      "and the newest delta appears exactly once, in the tail row"
+    );
+    assert.ok(rows.length >= 2, "the patch did not collapse the rows into one");
+  }
+});
+
+test("C: a preview whose text ENDS on a chip still has a patchable tail row", () => {
+  // NON-BLOCKER 3: skipping an empty tail left no row carrying the plain preview id, so every
+  // frame fell back to a full thread re-render.
+  const previewText = "Reading the file.";
+  const preview = { content: previewText, id: PREVIEW_ID, role: "assistant", streaming: true };
+  const provisionalCalls = [{ atChars: previewText.length, callId: "end1", name: "file_read" }];
+  const projection = buildChatRenderProjection({ history: [], preview, provisionalCalls });
+  const tail = projection.filter((entry) => entry.previewSegment === true && entry.previewSegmentFrozen !== true);
+
+  assert.equal(tail.length, 1, "exactly one patchable tail row exists");
+  assert.equal(tail[0].id, PREVIEW_ID, "and it carries the plain preview id the patch looks up");
+  assert.equal(tail[0].content, "", "empty because nothing follows the chip yet — not missing");
+  assert.equal(
+    resolvePreviewTailContent({ history: [], preview, provisionalCalls }),
+    "",
+    "the projection-derived tail says the same thing"
+  );
+});
+
+// --- RE-AUDIT: NON-BLOCKER 4 -------------------------------------------------
+
+test("C: a provisional chip resolves as running through the card", () => {
+  const provisional = createProvisionalChipEntry({ callId: "prov1", name: "file_read" });
+  const thread = renderThread([provisional]);
+  const status = thread.querySelector("[data-execution-status]");
+
+  assert.ok(status, "the provisional chip mounted a card");
+  assert.equal(
+    status.className,
+    "execution-status is-running",
+    "isProvisional is wired to the resolver, so the chip cannot sit in a settled tone"
+  );
+  assert.match(summaryTitleOf(thread), /file_read · Running$/u);
 });

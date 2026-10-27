@@ -1,6 +1,6 @@
 import * as config from "/modules/_core/onscreen_agent/config.js";
 import * as agentApi from "/modules/_core/onscreen_agent/api.js";
-import { buildChatRenderProjection } from "/modules/_core/onscreen_agent/chat-projection.js";
+import { buildChatRenderProjection, resolvePreviewTailContent } from "/modules/_core/onscreen_agent/chat-projection.js";
 import { createToolRunOpenState } from "/modules/_core/visual/conversation/tool-run.js";
 import {
   installPromptItemAccess,
@@ -4129,7 +4129,19 @@ const model = {
         return;
       }
 
+      // THE TAIL SLICE COMES FROM THE PROJECTION, not from a second derivation of the
+      // split (chat-polish-2 re-audit blocker 1). The row the patch finds by the plain
+      // preview id holds only the tail slice once a chip has split the preview, so it must be
+      // painted with that slice; painting the whole accumulated text duplicated every frozen
+      // segment above it and the duplication grew with each delta.
+      const previewTailContent = resolvePreviewTailContent({
+        history: this.getRenderHistory(),
+        preview: this.engineSwapStreamingPreview,
+        provisionalCalls: this.engineSwapProvisionalCalls
+      });
+
       const didPatchStreamingRow = agentView.updateStreamingAssistantMessage(this.refs.thread, pendingMessage, {
+        previewTailContent,
         scroller: this.refs.scroller
       });
 
