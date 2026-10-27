@@ -112,6 +112,15 @@ const { createProvisionalChipEntry } = await import("/modules/_core/onscreen_age
 const { createStreamingToolCallAssembler, isCompleteToolArguments } = await import(
   "/modules/_core/framework/js/engine-swap/stream-assembly.js"
 );
+// The REAL dispatch pipeline and registry: a split name is not a cosmetic chip problem,
+// it is a call the pipeline refuses ("No tool named ..."). Asserting against the real
+// registry is what makes that consequence visible.
+const { DISPATCH_OUTCOME, createDispatchPipeline } = await import(
+  "/modules/_core/framework/js/engine-swap/dispatch-pipeline.js"
+);
+const { createToolRegistry } = await import(
+  "/modules/_core/framework/js/engine-swap/tool-registry.js"
+);
 
 // ---------------------------------------------------------------- transport ----
 
@@ -423,8 +432,142 @@ test("a provider repeating the name on every delta keeps one name, never a conca
 });
 
 // ===========================================================================
-// The store's OWN overwrite guard — pinned at the seam where it lives
+// THE NAME RULE — all four wire shapes, at the ASSEMBLER's output
 // ===========================================================================
+
+// These assert `finish().toolCalls[].name`, NOT a store record: the assembled name is
+// what the loop validates against the registry, so a wrong name here is a REFUSED call,
+// not a cosmetic chip. Shape C is the regression this block exists for — replacing the
+// name outright rather than handling the split fragments produced "code" from
+// "run_" + "code" and the pipeline answered `No tool named "code" exists`.
+//
+// Shapes:
+//   A sent once            -> one delta carries the name
+//   B repeated every delta -> the full name again on each delta
+//   C genuinely split      -> the name arrives as fragments and must be JOINED
+//   D full then partial    -> the whole name, then a trailing repeat of part of it
+
+function assembleName(deltas) {
+  const assembler = createStreamingToolCallAssembler();
+
+  deltas.forEach((delta) => assembler.applyDelta(delta));
+
+  return assembler.finish().toolCalls;
+}
+
+function nameDelta(name, args = "") {
+  return { tool_calls: [{ function: { arguments: args, name }, id: "call_shape", index: 0 }] };
+}
+
+test("name shape A — sent once keeps that name", () => {
+  const calls = assembleName([nameDelta("run_code", '{"code":"return 1"}')]);
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, "run_code");
+  assert.equal(calls[0].argumentsComplete, true);
+});
+
+test("name shape B — repeated on every delta stays ONE name, never a concatenation", () => {
+  const calls = assembleName([
+    nameDelta("run_code", ""),
+    nameDelta("run_code", '{"code":'),
+    nameDelta("run_code", '"return 1"}')
+  ]);
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, "run_code", `repeats must not accumulate (got "${calls[0].name}")`);
+  assert.equal(calls[0].arguments, '{"code":"return 1"}');
+});
+
+test("name shape C — genuinely split fragments are JOINED, because a name is what dispatches", () => {
+  const calls = assembleName([
+    nameDelta("run_", ""),
+    nameDelta("code", '{"code":"return 1"}')
+  ]);
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, "run_code", `split fragments must join (got "${calls[0].name}")`);
+  assert.equal(calls[0].argumentsComplete, true, "a joined name is dispatchable");
+});
+
+test("name shape D — the whole name then a partial repeat keeps the whole name", () => {
+  const calls = assembleName([
+    nameDelta("run_code", ""),
+    nameDelta("code", '{"code":"return 1"}')
+  ]);
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, "run_code", `a partial repeat must not be appended (got "${calls[0].name}")`);
+  assert.equal(calls[0].argumentsComplete, true);
+});
+
+test("name shape E — a partial name then the whole name keeps the whole name", () => {
+  const calls = assembleName([
+    nameDelta("run_c", ""),
+    nameDelta("run_code", '{"code":"return 1"}')
+  ]);
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, "run_code", `a re-sent whole name must win (got "${calls[0].name}")`);
+  assert.equal(calls[0].argumentsComplete, true);
+});
+
+// ===========================================================================
+// The user-visible consequence: a split name must still DISPATCH
+// ===========================================================================
+
+function dispatchStub() {
+  const executed = [];
+  const pipeline = createDispatchPipeline({
+    executionContext: {
+      async execute(code) {
+        executed.push(code);
+
+        return { ok: true, value: "ran" };
+      }
+    },
+    registry: createToolRegistry()
+  });
+
+  return { executed, pipeline };
+}
+
+test("a split name dispatches instead of being refused", async () => {
+  const { executed, pipeline } = dispatchStub();
+  const calls = assembleName([
+    nameDelta("run_", ""),
+    nameDelta("code", '{"code":"return 1"}')
+  ]);
+  const call = calls[0];
+
+  // The loop hands the assembled name and argument text straight to the pipeline.
+  const outcome = await pipeline.dispatchToolCall({
+    argumentsJson: call.arguments,
+    callId: call.id,
+    name: call.name
+  });
+
+  assert.equal(
+    outcome.status,
+    DISPATCH_OUTCOME.OK,
+    `a split name must reach the handler, not be refused (got ${outcome.status}: ${outcome.error?.message || ""})`
+  );
+  assert.equal(executed.length, 1, "the tool really ran");
+  assert.equal(executed[0], "return 1");
+});
+
+test("control: the truncated name alone IS refused, which is what the split case risked", async () => {
+  const { executed, pipeline } = dispatchStub();
+  const outcome = await pipeline.dispatchToolCall({
+    argumentsJson: '{"code":"return 1"}',
+    callId: "call_shape",
+    name: "code"
+  });
+
+  assert.equal(outcome.status, DISPATCH_OUTCOME.ERROR);
+  assert.match(String(outcome.error?.message || ""), /No tool named/);
+  assert.deepEqual(executed, [], "nothing executes under a name the registry does not know");
+});
 
 // WHY THIS IS NOT TRANSPORT-DRIVEN: the assembler ACCUMULATES argument text
 // (`record.argumentsText += fragment`), so once real JSON has landed, every later
