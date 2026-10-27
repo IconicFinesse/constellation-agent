@@ -17,10 +17,11 @@ import {
   serializeTypedHistoryFields
 } from "/modules/_core/framework/js/engine-swap/history-shapes.js";
 import {
+  formatDisplayFormToolCallLine,
   formatWireHygieneLine,
-  needsTier1CorrectiveRetry,
-  sanitizeTier1WireMessages,
-  TIER1_CORRECTIVE_PROMPT
+  resolveTier1CorrectivePrompt,
+  resolveTier1CorrectiveRetry,
+  sanitizeTier1WireMessages
 } from "/modules/_core/framework/js/engine-swap/wire-hygiene.js";
 import {
   resolveOnscreenTier1Plan,
@@ -5460,6 +5461,15 @@ const model = {
       // A stable, reserved id: the row patch looks its row up by id, and it must
       // never collide with a committed message or a queued preview.
       preview.id = "engine-swap-streaming-preview";
+      // ONE VOCABULARY PER TIER (chat-polish-3 item 1). This row belongs to a TYPED tier
+      // turn, where separator text is display by construction, so the surface must read it
+      // that way WHILE it streams — not only after commit. The mark lives on this
+      // projection-only preview (it never enters history, so it is never persisted and no
+      // reload can resurrect it); the committed row gets the same reading through the
+      // derived `engineSwapDisplayOnlyMessageIds` set.
+      //
+      // Tier 3 never builds a preview here, so its cards are untouched.
+      preview.tier1Turn = true;
       this.engineSwapStreamingPreview = preview;
     }
 
@@ -5676,17 +5686,55 @@ const model = {
       // rather than from parsing prose, and it continues from the turn's messages so
       // the separator reply stays in context as a thing that already happened.
       let finalTurn = turn;
-      const retry = needsTier1CorrectiveRetry({
+      // ONE decision, and it names the SHAPE (chat-polish-3 item 3). The detector runs over
+      // the answer the wire actually produced, using the shared fence classifier and the
+      // separator test — never a second copy of either. A fenced block of code with no call
+      // is legitimate display (BUG-007), so a catch only ever means "call-shaped display
+      // content AND nothing dispatched", which is exactly the turn that needs correcting.
+      const corrective = resolveTier1CorrectiveRetry({
         answer: turn?.result?.answer,
         attempts: 0,
+        fenceRegions: execution.findExecutionFenceRegions(turn?.result?.answer),
         findSeparatorIndex: execution.findExecutableSeparatorIndex,
-        turns: turn?.result?.turns
+        separator: execution.EXECUTION_SEPARATOR,
+        turns: turn?.result?.turns,
+        // The user's OWN request, so a "show me how you'd call it" turn cannot burn the
+        // single retry on code the human asked to see (p35 audit non-blocker 3). Display
+        // requests and actions need opposite handling, and only this turn says which it is.
+        userTurn: (() => {
+          const list = Array.isArray(requestMessages) ? requestMessages : [];
+
+          for (let index = list.length - 1; index >= 0; index -= 1) {
+            const entry = list[index];
+
+            if (entry?.role === "user" && !entry?.typedTool && !entry?.kind) {
+              return String(entry?.content || "");
+            }
+          }
+
+          return "";
+        })()
       });
+      const retry = corrective.retry;
+      // Names the SPECIFIC mistake. More prompt steering is not the lever — the steering leg
+      // already says a tool call is the only thing that runs, and the model fenced anyway.
+      const correctivePrompt = resolveTier1CorrectivePrompt(corrective.shape);
+
+      if (retry) {
+        // Counted once per catch, on the existing diagnostics channel, with the SHAPE and
+        // no message content: the owner needs to know whether this is rare drift or a
+        // habitual pattern without the log carrying replies.
+        try {
+          console.info(formatDisplayFormToolCallLine(corrective.shape));
+        } catch {
+          // Logging must never break a turn.
+        }
+      }
 
       if (retry && !this.stopRequested) {
         const continuedMessages = [
           ...(Array.isArray(turn?.result?.messages) ? turn.result.messages : messages),
-          { content: TIER1_CORRECTIVE_PROMPT, role: "user" }
+          { content: correctivePrompt, role: "user" }
         ];
         // INVARIANT: the coaching element sits EXACTLY at this index — it is the last
         // entry of the list the retry starts from, so every earlier entry keeps its

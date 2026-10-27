@@ -10,13 +10,54 @@ function normalizeMarkdownText(text = "") {
   return typeof text === "string" ? text.replace(/\r\n/gu, "\n").replace(/\r/gu, "\n") : "";
 }
 
-function escapeHtml(text) {
+// THE ESCAPING INVARIANT (p35 audit, round 3): WE ESCAPE MORE, NEVER LESS.
+//
+// No raw angle bracket ever reaches the markdown parser. Both characters are swapped for
+// private-use sentinels BEFORE `marked.parse`, and restored AFTER it as ENTITIES
+// (`&lt;` / `&gt;`), never as raw characters. Raw HTML requires a `<` in the parser's input,
+// and there is none left to find.
+//
+// WHY EVERY REGION HEURISTIC WAS ABANDONED. Three rounds tried to predict where `marked`
+// would escape text itself so the escape could be skipped there:
+//   round 1 — treated a backslash-escaped tick as a delimiter (the parser does not);
+//   round 2 — paired ticks per LINE while the parser pairs per PARAGRAPH;
+//   round 3 — paired via the SHARED execution fence classifier, which disagrees with the
+//             parser on shapes like `~~~<iframe …>` (fence to the classifier, paragraph
+//             text to `marked`).
+// Every one of them was fail-OPEN in the same way: the region we skipped was prose to the
+// parser, so the tag inside it went straight into `innerHTML`. Measured by fuzz, the
+// line-scoped pairing leaked 205/3000 generated documents and the paragraph-scoped pairing
+// 218/3000 — a different guess only relocates the mismatch.
+//
+// The sentinel swap has no guess to get wrong: it cannot fail open, because the parser is
+// never shown the character it would need. It is also BETTER for display than the original
+// code, which escaped before parsing and therefore produced a double entity inside code:
+// here every region gets exactly one level, so `{"intent": "run_code"}` keeps its quotes
+// and `<div>` inside a fenced block renders as `<div>`.
+const ANGLE_LT_SENTINEL = "\uE000";
+const ANGLE_GT_SENTINEL = "\uE001";
+// Parked copies, so text that genuinely CONTAINS a sentinel character survives a round
+// trip instead of turning into a bracket.
+const PARKED_LT_SENTINEL = "\uE002";
+const PARKED_GT_SENTINEL = "\uE003";
+
+function neutralizeAngleBrackets(text) {
   return String(text || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+    .replaceAll(ANGLE_LT_SENTINEL, PARKED_LT_SENTINEL)
+    .replaceAll(ANGLE_GT_SENTINEL, PARKED_GT_SENTINEL)
+    .replaceAll("<", ANGLE_LT_SENTINEL)
+    .replaceAll(">", ANGLE_GT_SENTINEL);
+}
+
+// Restores the brackets as ENTITIES in the rendered HTML string. This inserts text that
+// the browser decodes into `<`/`>` inside a text node; it can never become markup, because
+// markup is decided by the parser, which has already run.
+function restoreAngleBrackets(html) {
+  return String(html || "")
+    .replaceAll(ANGLE_LT_SENTINEL, "&lt;")
+    .replaceAll(ANGLE_GT_SENTINEL, "&gt;")
+    .replaceAll(PARKED_LT_SENTINEL, ANGLE_LT_SENTINEL)
+    .replaceAll(PARKED_GT_SENTINEL, ANGLE_GT_SENTINEL);
 }
 
 function joinClassNames(...classNames) {
@@ -127,7 +168,7 @@ export function renderMarkdown(text = "", targetElement = null, options = {}) {
   root.className = joinClassNames(MARKDOWN_ROOT_CLASS, customClassName);
 
   try {
-    const renderedHtml = marked.parse(escapeHtml(sourceText), {
+    const renderedHtml = marked.parse(neutralizeAngleBrackets(sourceText), {
       async: false,
       breaks: true,
       gfm: true
@@ -136,7 +177,7 @@ export function renderMarkdown(text = "", targetElement = null, options = {}) {
     if (renderedHtml && typeof renderedHtml.then === "function") {
       renderMarkdownFallback(root, sourceText);
     } else {
-      root.innerHTML = String(renderedHtml || "");
+      root.innerHTML = restoreAngleBrackets(String(renderedHtml || ""));
       finalizeMarkdownLinks(root);
       finalizeMarkdownTables(root);
     }

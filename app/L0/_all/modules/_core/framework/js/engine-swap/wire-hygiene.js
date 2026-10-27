@@ -203,23 +203,290 @@ export const TIER1_CORRECTIVE_RETRY_LIMIT = 1;
 export const TIER1_CORRECTIVE_PROMPT =
   "That reply only showed code; nothing ran. Call the matching tool for this request instead of writing separator code.";
 
-// A Tier-1 turn needs ONE corrective retry when it answered with separator text and
-// never made a single tool call. `turns` is the loop's own per-iteration record, so
-// the decision comes from what actually happened on the wire, not from parsing text.
+// THE DISPLAY-FORM SHAPES (chat-polish-3 item 3).
 //
-export function needsTier1CorrectiveRetry({ answer = "", findSeparatorIndex = null, attempts = 0, turns = [] } = {}) {
-  if (Number(attempts) >= TIER1_CORRECTIVE_RETRY_LIMIT) {
+// The owner's live turn ended with `tool call: run_code {...}` written as CHAT PROSE and
+// nothing executed. The Tier-1 steering already says, verbatim, that a tool call is the
+// only thing that runs — the model was told plainly and wrote display text anyway. More
+// prompt text is therefore not the lever; DETECTION plus a correction that names the
+// specific mistake is.
+//
+// Only SHAPES are recognised here. Intent is not measured and cannot be: a fenced block
+// of code is legitimate display (BUG-007 — showing the user code they asked to see is
+// not a fault), so a catch is a counted observation that the turn produced call-shaped
+// display text AND dispatched nothing, never a claim about what the model meant.
+export const TIER1_DISPLAY_FORM_SHAPE = Object.freeze({
+  // `_____javascript` outside any fence: the retired protocol's own act form.
+  BARE_SEPARATOR: "bare-separator",
+  // A FENCE that contains the separator: the call was written where code is shown.
+  FENCED_SEPARATOR: "fenced-separator",
+  // A fence whose body is a call: `space.api.x(...)`, or a JSON object carrying a name
+  // plus arguments (the wire shape of a typed call, pasted as text).
+  FENCED_CALL_BODY: "fenced-call-body",
+  // `tool call:`/`tool_call:` (or `call:`) followed by a JSON object, unfenced.
+  PROSE_TOOL_CALL: "prose-tool-call"
+});
+
+// A fence body that is unmistakably a CALL rather than incidental code.
+const FENCED_CALL_BODY_PATTERN = /(?:\bspace\s*\.\s*api\s*\.\s*[a-z_$][\w$]*\s*\(|\{\s*"(?:tool|name|tool_name)"\s*:\s*"[^"]+"[\s\S]{0,240}?"arguments"\s*:)/iu;
+
+// `tool call:` and friends, unfenced, introducing a JSON body. TWO patterns, because the
+// realistic shape is a call written MID-REPLY (p35 audit non-blocker 2).
+//
+// The original pattern was `^`-anchored with no `m` flag and tested against the whole
+// message, so it matched only at offset 0: `Sure.\ntool call: {...}` was NOT detected, and
+// that is how a model actually drifts. The line pattern is multiline so a call introduced
+// on any line is seen; the inline pattern covers the same reply on one line, where the JSON
+// body must begin immediately after the label (that tightness is what keeps ordinary prose
+// that merely MENTIONS a tool call from firing).
+const PROSE_TOOL_CALL_LINE_PATTERN = /^[ \t]*(?:tool[ \t]*call|tool_call|call)[ \t]*[:\-][\s\S]{0,240}?\{/imu;
+const PROSE_TOOL_CALL_INLINE_PATTERN = /\b(?:tool[ \t]*call|tool_call)[ \t]*[:\-][ \t]*(?:\n[ \t]*)?\{/iu;
+
+// SHOW-ME phrasing in the USER's own turn: they asked to see code, not for an action. This
+// is BUG-007's legitimate display case, so a fenced call body on such a turn must not burn
+// the single retry (p35 audit non-blocker 3).
+const SHOW_ME_PATTERN = /\b(?:show|display|example|sample|snippet|illustrate|demonstrate|explain|teach|walk me through|for reference|how (?:do|would|could|can) i|what would)\b/iu;
+
+// The user asked for something to BE DONE in their own turn.
+//
+// A CLOSED VERB LIST is not enough (p35 audit round 3, non-blocker). Real requests arrive
+// phrased off-list — "please pull up my notes", "grab the contents", "what does my notes
+// file say", "summarize notes.md" — and each one silently skipped the correction that item
+// 3 exists to send. The list stays (terse imperatives like "read my notes" are the common
+// case) and three wider legs are added: request PHRASING aimed at an action, a request
+// whose OBJECT is the user's own files/system, and a question ABOUT such an object.
+const ACTION_REQUEST_PATTERN = /\b(?:read|write|create|delete|remove|rename|move|copy|run|execute|fetch|open|save|update|list|find|search|install|uninstall|check|get|send|post|edit|append|replace|fix|build|start|stop|restart|pull(?:\s+up)?|bring\s+up|grab|summari[sz]e|extract|inspect|review|scan|parse|tell me|look at|check on)\b/iu;
+
+// "please …", "can you …", "I need you to …": the request is aimed at DOING something.
+const ACTION_REQUEST_PHRASING_PATTERN = /\b(?:please|can you|could you|would you|will you|i need you to|i want you to|i(?:'d| would) like you to|go ahead|help me(?: to)?|let(?:'s| us))\b/iu;
+
+// The OBJECT of the request is the user's own material — files, docs, the app itself.
+// Matched with a possessive/article so idle prose ("the browser is nice") does not qualify.
+const CONTENT_TARGET_PATTERN = /\b(?:my|the|your|this|that)\s+(?:\w+\s+){0,2}(?:files?|notes?|docs?|documents?|folders?|director(?:y|ies)|repos?(?:itory)?|projects?|workspace|system|browser|window|screen|pages?|tabs?|logs?|config|settings|code|contents?)\b/iu;
+
+// A question ABOUT that material: "what does my notes file say".
+const CONTENT_QUESTION_PATTERN = /\bwhat (?:does|do|is|are|did|was|were)\b/iu;
+
+// The model's own narration claims the work happened. Such a turn was trying to ACT, so a
+// fenced call body beside that claim is the drift worth one correction.
+const COMPLETION_CLAIM_PATTERN = /\b(?:i(?:'ve| have)\s+(?:read|run|executed|created|deleted|removed|written|wrote|saved|updated|moved|copied|checked|fetched)|(?:done|executed|completed)\b)/iu;
+
+// The typed-call WIRE shape pasted as text: a JSON object naming a tool and carrying its
+// arguments. Alone in a fence, this is unambiguous — nothing else looks like it.
+const CALL_SHAPED_JSON_PATTERN = /^\s*\{[\s\S]{0,400}?"(?:tool|name|tool_name)"\s*:\s*"[^"]+"[\s\S]{0,400}?"arguments"\s*:/iu;
+
+// A fence region's BODY: the region minus its opening and closing delimiter lines, so a
+// `^`-anchored pattern can ask what the fence actually contains (the region text itself
+// starts with ``` and would never match a leading `{`).
+function fenceRegionBody(regionText) {
+  const lines = String(regionText || "").split("\n");
+
+  if (lines.length && /^ {0,3}(`{3,}|~{3,})/u.test(lines[0])) {
+    lines.shift();
+  }
+
+  if (lines.length && /^ {0,3}(`{3,}|~{3,})\s*$/u.test(lines[lines.length - 1])) {
+    lines.pop();
+  }
+
+  return lines.join("\n");
+}
+
+function fenceRegionTexts(content, fenceRegions) {
+  const regions = Array.isArray(fenceRegions) ? fenceRegions : [];
+
+  return regions
+    .map((region) => {
+      const start = Number(region?.start);
+      const end = Number(region?.end);
+
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+        return "";
+      }
+
+      return content.slice(Math.max(0, start), Math.min(content.length, end));
+    })
+    .filter(Boolean);
+}
+
+// Inline code spans, removed from the prose before the `tool call:` test (p35 audit
+// round 3, non-blocker). A model that WRITES ABOUT the protocol — `I wrote `+'`tool call:
+// {"x":1}`'+` in my notes.` — is quoting a shape, not attempting one.
+//
+// This pairing is a DIAGNOSTIC convenience, not a security boundary: a wrong pairing here
+// can only cost a missed nudge or an extra one, never a raw-HTML path (escaping no longer
+// depends on knowing where code is). Same-line runs only, which covers the quoting shape.
+function stripInlineCodeSpans(text) {
+  return String(text || "").replace(/(`+)[^`\n]*?\1/gu, " ");
+}
+
+// The prose outside every fence: what the model wrote as CHAT rather than as code.
+function unfolderedText(content, fenceRegions) {
+  const regions = Array.isArray(fenceRegions) ? fenceRegions : [];
+
+  if (!regions.length) {
+    return content;
+  }
+
+  let text = "";
+  let cursor = 0;
+
+  regions.forEach((region) => {
+    const start = Math.max(cursor, Number(region?.start) || 0);
+
+    if (start > cursor) {
+      text += `${content.slice(cursor, start)}\n`;
+    }
+
+    cursor = Math.max(cursor, Number(region?.end) || 0);
+  });
+
+  if (cursor < content.length) {
+    text += content.slice(cursor);
+  }
+
+  return text;
+}
+
+// WHICH display-form mistake this reply made, or "" for none. Pure, and seam-injected:
+// the fence classifier and the separator test both come from their owning modules, so no
+// second copy of fence logic exists (BUG-007 anti-pattern).
+//
+// Precedence runs most-specific first, so the correction can name the exact mistake: a
+// fenced call, then prose `tool call:`, then an uncontained separator.
+//
+// `separator` is optional and only used for the FENCE test: a fence is examined for the
+// literal token, because "is this separator inside a fence" is exactly the question the
+// shared executable-index finder answers the other way round.
+// A fenced body with a call in it is only a MISTAKE when the turn was trying to ACT.
+//
+// This is the false-positive half of item 3 (p35 audit non-blocker 3), and it is a
+// BUG-007 matter: when the user asked to SEE code — "show me how you'd call it", "example
+// please" — a fence containing `space.api.fileRead(...)` is the correct answer, not drift.
+// Counting it burned the ONE retry on a legitimate display turn and nudged the model
+// toward an action nobody asked for.
+//
+// Positive evidence of intent, cheapest first:
+//   1. the fence body is the typed-call WIRE SHAPE alone (nobody writes that to teach);
+//   2. the model's own narration claims it DID something ("I've read…", "done");
+//   3. the user's turn asked for an action AND did not ask to be shown code.
+// Absent all three, the fence is display and is not counted.
+function fencedCallBodyIsActionAttempt({ fenceRegionTexts: regionTexts = [], narration = "", userTurn = "" } = {}) {
+  if (regionTexts.some((regionText) => CALL_SHAPED_JSON_PATTERN.test(fenceRegionBody(regionText)))) {
+    return true;
+  }
+
+  if (COMPLETION_CLAIM_PATTERN.test(narration)) {
+    return true;
+  }
+
+  const request = typeof userTurn === "string" ? userTurn : "";
+
+  if (!request.trim()) {
     return false;
   }
 
-  if (typeof findSeparatorIndex !== "function") {
+  if (SHOW_ME_PATTERN.test(request)) {
     return false;
   }
 
+  // A closed verb list alone produced false NEGATIVES on real requests phrased off-list
+  // ("please pull up my notes", "summarize notes.md", "what does my notes file say").
+  // Four legs, each one legible on its own: a listed verb, request PHRASING aimed at
+  // doing something, or a QUESTION about the user's own material. Any of them means the
+  // turn was trying to act.
+  if (ACTION_REQUEST_PATTERN.test(request)) {
+    return true;
+  }
+
+  if (ACTION_REQUEST_PHRASING_PATTERN.test(request)) {
+    return true;
+  }
+
+  return CONTENT_QUESTION_PATTERN.test(request) && CONTENT_TARGET_PATTERN.test(request);
+}
+
+export function detectTier1DisplayFormToolCall({
+  answer = "",
+  fenceRegions = null,
+  findSeparatorIndex = null,
+  separator = "",
+  userTurn = ""
+} = {}) {
   const text = typeof answer === "string" ? answer : "";
 
-  if (!text || Number(findSeparatorIndex(text)) < 0) {
-    return false;
+  if (!text.trim()) {
+    return "";
+  }
+
+  const regions = Array.isArray(fenceRegions) ? fenceRegions : [];
+  const regionTexts = fenceRegionTexts(text, regions);
+  const separatorToken = typeof separator === "string" ? separator : "";
+  const prose = unfolderedText(text, regions);
+
+  if (
+    regionTexts.some((regionText) => FENCED_CALL_BODY_PATTERN.test(regionText)) &&
+    fencedCallBodyIsActionAttempt({ fenceRegionTexts: regionTexts, narration: prose, userTurn })
+  ) {
+    return TIER1_DISPLAY_FORM_SHAPE.FENCED_CALL_BODY;
+  }
+
+  if (separatorToken && regionTexts.some((regionText) => regionText.includes(separatorToken))) {
+    return TIER1_DISPLAY_FORM_SHAPE.FENCED_SEPARATOR;
+  }
+
+  const proseWithoutCodeMentions = stripInlineCodeSpans(prose);
+
+  if (
+    PROSE_TOOL_CALL_LINE_PATTERN.test(proseWithoutCodeMentions) ||
+    PROSE_TOOL_CALL_INLINE_PATTERN.test(proseWithoutCodeMentions)
+  ) {
+    return TIER1_DISPLAY_FORM_SHAPE.PROSE_TOOL_CALL;
+  }
+
+  if (typeof findSeparatorIndex === "function" && Number(findSeparatorIndex(text)) >= 0) {
+    return TIER1_DISPLAY_FORM_SHAPE.BARE_SEPARATOR;
+  }
+
+  return "";
+}
+
+// The coaching turn for a SPECIFIC shape (item 3). Naming the mistake is the whole point:
+// a generic "use tools" nudge is what the steering leg already says, and repeating it
+// louder is superstition. Each line states what happened, that it cannot execute, and the
+// one action to take instead — and none of them forbids showing code (BUG-007).
+const TIER1_SHAPE_PROMPTS = Object.freeze({
+  [TIER1_DISPLAY_FORM_SHAPE.BARE_SEPARATOR]: TIER1_CORRECTIVE_PROMPT,
+  [TIER1_DISPLAY_FORM_SHAPE.FENCED_CALL_BODY]:
+    "That reply put the tool call inside a fenced code block, which is display only on this tier and never executes. Re-issue it as an actual tool call.",
+  [TIER1_DISPLAY_FORM_SHAPE.FENCED_SEPARATOR]:
+    "That reply put the execution separator inside a fenced code block, which is display only on this tier and never executes. If you meant to act, re-issue it as an actual tool call.",
+  [TIER1_DISPLAY_FORM_SHAPE.PROSE_TOOL_CALL]:
+    "That reply wrote `tool call:` as chat prose, which is display only on this tier and never executes. Re-issue it as an actual tool call."
+});
+
+export function resolveTier1CorrectivePrompt(shape = "") {
+  return TIER1_SHAPE_PROMPTS[String(shape || "")] || TIER1_CORRECTIVE_PROMPT;
+}
+
+// ONE decision function for the bounded correction. It answers `{ retry, shape }` so the
+// caller can send a correction that names the SHAPE, and it is the only place the cap is
+// applied.
+//
+// `turns` is the loop's own per-iteration record, so "did this turn dispatch anything"
+// comes from what actually happened on the wire, never from parsing prose.
+//
+export function resolveTier1CorrectiveRetry({
+  answer = "",
+  attempts = 0,
+  findSeparatorIndex = null,
+  fenceRegions = null,
+  separator = "",
+  turns = [],
+  userTurn = ""
+} = {}) {
+  if (Number(attempts) >= TIER1_CORRECTIVE_RETRY_LIMIT) {
+    return Object.freeze({ retry: false, shape: "" });
   }
 
   const iterations = Array.isArray(turns) ? turns : [];
@@ -228,7 +495,27 @@ export function needsTier1CorrectiveRetry({ answer = "", findSeparatorIndex = nu
     0
   );
 
-  return toolCallCount === 0;
+  // A turn that dispatched a call is never corrected, whatever its prose looked like:
+  // the action happened, so display text alongside it is honest display.
+  if (toolCallCount !== 0) {
+    return Object.freeze({ retry: false, shape: "" });
+  }
+
+  const shape = detectTier1DisplayFormToolCall({ answer, fenceRegions, findSeparatorIndex, separator, userTurn });
+
+  return Object.freeze({ retry: Boolean(shape), shape });
+}
+
+// Compatibility predicate over the same ONE decision: a Tier-1 turn needs a correction
+// when it answered with call-shaped display content and made no typed call.
+export function needsTier1CorrectiveRetry({ answer = "", findSeparatorIndex = null, attempts = 0, turns = [] } = {}) {
+  return resolveTier1CorrectiveRetry({ answer, attempts, findSeparatorIndex, turns }).retry;
+}
+
+// One line for the diagnostics channel. Counts the SHAPE, never message content, so the
+// owner can tell rare drift from a habitual pattern without the log carrying replies.
+export function formatDisplayFormToolCallLine(shape = "") {
+  return `[engine-swap] display-form-tool-call detected=1 shape=${String(shape || "unknown")}`;
 }
 
 // One line for the diagnostics log. Never includes message content.
