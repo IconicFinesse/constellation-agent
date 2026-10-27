@@ -88,6 +88,20 @@ The live-path bridges live with their surface: `_core/onscreen_agent/engine-swap
 - Writers emit only typed entries (`createToolCallEntry`, `createToolResultEntry`); the persistence write/read pair (`serializeTypedHistoryFields`, `normalizeTypedHistoryFields`) lives here so the store and the reader cannot drift, and returns `{}` for a legacy message so its stored shape is byte-identical to before.
 - Exactly one tool result may exist per call id. A settled hold REPLACES the held result rather than appending a second one.
 
+### Typed History Order (transcript fidelity)
+
+- `canonicalMessagesToTypedEntries` maps an assistant message carrying BOTH `content` and `toolCalls` to its narration as a plain `message` entry FIRST, then one `tool_call` entry per call in call order. `tool` messages continue to map to `tool_result`. The per-iteration stored order is therefore assistant text -> tool_call(s) -> tool_result(s) -> next assistant text.
+- This is a WRITER path only. A narration entry IS the plain assistant message shape the reader already handles, so no reader branch was added, no stored history is rewritten, and the dual-shape discipline stays intact.
+- Dropping the narration is a REGRESSION, not a simplification: it discards prose the user watched stream, and because the renderer draws stored order faithfully, it stacks every iteration's chips at the top of the turn with no assistant anchor between them (owner-reported live defect, 2026-10-27).
+- A narration-less tool turn still emits its calls only, and `assistant-<index>` is the id convention on both assistant paths.
+- `buildMessageDisplayGroups` in `thread-view.js` is the render-side counterpart and is order-faithful by construction; it is exported so the order contract is assertable at the real code path. Reordering or hoisting chips there is a regression against this contract.
+
+### Tier 1 Streaming Preview Accumulation
+
+- The surface keeps ONE preview slot per turn and APPENDS to it across iterations. It resets only on the first request of a turn, and once more at the start of a corrective retry (a separate attempt); iterations are separated by a blank line so two narrations do not run together. Clearing it per request made iteration 1's prose blink out the moment iteration 2 started.
+- The slot stays strictly outside `this.history` (render projection only), is never serialized, and is cleared exactly once in the turn's `finally`, so commit, hold, error, stop and a thrown transport all exit through one clear.
+- Deltas reach it through the surface's `onDelta` hook; the loop emits no delta event, so this is surface-owned by construction.
+
 ### Tier 1 Prompt Shape
 
 - On a Tier 1 session the `api contracts` card retires from the system prompt: the contracts now live in the tool schemas, where they are enforced instead of recited.
