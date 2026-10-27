@@ -7,14 +7,16 @@
 //   pipeline -> validation / coercion / risk / execution / structured result
 //   loop -> run until plain text
 //
-// Boundary with P3 (streaming assembly), decided deliberately and recorded in the
-// lane report: P2 consumes ONLY complete, parseable tool calls. The surface's
-// streaming reader (`api.js`) extracts text deltas and drops `tool_calls`
-// entirely, so a streamed tool turn cannot be assembled honestly yet. Tier 1
-// therefore sends a non-streamed completion for tool turns: `stream: false`,
-// one JSON body back, complete `tool_calls`, no fragments to reassemble. P3
-// replaces this with real streaming assembly; until then this is the minimal
-// honest route rather than a fragment reassembler written twice.
+// Tool turns STREAM since P3 (plan §3.5). The surface's reader feeds raw deltas to
+// `stream-assembly.js`, which accumulates argument fragments per call index and
+// reports each call complete ONLY when its argument JSON is complete. This module
+// consumes that verdict and nothing else: `argumentsComplete === false` is refused
+// before dispatch, so a partially delivered call can never execute.
+//
+// A provider that ignores `stream: true` still answers with one JSON body; the same
+// assembler consumes that payload, so `extractToolCallsFromCompletion` accepts both
+// an assembled stream result and a raw completion payload. That keeps one code path
+// for both provider behaviours instead of a second parser.
 //
 // Nothing here fetches. `sendCompletion` is injected, so tests drive a whole
 // session deterministically and the surface owns transport (proxy, headers, key).
@@ -35,10 +37,39 @@ export const TIER1_TURN_STATUS = Object.freeze({
   STOPPED: "stopped"
 });
 
-// Reads the tool calls out of one non-streamed OpenAI-shape completion. Anything
-// unparseable is reported, not guessed: `arguments` stays the raw string and the
-// pipeline makes the validation decision.
+// Reads the tool calls out of a completion. Accepts BOTH shapes the transport can
+// produce since P3:
+//
+//   assembled stream result  { text, toolCalls: [{ arguments, argumentsComplete }] }
+//   raw completion payload   { choices: [{ message: { content, tool_calls } }] }
+//
+// The assembled shape carries the assembler's `argumentsComplete` verdict, and that
+// verdict is copied through UNCHANGED — the loop refuses an incomplete call, so
+// re-deriving completeness here would be a second opinion on a decision that must
+// have exactly one owner. Anything unparseable keeps its raw argument string: the
+// dispatch pipeline's validation stage makes the content decision, not this parser.
 export function extractToolCallsFromCompletion(payload) {
+  if (Array.isArray(payload?.toolCalls)) {
+    return Object.freeze({
+      finishReason: String(payload?.finishReason || ""),
+      text: typeof payload?.text === "string" ? payload.text : "",
+      toolCalls: Object.freeze(
+        payload.toolCalls.map((call, index) =>
+          Object.freeze({
+            arguments: typeof call?.arguments === "string" ? call.arguments : "",
+            argumentsComplete: call?.argumentsComplete !== false,
+            id: String(call?.id || `call_${index}`),
+            // The assembler's call index travels with the call (P3 audit N2):
+            // ordering currently survives on array order alone, which is fragile for
+            // any later consumer that sorts or regroups calls.
+            index: Number.isFinite(call?.index) ? Number(call.index) : index,
+            name: String(call?.name || "")
+          })
+        )
+      )
+    });
+  }
+
   const message = payload?.choices?.[0]?.message || {};
   const text = typeof message.content === "string" ? message.content : "";
   const rawCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
@@ -50,6 +81,9 @@ export function extractToolCallsFromCompletion(payload) {
       rawCalls.map((call, index) =>
         Object.freeze({
           arguments: typeof call?.function?.arguments === "string" ? call.function.arguments : "",
+          // A non-streamed payload is complete by definition: the provider sent one
+          // whole body. The completeness refusal exists for fragment assembly.
+          argumentsComplete: true,
           id: String(call?.id || `call_${index}`),
           name: String(call?.function?.name || "")
         })
@@ -133,8 +167,10 @@ export function createTier1Session({
       model,
       params,
       providerKey,
-      // P2 boundary: tool turns are non-streamed so `tool_calls` arrive complete.
-      stream: false,
+      // P3: tool turns stream. Fragment assembly happens in the surface reader, and
+      // a provider that answers one whole JSON body is handled by the same
+      // assembler, so streaming is the default here rather than a special case.
+      stream: true,
       tools: assembled.tools
     });
 

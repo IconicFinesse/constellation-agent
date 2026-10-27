@@ -3,6 +3,11 @@ import * as llmParams from "/modules/_core/onscreen_agent/llm-params.js";
 import * as proxyUrl from "/modules/_core/framework/js/proxy-url.js";
 import { prepareOnscreenAgentCompletionRequest } from "/modules/_core/onscreen_agent/llm.js";
 import { getHuggingFaceManager } from "/modules/_core/huggingface/manager.js";
+// P3: the streaming tool-call assembler. A PURE, dependency-free leaf (no config
+// reads, no I/O, no imports of its own), so importing it here cannot make the
+// engine-swap dispatch path non-inert with the flag off: nothing runs until a
+// streamed tool turn actually arrives, which only a Tier 1 session can request.
+import { createStreamingToolCallAssembler } from "/modules/_core/framework/js/engine-swap/stream-assembly.js";
 
 function extractTextContent(value) {
   if (typeof value === "string") {
@@ -122,7 +127,12 @@ function looksLikeEventStreamBody(bodyText) {
   return /^(?:data|event|id|retry):|^:/u.test(String(bodyText || "").trimStart());
 }
 
-function pumpEventStreamText(bodyText, onDelta, meta) {
+// `onPayload` is the RAW-payload seam: the text path renders `onDelta` strings and
+// needs nothing else, while the Tier 1 tool path (P3) needs the whole delta object
+// because `tool_calls` fragments live outside `content`. One parser serves both — a
+// second SSE parser would be the two-copies anti-pattern, and the text path is
+// unaffected by the added hook.
+function pumpEventStreamText(bodyText, onDelta, meta, onPayload = null) {
   let buffer = String(bodyText || "");
   let boundary = buffer.indexOf("\n\n");
 
@@ -130,7 +140,7 @@ function pumpEventStreamText(bodyText, onDelta, meta) {
     const eventBlock = buffer.slice(0, boundary).trim();
     buffer = buffer.slice(boundary + 2);
 
-    if (eventBlock && parseEventBlock(eventBlock, onDelta, meta)) {
+    if (eventBlock && parseEventBlock(eventBlock, onDelta, meta, onPayload)) {
       return finalizeCompletionResponseMeta(meta);
     }
 
@@ -146,11 +156,11 @@ function pumpEventStreamText(bodyText, onDelta, meta) {
   return finalizeCompletionResponseMeta(meta);
 }
 
-async function readBufferedResponse(response, onDelta) {
+async function readBufferedResponse(response, onDelta, onPayload = null) {
   const bodyText = await response.text();
 
   if (looksLikeEventStreamBody(bodyText)) {
-    return pumpEventStreamText(bodyText, onDelta, createCompletionResponseMeta("stream"));
+    return pumpEventStreamText(bodyText, onDelta, createCompletionResponseMeta("stream"), onPayload);
   }
 
   let payload;
@@ -166,6 +176,11 @@ async function readBufferedResponse(response, onDelta) {
 
   noteCompletionPayload(meta, payload, message);
 
+  // A provider that ignored `stream: true` still answers with complete calls, so
+  // the assembler consumes the single payload and the turn proceeds. The honest
+  // failure stays where it belongs: a provider that streams when asked NOT to.
+  onPayload?.(payload);
+
   if (message) {
     onDelta(message);
   }
@@ -173,7 +188,7 @@ async function readBufferedResponse(response, onDelta) {
   return finalizeCompletionResponseMeta(meta);
 }
 
-function parseEventBlock(eventBlock, onDelta, meta) {
+function parseEventBlock(eventBlock, onDelta, meta, onPayload = null) {
   const lines = eventBlock.split(/\r?\n/u);
 
   for (const line of lines) {
@@ -197,6 +212,11 @@ function parseEventBlock(eventBlock, onDelta, meta) {
 
     noteCompletionPayload(meta, payload, delta);
 
+    // The raw payload reaches the tool-call assembler BEFORE any text rendering:
+    // one SSE frame can carry both a text delta and a `tool_calls` fragment, and
+    // the assembler is the only consumer that understands the second half.
+    onPayload?.(payload);
+
     if (delta) {
       onDelta(delta);
     }
@@ -205,7 +225,7 @@ function parseEventBlock(eventBlock, onDelta, meta) {
   return false;
 }
 
-async function readStreamingResponse(response, onDelta) {
+async function readStreamingResponse(response, onDelta, onPayload = null) {
   const meta = createCompletionResponseMeta("stream");
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -223,7 +243,10 @@ async function readStreamingResponse(response, onDelta) {
       const eventBlock = buffer.slice(0, boundary).trim();
       buffer = buffer.slice(boundary + 2);
 
-      if (eventBlock && parseEventBlock(eventBlock, onDelta, meta)) {
+      // `onPayload` is forwarded on BOTH callsites. Dropping it here was the P3
+      // audit blocker B1: the assembler then never saw a `tool_calls` fragment on a
+      // real streaming provider, so the turn ended as a blank answer.
+      if (eventBlock && parseEventBlock(eventBlock, onDelta, meta, onPayload)) {
         return finalizeCompletionResponseMeta(meta);
       }
 
@@ -234,7 +257,7 @@ async function readStreamingResponse(response, onDelta) {
       const remaining = buffer.trim();
 
       if (remaining) {
-        parseEventBlock(remaining, onDelta, meta);
+        parseEventBlock(remaining, onDelta, meta, onPayload);
       }
 
       return finalizeCompletionResponseMeta(meta);
@@ -511,13 +534,14 @@ export function createOnscreenAgentLlmClient(settings = config.DEFAULT_ONSCREEN_
   });
 }
 
-// Non-streamed completion used by the engine-swap Tier 1 tool loop (P2).
+// Non-streamed completion used by the engine-swap Tier 1 tool loop.
 //
-// Why non-streamed: the incremental reader above extracts text deltas and drops
-// `tool_calls`, so a streamed tool turn cannot be assembled honestly yet — that is
-// P3's job (fragment accumulation per call index). P2 therefore asks for one JSON
-// body back, where every tool call arrives complete and parseable. The boundary is
-// recorded in `engine-swap/tier1-session.js` and the lane report.
+// P2 shipped this as the ONLY tool-turn transport because the incremental reader
+// extracted text deltas and dropped `tool_calls`. P3 replaced that boundary: a tool
+// turn now streams and `streamOnscreenAgentToolTurn` assembles fragments per call
+// index. This function stays because a provider/model that ignores streaming still
+// has to work, and because "ask for one body" remains the right move when a stream
+// is unavailable — it is the fallback, not the contract.
 //
 // The shared engine-swap layer builds the request BODY (transports.js) and never
 // fetches; this function owns the URL, the auth header, and the response parse,
@@ -579,13 +603,106 @@ export const completeOnscreenAgentToolTurn = globalThis.space.extend(
   }
 );
 
+// STREAMED tool turn (P3). This is the transport the Tier 1 loop uses now: the
+// same fetch/auth/URL handling as `completeOnscreenAgentToolTurn`, but the body is
+// consumed incrementally and `stream-assembly.js` accumulates `tool_calls`
+// fragments per call index. Argument fragments stay STRINGS until the stream says
+// it is finished; nothing is parsed mid-flight, so a partial call can never be
+// dispatched.
+//
+// Two provider deviations are handled explicitly rather than by hoping:
+//   - the provider answers with one JSON body although streaming was requested:
+//     the same assembler consumes that single payload and the turn proceeds
+//   - the provider reports `finish_reason: "length"` (it stopped mid-output) or the
+//     transport aborted: the assembled calls are marked incomplete AND the caller
+//     sees `truncated`, so nothing is dispatched from a cut stream
+//
+// `onDelta` gets the text deltas so the surface can render prose while calls are
+// still assembling. Rendering is optional; assembly is not.
+export const streamOnscreenAgentToolTurn = globalThis.space.extend(
+  import.meta,
+  async function streamOnscreenAgentToolTurn({ onDelta = null, requestBody, settings, signal } = {}) {
+    const effectiveSettings =
+      settings && typeof settings === "object" ? settings : config.DEFAULT_ONSCREEN_AGENT_SETTINGS;
+    const apiEndpoint = String(effectiveSettings?.apiEndpoint || "").trim();
+
+    if (!apiEndpoint) {
+      throw new Error("Set an API endpoint before sending a message.");
+    }
+
+    if (!String(effectiveSettings?.apiKey || "").trim()) {
+      throw new Error("Set an API key before sending a message.");
+    }
+
+    if (!String(effectiveSettings?.model || "").trim()) {
+      throw new Error("Set a model before sending a message.");
+    }
+
+    if (!requestBody || typeof requestBody !== "object") {
+      throw new Error("A tool turn requires an assembled request body.");
+    }
+
+    const assembler = createStreamingToolCallAssembler();
+    const response = await fetch(resolveToolTurnRequestUrl(apiEndpoint), {
+      body: JSON.stringify(requestBody),
+      headers: createApiRequestHeaders(String(effectiveSettings.apiKey || "").trim()),
+      method: "POST",
+      signal
+    });
+
+    if (!response.ok) {
+      await throwResponseError(response);
+    }
+
+    const onPayload = (payload) => assembler.applyPayload(payload);
+    const deliver = (delta) => {
+      try {
+        onDelta?.(delta);
+      } catch {
+        // Rendering must never break assembly.
+      }
+    };
+
+    // A missing `content-type` cannot veto the turn: the buffered reader already
+    // sniffs an event-stream body, so an unlabelled response is handled, not failed.
+    const contentType = String(response.headers?.get?.("content-type") || "");
+
+    if (contentType.includes("text/event-stream") && response.body) {
+      await readStreamingResponse(response, deliver, onPayload);
+    } else {
+      await readBufferedResponse(response, deliver, onPayload);
+    }
+
+    // `truncated` is not passed here: an abort surfaces as a thrown fetch error, and
+    // a provider that stopped mid-output says so in `finish_reason`, which the
+    // assembler reads itself. Inventing a truncation signal from a missing
+    // end-marker would refuse healthy turns from providers that never send one.
+    const assembled = assembler.finish();
+
+    // A stream that delivered NO payload is a transport anomaly, and it must be a
+    // legible error rather than an empty assistant turn (P3 audit N1): without this,
+    // a silently-empty stream is indistinguishable from "the model answered nothing".
+    if (assembled.sawAnyPayload === false) {
+      throw new Error(
+        "The streaming tool turn produced no completion payload. Check the provider's streaming support, then retry."
+      );
+    }
+
+    return assembled;
+  }
+);
+
 function resolveToolTurnRequestUrl(apiEndpoint) {
   if (!proxyUrl.isProxyableExternalUrl(apiEndpoint)) {
     return apiEndpoint;
   }
 
-  if (window.space?.proxy?.buildUrl) {
-    return window.space.proxy.buildUrl(apiEndpoint);
+  // `window` is absent under `node --test`; the proxy is a browser affordance, so
+  // its absence falls through to the plain URL rather than throwing a ReferenceError.
+  const browserWindow = typeof window === "undefined" ? null : window;
+
+  if (browserWindow?.space?.proxy?.buildUrl) {
+    return browserWindow.space.proxy.buildUrl(apiEndpoint);
   }
 
   return proxyUrl.buildProxyUrl(apiEndpoint);

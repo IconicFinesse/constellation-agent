@@ -180,22 +180,30 @@ test("request params merge into the body without disturbing the assembled shape"
 
   assert.equal(built.body.temperature, 0.2);
   assert.equal(built.body.model, "gpt-x");
-  // This request carries the launch tool list, so it IS a tool turn: the P2
-  // non-streamed boundary applies even though `request()` defaults to
-  // `stream: true` (P2 audit note 5). Before the contract was enforced this
-  // assertion read `true`, blessing the override the audit flagged. The text-turn
-  // case is pinned separately above.
-  assert.equal(built.body.stream, false);
+  // This request carries the launch tool list, so it IS a tool turn — and since P3
+  // tool turns STREAM: the surface's reader assembles `tool_calls` fragments per
+  // call index, so the retired P2 `stream: false` boundary must not come back.
+  // (P2 audit note 5 pinned the opposite; that contract is deliberately replaced.)
+  assert.equal(built.body.stream, true);
   assert.equal(built.endpoint, "https://api.openai.com/v1/chat/completions");
 });
 
-// P2 audit note 5: the non-streamed boundary is a CONTRACT. A user param must
-// never push a tool turn into the streaming reader.
-test("a tool turn stays non-streamed even when params ask for streaming", () => {
-  const built = request({ params: { stream: true, temperature: 0.1 } });
+// P3 retired the P2 non-streamed boundary. A tool turn follows the SAME stream
+// rule as a text turn now — one rule, not two — because fragment assembly happens
+// in the reader and a provider that answers one whole JSON body is handled by the
+// same assembler. This test exists so the old force-false boundary cannot quietly
+// return: an explicit `stream: true` on a tool turn must survive.
+test("a tool turn streams, and an explicit stream param is honoured", () => {
+  const streamed = request({ params: { stream: true, temperature: 0.1 } });
 
-  assert.equal(built.body.stream, false, "a tool turn is non-streamed by contract");
-  assert.equal(built.body.temperature, 0.1, "unrelated params still merge");
+  assert.equal(streamed.body.stream, true, "P3 tool turns stream");
+  assert.equal(streamed.body.temperature, 0.1, "unrelated params still merge");
+
+  // ...and a caller that explicitly disables streaming still gets its way: the
+  // param is not silently ignored for tool turns any more than for text turns.
+  const notStreamed = request({ stream: false, tools: [{ name: "file_read", parameters: { type: "object" } }] });
+
+  assert.equal(notStreamed.body.stream, false, "an explicit stream:false is honoured");
 });
 
 // ...and the text path keeps today's behavior exactly: params may set `stream`.

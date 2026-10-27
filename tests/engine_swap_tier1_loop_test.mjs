@@ -10,8 +10,7 @@
 //   - repeat-error surfacing appears on the second identical failure
 //   - a destructive call ends the loop HELD, with the model told held not failed,
 //     and confirm executes exactly once
-//   - the transport request is non-streamed and carries the assembled tool list
-//     (the P2 boundary with P3)
+//   - the transport request STREAMS and carries the assembled tool list (P3)
 //
 // Hermetic: the completion call is a scripted fake. No network, no keys, no
 // app-data writes.
@@ -33,7 +32,7 @@ import {
   TOOL_TURN_MAX_ITERATIONS,
   TOOL_TURN_STOP_REASON,
   buildRepeatErrorNote,
-  formatParallelCallsPolicyHint,
+  formatIncompleteArgumentsHint,
   runToolTurn,
   trackToolErrorRepeat
 } from "../app/L0/_all/modules/_core/framework/js/engine-swap/tool-turn-loop.js";
@@ -225,50 +224,70 @@ test("one call dispatches, its result returns to the model, then the answer ends
   assert.match(toolMessage.content, /content/u);
 });
 
-test("several calls in one turn are refused with policy coaching and none execute", async () => {
-  const api = createFakeApi();
-  const { session } = createSession({
+// P3 (plan §3.5): several calls in one turn are DISPATCHED, strictly sequentially,
+// in the order the provider returned them. P2 refused them outright; that refusal
+// is retired, and this test is what keeps it retired.
+test("several calls in one turn dispatch sequentially in returned order", async () => {
+  const api = createFakeApi({ fileRead: { content: "hello" } });
+  const { sender, session } = createSession({
     api,
     script: [
       {
         toolCalls: [
           { arguments: '{"path":"~/a"}', id: "c1", name: "file_read" },
-          { arguments: '{"path":"~/b"}', id: "c2", name: "file_read" }
+          { arguments: '{"path":"~/b"}', id: "c2", name: "file_read" },
+          { arguments: '{"path":"~/c"}', id: "c3", name: "file_read" }
         ]
       },
-      { text: "One at a time then." }
+      { text: "Read all three." }
     ]
   });
   const result = await session.run();
 
-  assert.equal(api.calls.length, 0, "no handler runs for a refused parallel turn");
-  assert.equal(result.answer, "One at a time then.");
+  assert.equal(result.status, TIER1_TURN_STATUS.ANSWERED);
+  assert.equal(result.answer, "Read all three.");
 
-  // Variant (b): the refused calls never enter the message list, so no assistant
-  // message carries a `tool_calls` array that could go unanswered.
-  const assistantCalls = result.messages.filter(
+  // Order is visible in the handler calls themselves, not inferred from a count.
+  assert.deepEqual(
+    api.calls.map((call) => call.args[0]),
+    ["~/a", "~/b", "~/c"],
+    "handlers run in the order the provider returned the calls"
+  );
+
+  // ONE assistant message announces all three, and all three results follow it in
+  // one block — the wire shape the provider expects.
+  const announcements = result.messages.filter(
     (message) => message.role === "assistant" && Array.isArray(message.toolCalls) && message.toolCalls.length
   );
 
-  assert.deepEqual(assistantCalls, [], "a refused turn must not manufacture an assistant tool-call message");
+  assert.equal(announcements.length, 1, "one assistant message announces the whole turn");
+  assert.deepEqual(announcements[0].toolCalls.map((call) => call.id), ["c1", "c2", "c3"]);
 
-  // The coaching still reaches the model, as a plain turn, with the count and the
-  // retry instruction intact.
-  const coaching = result.messages.find((message) => message.role === "user" && /policy:/u.test(message.content));
+  const secondMessages = sender.requests[1].body.messages;
+  const toolIds = secondMessages.filter((message) => message.role === "tool").map((message) => message.tool_call_id);
 
-  assert.ok(coaching, "the model must still be coached");
-  assert.match(coaching.content, /policy: 2 tool calls/u);
-  assert.match(coaching.content, /exactly one call per turn/u);
-  assert.match(coaching.content, /Retry with the first call alone/u);
+  assert.deepEqual(toolIds, ["c1", "c2", "c3"], "results return together, in order, in one request");
+  assert.equal(sender.requests.length, 2, "the two turns are: the calls, then the answer");
 });
 
-// The persisted-history half of the same defect: whatever a refused turn leaves
-// behind must REPLAY into a valid canonical sequence. Before variant (b) the tail
-// mapped to three typed `tool_call` entries (one per refused call) that replayed
-// as three assistant messages with zero or trailing results — invalid adjacency
-// that poisoned every later turn in the chat.
-test("a refused parallel turn persists a history that replays validly", async () => {
-  const api = createFakeApi();
+// A failure mid-batch must not abort the batch: the failing call gets its own
+// structured error result, and the remaining calls still run.
+test("a failing call mid-batch still answers every call and the later calls still run", async () => {
+  // Only the MIDDLE path fails: a fixture that fails every read cannot show that
+  // the batch continued past the failure.
+  const calls = [];
+  const api = {
+    calls,
+    fileRead: async (path) => {
+      calls.push({ args: [path], name: "fileRead" });
+
+      if (path === "~/b") {
+        throw new Error("Path not found: ~/b");
+      }
+
+      return { content: `contents of ${path}`, path };
+    }
+  };
   const { session } = createSession({
     api,
     script: [
@@ -279,24 +298,219 @@ test("a refused parallel turn persists a history that replays validly", async ()
           { arguments: '{"path":"~/c"}', id: "c3", name: "file_read" }
         ]
       },
-      { text: "One at a time then." }
+      { text: "Two of three worked." }
+    ]
+  });
+  const result = await session.run();
+
+  assert.equal(result.status, TIER1_TURN_STATUS.ANSWERED);
+  assert.equal(api.calls.length, 3, "the third call still runs after the second failed");
+
+  const toolMessages = result.messages.filter((message) => message.role === "tool");
+
+  assert.equal(toolMessages.length, 3, "every announced call is answered exactly once");
+  assert.equal(toolMessages[1].isError, true, "the middle result carries the failure");
+  assert.match(toolMessages[1].content, /error \(api\)/u);
+  assert.equal(toolMessages[2].isError, undefined, "the later call's result is clean");
+
+  assertValidToolCallAdjacency(result.messages);
+});
+
+// The persisted-history half: a parallel turn must REPLAY into a valid canonical
+// sequence. P2 refused parallel turns partly because one entry per call replayed as
+// several assistant messages; the fix is one announcement plus ordered results, so
+// the replay is exactly the shape the wire wants.
+test("a parallel turn persists a history that replays validly", async () => {
+  const api = createFakeApi({ fileRead: { content: "hello" } });
+  const { session } = createSession({
+    api,
+    script: [
+      {
+        toolCalls: [
+          { arguments: '{"path":"~/a"}', id: "c1", name: "file_read" },
+          { arguments: '{"path":"~/b"}', id: "c2", name: "file_read" },
+          { arguments: '{"path":"~/c"}', id: "c3", name: "file_read" }
+        ]
+      },
+      { text: "Done." }
     ]
   });
   const result = await session.run();
   const baseline = 2; // system prompt + the scripted user turn
   const tailEntries = canonicalMessagesToTypedEntries(result.messages, { fromIndex: baseline });
 
-  // No typed call entry may be written for a refused call.
   assert.equal(
-    tailEntries.some((entry) => entry.kind === "tool_call"),
-    false,
-    "a refused call must never be persisted as a tool_call entry"
+    tailEntries.filter((entry) => entry.kind === "tool_call").length,
+    3,
+    "each call is persisted as its own typed entry"
+  );
+  assert.equal(
+    tailEntries.filter((entry) => entry.kind === "tool_result").length,
+    3,
+    "each call is answered exactly once"
   );
 
-  // And the replay is a valid OpenAI-shaped sequence.
   const replayed = historyEntriesToCanonicalMessages(tailEntries);
 
   assertValidToolCallAdjacency(replayed);
+  // The replay groups the three calls back into ONE assistant message: the reader
+  // is what makes per-entry persistence compatible with the wire contract.
+  assert.equal(
+    replayed.filter((message) => message.role === "assistant" && Array.isArray(message.toolCalls)).length,
+    3,
+    "the reader rebuilds one assistant message per call entry (its documented shape)"
+  );
+  assert.equal(replayed.filter((message) => message.role === "tool").length, 3);
+});
+
+// A call whose argument fragments never completed is NEVER dispatched, and it
+// never enters the message list: an announced id with no valid arguments cannot be
+// answered honestly.
+test("a call with incomplete streamed arguments is refused with coaching and never dispatches", async () => {
+  const api = createFakeApi();
+
+  // The scripted sender rebuilds payloads from `call.arguments`, so it cannot
+  // express the assembler's `argumentsComplete` verdict. Drive that verdict through
+  // a direct sender, which is exactly the shape the streaming transport returns.
+  let sends = 0;
+  const direct = createTier1Session({
+    api,
+    apiEndpoint: "https://api.openai.com/v1/chat/completions",
+    history: [],
+    model: "gpt-x",
+    providerKey: "openai",
+    sendCompletion: async () => {
+      sends += 1;
+
+      if (sends > 1) {
+        return { text: "Let me resend that.", toolCalls: [] };
+      }
+
+      return {
+        text: "reading",
+        toolCalls: [
+          {
+            arguments: JSON.stringify({ path: "~/" }),
+            argumentsComplete: false,
+            id: "c1",
+            name: "file_read"
+          }
+        ]
+      };
+    },
+    systemPrompt: "You are a test agent.",
+    userContent: "read my notes"
+  });
+  const result = await direct.run();
+
+  assert.equal(api.calls.length, 0, "an incomplete call never reaches a handler");
+  assert.equal(result.answer, "Let me resend that.");
+
+  const announced = result.messages.filter(
+    (message) => message.role === "assistant" && Array.isArray(message.toolCalls) && message.toolCalls.length
+  );
+
+  assert.deepEqual(announced, [], "an incomplete call is not announced either");
+
+  const coaching = result.messages.find((message) => message.role === "user" && /incomplete arguments/u.test(message.content));
+
+  assert.ok(coaching, "the model is coached rather than silently ignored");
+  assert.match(coaching.content, /Nothing was executed/u);
+});
+
+// A destructive call in the MIDDLE of a parallel turn: it is held, so it never
+// executes, and the calls after it must still be answered (as deferred) rather than
+// left unannounced-but-unanswered. This is the shape that would poison every later
+// turn if the loop simply broke out of the batch.
+test("a held call mid-batch still answers every sibling exactly once", async () => {
+  const api = createFakeApi({ fileRead: { content: "hello" } });
+  const { session } = createSession({
+    api,
+    script: [
+      {
+        toolCalls: [
+          { arguments: '{"path":"~/a"}', id: "c1", name: "file_read" },
+          { arguments: '{"path":"~/doomed.txt"}', id: "c2", name: "file_delete" },
+          { arguments: '{"path":"~/b"}', id: "c3", name: "file_read" }
+        ]
+      }
+    ]
+  });
+  const result = await session.run();
+
+  assert.equal(result.status, TIER1_TURN_STATUS.HELD);
+  assert.equal(result.hold?.tool, "file_delete");
+  // Only the read BEFORE the hold executed; the delete is held and the read after it
+  // is deferred, never executed.
+  assert.deepEqual(api.calls.map((call) => call.name), ["fileRead"], "nothing after the hold runs");
+
+  const toolMessages = result.messages.filter((message) => message.role === "tool");
+
+  assert.equal(toolMessages.length, 3, "every announced call is answered");
+  assert.deepEqual(toolMessages.map((message) => message.toolCallId), ["c1", "c2", "c3"]);
+  assert.match(toolMessages[1].content, /^held:/u, "the destructive call says held, not failed");
+  assert.match(toolMessages[2].content, /^deferred:/u, "the later call is deferred, not silently dropped");
+
+  assertValidToolCallAdjacency(result.messages);
+
+  // The siblings' results persist and replay validly too: a hold must not leave a
+  // dangling id in stored history.
+  const tailEntries = canonicalMessagesToTypedEntries(result.messages, { fromIndex: 2 });
+
+  assertValidToolCallAdjacency(historyEntriesToCanonicalMessages(tailEntries));
+  assert.equal(
+    tailEntries.filter((entry) => entry.kind === "tool_result").length,
+    3,
+    "three results persisted for three announced calls"
+  );
+});
+
+// Audit-2 note N2: the repeat count must ESCALATE, and the escalation now covers
+// the coaching paths too (P2 computed the count but only surfaced the note on the
+// dispatch-error branch, so a model repeating the same mistake saw byte-identical
+// coaching every iteration).
+test("repeating the same refusal escalates with the repeat note", async () => {
+  const api = createFakeApi();
+  let calls = 0;
+  const session = createTier1Session({
+    api,
+    apiEndpoint: "https://api.openai.com/v1/chat/completions",
+    history: [],
+    model: "gpt-x",
+    providerKey: "openai",
+    sendCompletion: async () => {
+      calls += 1;
+
+      if (calls > 3) {
+        return { text: "Fine, answering.", toolCalls: [] };
+      }
+
+      return {
+        text: "reading",
+        toolCalls: [
+          {
+            arguments: JSON.stringify({ path: "~/" }),
+            argumentsComplete: false,
+            id: `c${calls}`,
+            name: "file_read"
+          }
+        ]
+      };
+    },
+    systemPrompt: "You are a test agent.",
+    userContent: "read my notes"
+  });
+  const result = await session.run();
+  const coachings = result.messages.filter((message) => message.role === "user" && /incomplete arguments/u.test(message.content));
+
+  assert.equal(coachings.length, 3);
+  assert.equal(
+    /has now occurred/u.test(coachings[0].content),
+    false,
+    "the first refusal carries no repeat note"
+  );
+  assert.match(coachings[1].content, /now occurred 2 times in a row/u);
+  assert.match(coachings[2].content, /now occurred 3 times in a row/u);
 });
 
 // Stop responsiveness (P2 audit non-blocker 3): the loop consults the surface's
@@ -372,11 +586,12 @@ test("an aborted transport is reported as stopped, not as a transport error", as
   assert.equal(errored.status, TIER1_TURN_STATUS.ERROR, "a failure with no stop request is still an error");
 });
 
-test("the parallel policy hint names the count and the retry shape", () => {
-  const hint = formatParallelCallsPolicyHint(3);
+test("the incomplete-arguments hint names the count and the retry shape", () => {
+  const hint = formatIncompleteArgumentsHint(2);
 
-  assert.match(hint, /^policy: 3 tool calls/u);
-  assert.match(hint, /Retry with the first call alone/u);
+  assert.match(hint, /^policy: 2 tool calls/u);
+  assert.match(hint, /incomplete arguments/u);
+  assert.match(hint, /Nothing was executed/u);
 });
 
 test("a malformed complete-args call becomes a validation coaching error and never executes", async () => {
@@ -544,16 +759,20 @@ test("session end cancels a hold without executing", async () => {
   assert.equal(api.calls.length, 0);
 });
 
-// --- transport shape (the P2/P3 boundary) ---------------------------------
+// --- transport shape (the P3 contract) ------------------------------------
 
-test("a tool turn asks for a non-streamed completion carrying the visible tool list", async () => {
+// P2 pinned `stream: false` here because the reader dropped `tool_calls`. P3
+// replaced that boundary: a tool turn STREAMS and the surface assembles fragments
+// per call index, so this assertion now pins the opposite — the retired boundary
+// cannot quietly return.
+test("a tool turn streams and carries the visible tool list", async () => {
   const { sender, session } = createSession({ script: [{ text: "hi" }] });
 
   await session.run();
 
   const request = sender.requests[0];
 
-  assert.equal(request.body.stream, false, "P2 consumes complete tool calls only");
+  assert.equal(request.body.stream, true, "P3 assembles streamed tool calls");
   assert.ok(Array.isArray(request.body.tools));
   assert.deepEqual(
     request.body.tools.map((tool) => tool.function.name),

@@ -1142,8 +1142,14 @@
 
 .onscreen-agent-confirm-actions {
   display: flex;
+  /* The action group wraps inside the bar rather than squeezing its labels: the
+     bar already wraps, so the group must be allowed to wrap too or one control
+     is pushed out of the bar and its label clips at narrow panel widths. */
   flex: 0 0 auto;
-  gap: 0.4em;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 /* Both controls stay enabled and keep a stationary hitbox: consent must never
@@ -1152,7 +1158,13 @@
 .onscreen-agent-confirm-accept {
   cursor: pointer;
   font-size: 0.82em;
-  padding: 0.35em 0.8em;
+  /* `width: auto` is load-bearing: the shared inline-button base pins its width
+     to an icon-sized square (2.25rem) and zeroes its padding, so a text label
+     inherited that width and clipped. These are text controls, not icons. */
+  min-width: 4.5em;
+  padding: 0.35em 0.9em;
+  white-space: nowrap;
+  width: auto;
 }
 
 .onscreen-agent-confirm-accept {
