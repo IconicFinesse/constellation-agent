@@ -401,7 +401,13 @@ export function projectHistoryEntryForDisplay(entry) {
       id: read.id || `tool-call-${read.callId}`,
       kind: "execution-output",
       role: "user",
-      typedTool: "call"
+      typedTool: "call",
+      // Identity and outcome travel WITH the projection so the chat surface can
+      // derive grouping from the stored entry sequence instead of re-reading the
+      // typed shapes itself (the second-reader anti-pattern).
+      typedToolCallId: read.callId,
+      typedToolName: read.name,
+      typedToolOutcome: TOOL_RESULT_OUTCOME.PENDING
     });
   }
 
@@ -415,11 +421,54 @@ export function projectHistoryEntryForDisplay(entry) {
       id: read.id || `tool-result-${read.callId}`,
       kind: "execution-output",
       role: "user",
-      typedTool: "result"
+      typedTool: "result",
+      typedToolCallId: read.callId,
+      typedToolName: read.name,
+      typedToolOutcome: classifyToolResultOutcome(entry)
     });
   }
 
   return entry;
+}
+
+// Outcome of a typed tool RESULT, in the closed vocabulary the CHAT SURFACE needs to
+// group a run of calls and to keep consent affordances individually visible.
+//
+// The two non-terminal words are not decoration: a `held` call is waiting for the
+// human's confirmation, and a `deferred` call was never executed because a sibling was
+// held. Both are things the user must still SEE and act on, so the renderer is told
+// about them here rather than re-deriving them by string-matching prose somewhere else.
+// This reader is the one place that knows how the loop spells those outcomes.
+export const TOOL_RESULT_OUTCOME = Object.freeze({
+  SUCCESS: "success",
+  ERROR: "error",
+  HELD: "held",
+  DEFERRED: "deferred",
+  PENDING: "pending"
+});
+
+export function classifyToolResultOutcome(entry) {
+  const read = readHistoryEntry(entry);
+
+  if (read.kind !== HISTORY_ENTRY_KIND.TOOL_RESULT) {
+    return TOOL_RESULT_OUTCOME.PENDING;
+  }
+
+  if (read.error) {
+    return TOOL_RESULT_OUTCOME.ERROR;
+  }
+
+  const text = typeof read.payload === "string" ? read.payload.trim() : "";
+
+  if (text.startsWith("held:") || text.startsWith("policy:")) {
+    return TOOL_RESULT_OUTCOME.HELD;
+  }
+
+  if (text.startsWith("deferred:")) {
+    return TOOL_RESULT_OUTCOME.DEFERRED;
+  }
+
+  return TOOL_RESULT_OUTCOME.SUCCESS;
 }
 
 // Prompt projection for the text-protocol (Tier 3) path.

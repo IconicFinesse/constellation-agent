@@ -1,4 +1,12 @@
 import { renderMarkdown } from "/modules/_core/framework/js/markdown-frontmatter.js";
+import {
+  collectToolRun,
+  formatToolRunLabel,
+  isToolRunExcludedEntry,
+  summarizeToolRun,
+  toolRunKey
+} from "/modules/_core/visual/conversation/tool-run.js";
+import { paintPreviewMarkdown, PREVIEW_PAINT_MODE } from "/modules/_core/visual/conversation/preview-markdown.js";
 
 const EXECUTION_STATUS_LINE_PATTERN = /^execution\s+(.+)$/iu;
 const EXECUTION_PRINT_LINE_PATTERN = /^(log|info|warn|error|debug|dir|table|assert)(:\s*|↓)$/iu;
@@ -28,11 +36,21 @@ export function resolveExecutionCardState({
   hasError = false,
   hasResults = false,
   isConversationBusy = false,
+  isProvisional = false,
   isRerunning = false,
   isStreaming = false
 } = {}) {
   if (isStreaming) {
     return { iconName: "edit_note", pendingState: "generating", tone: "is-writing" };
+  }
+
+  // A PROVISIONAL chip is a call whose streamed arguments completed but whose turn
+  // has not committed. It is running by construction and it can never carry results:
+  // the thing it describes has not happened yet. It therefore outranks every
+  // results-shaped branch below, and it is the one state the surface MUST be able to
+  // end, which is why the provisional set is cleared on every turn exit.
+  if (isProvisional) {
+    return { iconName: "sync", pendingState: "running", tone: "is-running" };
   }
 
   if (isRerunning) {
@@ -964,7 +982,10 @@ export function createAgentThreadView(config = {}) {
         const streamingBlock = document.createElement("p");
         streamingBlock.className = "message-content";
         streamingBlock.dataset.streamingContent = "true";
-        streamingBlock.textContent = message.content || "Streaming...";
+        // PROGRESSIVE FORMATTING (item 3). This node exists only while the message
+        // is streaming, so it is the preview by construction; the committed bubble
+        // below still goes through `createFormattedMessageBlock` unchanged.
+        renderPreviewMarkdown(streamingBlock, message.content || "Streaming...");
         bubble.append(streamingBlock);
         bubble.append(createAssistantMessageActionRow(message));
         return bubble;
@@ -1239,20 +1260,118 @@ export function createAgentThreadView(config = {}) {
     return true;
   }
 
-  function createStandaloneExecutionOutputBubble(outputResults, messageId = "") {
+  function createStandaloneExecutionOutputBubble(outputResults, messageId = "", options = {}) {
     const bubble = document.createElement("article");
     bubble.className = "message-bubble is-terminal-output";
     bubble.append(
       createExecutionCard({
         executeDisplay: null,
         isConversationBusy: false,
+        // A provisional chip describes a call whose arguments completed but which has
+        // not been dispatched. Passing the flag keeps it `running` instead of letting
+        // its placeholder text parse as a real result.
+        isProvisional: options.provisional === true,
         isStreaming: false,
         messageId,
         outputResults,
         rerunningMessageId: ""
       })
     );
+
+    if (options.provisional === true) {
+      bubble.dataset.provisionalChip = "true";
+    }
+
     return bubble;
+  }
+
+  // One collapsible summary row for a run of tool calls, expandable to the SAME
+  // per-call chips used today (item 1: "the existing per-call row rendering stays
+  // available when expanded"). Nothing is invented here: each entry keeps its own
+  // execution card, in stored order.
+  function createToolRunCard(group, options = {}) {
+    const key = String(group.key || toolRunKey(group.entries));
+    const openState = options.toolRunOpenState || null;
+    const card = document.createElement("details");
+    card.className = "tool-run-card";
+    card.dataset.toolRunCard = "true";
+    card.dataset.toolRunKey = key;
+
+    if (openState?.isOpen?.(key) === true) {
+      card.open = true;
+    }
+
+    const summary = document.createElement("summary");
+    summary.className = "tool-run-summary";
+
+    const icon = document.createElement("x-icon");
+    icon.className = "tool-run-icon";
+    icon.textContent = group.summary?.failed ? "error" : group.summary?.running ? "sync" : "check_circle";
+
+    const label = document.createElement("span");
+    label.className = "tool-run-label";
+    label.dataset.toolRunLabel = "true";
+    label.textContent = formatToolRunLabel(group.summary);
+
+    const chevron = document.createElement("x-icon");
+    chevron.className = "tool-run-chevron";
+    chevron.textContent = "chevron_right";
+
+    summary.append(icon, label, chevron);
+    card.append(summary);
+
+    const body = document.createElement("div");
+    body.className = "tool-run-body";
+
+    group.entries.forEach((entry) => {
+      body.append(
+        createExecutionCard({
+          executeDisplay: null,
+          isConversationBusy: false,
+          isStreaming: false,
+          messageId: entry.id,
+          outputResults: getExecutionOutputResults(entry),
+          rerunningMessageId: options.rerunningMessageId
+        })
+      );
+    });
+
+    card.append(body);
+
+    if (openState && typeof openState.setOpen === "function") {
+      // Recorded OUTSIDE the DOM so the state survives the row rebuild that the next
+      // render performs when a result lands.
+      card.addEventListener("toggle", () => {
+        openState.setOpen(key, card.open === true);
+      });
+    }
+
+    return card;
+  }
+
+  // Progressive markdown for the LIVE preview only (item 3).
+  //
+  // Partial input is normal here: an unclosed fence renders as a code block that
+  // keeps growing, and an unterminated emphasis or link degrades to text. The ONE
+  // requirement is that a parse failure can never kill the paint, so every path has a
+  // plain-text fallback and the committed path never comes through this function.
+  function renderPreviewMarkdown(target, text) {
+    // ONE policy, in `preview-markdown.js`: bounded work, partial-input tolerance, and a
+    // plain-text fallback that never lets a partial document kill the paint. This
+    // function only supplies the surface's renderer and plain-text painter.
+    const mode = paintPreviewMarkdown(target, text, {
+      className: buildAssistantMarkdownClassName(),
+      renderMarkdown,
+      setPlainText: setElementText
+    });
+
+    if (target?.classList) {
+      if (mode === PREVIEW_PAINT_MODE.MARKDOWN) {
+        target.classList.add("message-markdown");
+      } else {
+        target.classList.remove("message-markdown");
+      }
+    }
   }
 
   function getDocumentScroller() {
@@ -1342,8 +1461,32 @@ export function createAgentThreadView(config = {}) {
     const displayOnlyMessageIds = options.displayOnlyMessageIds || new Set();
     const outputOverrides = options.outputOverrides || {};
 
+    // SMART GROUPING (chat-surface polish, item 1). Enabled by the owning chat
+    // surface's view config; off means every typed entry keeps its own row, which is
+    // what the order-contract suites pin.
+    const groupToolRuns = options.groupToolRuns === true;
+
     for (let index = 0; index < history.length; index += 1) {
       const message = history[index];
+
+      if (groupToolRuns) {
+        const run = collectToolRun(history, index);
+        const callCount = run ? run.entries.filter((entry) => entry.typedTool === "call").length : 0;
+
+        // One call is already one row, so grouping it would only add a click. The
+        // win the owner asked for is a ten-call turn reading as one line.
+        if (run && callCount >= 2) {
+          groups.push({
+            entries: run.entries,
+            key: toolRunKey(run.entries),
+            summary: summarizeToolRun(run.entries),
+            type: "tool-run"
+          });
+          index = run.endIndex;
+          continue;
+        }
+      }
+
       const executeDisplay = message.role === "assistant" ? parseExecuteDisplayContent(message.content) : null;
       const standaloneOutputResults = getExecutionOutputResults(message);
 
@@ -1392,6 +1535,11 @@ export function createAgentThreadView(config = {}) {
         groups.push({
           messageId: message.id,
           outputResults: standaloneOutputResults,
+          // A provisional chip is the live "running" row for a call whose arguments
+          // completed (item 2). The flag travels with the group so both the card and
+          // the row signature can see it: a running chip must never be reused as a
+          // settled one, nor the reverse.
+          provisional: message.provisional === true,
           type: "standalone-output"
         });
         continue;
@@ -1468,6 +1616,10 @@ export function createAgentThreadView(config = {}) {
       return `standalone-output:${group.messageId || ""}`;
     }
 
+    if (group.type === "tool-run") {
+      return String(group.key || toolRunKey(group.entries));
+    }
+
     return `standard:${group.message?.id || ""}`;
   }
 
@@ -1513,10 +1665,23 @@ export function createAgentThreadView(config = {}) {
       ].join("\u241f");
     }
 
+    if (group.type === "tool-run") {
+      // Outcomes are part of the signature: a run whose last result lands must not
+      // be reused with the previous summary line, and an expanded card's contents
+      // change as each call settles.
+      return [
+        avatarSignature,
+        String(group.key || ""),
+        group.entries.map((entry) => `${entry.id}:${entry.typedToolOutcome || ""}`).join("\u241e"),
+        options.toolRunOpenState?.isOpen?.(String(group.key || "")) === true ? "open" : "closed"
+      ].join("\u241f");
+    }
+
     if (group.type === "standalone-output") {
       return [
         avatarSignature,
         group.messageId || "",
+        group.provisional === true ? "provisional" : "settled",
         getExecutionResultsRenderSignature(group.outputResults)
       ].join("\u241f");
     }
@@ -1542,10 +1707,16 @@ export function createAgentThreadView(config = {}) {
       row = createMessageRow("assistant", createAssistantSequenceBubble(group, options), "terminal-row", {
         showAvatar: group.showAvatar !== false
       });
+    } else if (group.type === "tool-run") {
+      row = createMessageRow("assistant", createToolRunCard(group, options), "terminal-row tool-run-row", {
+        showAvatar: group.showAvatar !== false
+      });
     } else if (group.type === "standalone-output") {
       row = createMessageRow(
         "assistant",
-        createStandaloneExecutionOutputBubble(group.outputResults, group.messageId),
+        createStandaloneExecutionOutputBubble(group.outputResults, group.messageId, {
+          provisional: group.provisional === true
+        }),
         "terminal-row execution-output-row",
         {
           showAvatar: group.showAvatar !== false
@@ -1597,7 +1768,11 @@ export function createAgentThreadView(config = {}) {
       return "";
     }
 
-    if (group.type === "assistant-sequence" || group.type === "standalone-output") {
+    if (
+      group.type === "assistant-sequence" ||
+      group.type === "standalone-output" ||
+      group.type === "tool-run"
+    ) {
       return "assistant";
     }
 
@@ -1726,7 +1901,8 @@ export function createAgentThreadView(config = {}) {
         return false;
       }
 
-      textBlock.textContent = message.content || "Streaming...";
+      // Same preview path as the row build: this node exists only while streaming.
+      renderPreviewMarkdown(textBlock, message.content || "Streaming...");
       setRowRenderState(
         row,
         buildStreamingRenderGroup(message, {
