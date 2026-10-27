@@ -5474,6 +5474,26 @@ const model = {
     const controller = new AbortController();
     this.activeRequestController = controller;
 
+    // The preview ACCUMULATES across this turn's iterations (owner-reported
+    // transcript defect, 2026-10-27): it used to be cleared at the start of every
+    // `sendCompletion`, so iteration 1's prose blinked out the moment iteration 2
+    // began and the user only ever saw the LAST iteration's words. Every iteration's
+    // narration is part of what the user watched, so the slot is reset ONCE per turn
+    // here and appended to thereafter, with a blank-line boundary between iterations
+    // so two narrations do not run together. It is still cleared exactly once, in
+    // the `finally` below, and it still never enters `this.history`.
+    let previewStarted = false;
+    let previewBoundaryPending = false;
+
+    const appendPreviewDelta = (delta) => {
+      if (previewBoundaryPending) {
+        previewBoundaryPending = false;
+        this.appendEngineSwapStreamingDelta("\n\n");
+      }
+
+      this.appendEngineSwapStreamingDelta(delta);
+    };
+
     try {
       const turn = await runOnscreenTier1Turn({
         api: this.runtime?.api || globalThis.space?.api || null,
@@ -5488,17 +5508,26 @@ const model = {
         // call index and reports each call complete only when its arguments are
         // complete JSON, so the loop can dispatch without ever seeing half a call.
         sendCompletion: async ({ request }) => {
-          // One preview slot, reset per request: the prose the user is watching
-          // belongs to the call in flight, and a previous iteration's narration must
-          // not concatenate onto this one. The reserved id makes the row patch
-          // REPLACE the same row instead of appending a second one.
-          this.clearEngineSwapStreamingPreview();
+          // One preview slot per TURN, appended to across iterations: iteration 1's
+          // prose is part of what the user watched and must not blink out when
+          // iteration 2 starts. Reset only on the FIRST request of the turn, and
+          // separate later iterations with a blank line so two narrations do not run
+          // together. The reserved id still makes the row patch REPLACE the same row
+          // instead of appending a second one.
+          if (!previewStarted) {
+            previewStarted = true;
+            this.clearEngineSwapStreamingPreview();
+          } else {
+            previewBoundaryPending = true;
+          }
 
           return agentApi.streamOnscreenAgentToolTurn({
             // Text deltas reach the surface while tool-call fragments are still
             // assembling. This is the "text appears all at once" fix: without it the
             // transport buffered the prose and the turn returned it in one piece.
-            onDelta: (delta) => this.appendEngineSwapStreamingDelta(delta),
+            // Routed through the turn's accumulator so an iteration boundary is
+            // inserted between this iteration's prose and the next one's.
+            onDelta: (delta) => appendPreviewDelta(delta),
             requestBody: request.body,
             settings: this.settings,
             signal: controller.signal
@@ -5532,6 +5561,21 @@ const model = {
         // message the model happened to echo back.
         const correctiveIndex = continuedMessages.length - 1;
 
+        // The retry is a SEPARATE attempt, so it gets its own accumulator: the
+        // abandoned first attempt's prose must not survive into the coaching turn's
+        // preview, and this attempt's iterations accumulate among themselves.
+        let retryPreviewStarted = false;
+        let retryPreviewBoundaryPending = false;
+
+        const appendRetryPreviewDelta = (delta) => {
+          if (retryPreviewBoundaryPending) {
+            retryPreviewBoundaryPending = false;
+            this.appendEngineSwapStreamingDelta("\n\n");
+          }
+
+          this.appendEngineSwapStreamingDelta(delta);
+        };
+
         try {
           const second = await runOnscreenTier1Turn({
             api: this.runtime?.api || globalThis.space?.api || null,
@@ -5543,13 +5587,20 @@ const model = {
             params: llmParams.parseOnscreenAgentParamsText(this.settings.paramsText || ""),
             providerKey: "",
             sendCompletion: async ({ request }) => {
-              // Same one preview slot, reset for the retry: the coaching turn is
-              // scaffolding, so what the user watches must be THIS call's prose, not
-              // the abandoned first attempt's.
-              this.clearEngineSwapStreamingPreview();
+              // Same one preview slot, but the retry starts it over: the coaching turn
+              // is scaffolding, so what the user watches must be THIS attempt's prose,
+              // not the abandoned first attempt's. Within the retry it accumulates
+              // across iterations like the main turn does.
+              if (!retryPreviewStarted) {
+                retryPreviewStarted = true;
+                previewStarted = true;
+                this.clearEngineSwapStreamingPreview();
+              } else {
+                retryPreviewBoundaryPending = true;
+              }
 
               return agentApi.streamOnscreenAgentToolTurn({
-                onDelta: (delta) => this.appendEngineSwapStreamingDelta(delta),
+                onDelta: (delta) => appendRetryPreviewDelta(delta),
                 requestBody: request.body,
                 settings: this.settings,
                 signal: controller.signal

@@ -1856,6 +1856,10 @@ export function createAgentThreadView(config = {}) {
 
   return {
     autoResizeTextarea,
+    // Exposed so the typed-transcript ORDER contract is testable at the real code
+    // path: typed `tool_call` / `tool_result` entries must draw in stored order, so a
+    // chip sits between the prose that introduced it and the prose that follows.
+    buildMessageDisplayGroups,
     copyTextToClipboard,
     findExecuteSection,
     // Exposed so the render-reuse contract is testable at the real code path: the
