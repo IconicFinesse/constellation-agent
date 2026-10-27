@@ -66,6 +66,40 @@
                 </button>
               </div>
             </div>
+            <!-- Engine-swap destructive gate (consent affordance, P4a-3a). A held
+                 destructive call renders here until the human confirms or denies;
+                 nothing has executed while this is visible. Both controls are ALWAYS
+                 ENABLED: a consent affordance must never depend on a busy flag.
+
+                 INERT IN THIS LANE: `engineSwapPendingHold` is only ever set by the
+                 Tier 1 dispatch gate, and admin still resolves Tier 3, so this block
+                 cannot appear until adoption. It is here so the affordance exists the
+                 day the session does, and it is a unit-tested contract rather than an
+                 end-to-end-proven one — see the lane report. -->
+            <template x-if="$store.adminAgent.engineSwapPendingHold">
+              <div class="admin-agent-confirm-bar" role="alertdialog" aria-live="polite">
+                <span class="admin-agent-confirm-text">
+                  Delete <strong x-text="$store.adminAgent.engineSwapPendingHold.arguments?.path || '(unknown path)'"></strong>?
+                  Nothing has been changed yet.
+                </span>
+                <span class="admin-agent-confirm-actions">
+                  <button
+                    type="button"
+                    class="secondary-button admin-agent-confirm-deny"
+                    @click="$store.adminAgent.denyEngineSwapHold()"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    class="primary-button danger admin-agent-confirm-accept"
+                    @click="$store.adminAgent.confirmEngineSwapHold()"
+                  >
+                    Delete
+                  </button>
+                </span>
+              </div>
+            </template>
             <form
               class="chat-composer"
               :class="{ 'is-attachment-drag-active': $store.adminAgent.isAttachmentDragActive }"

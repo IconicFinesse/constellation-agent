@@ -27,6 +27,18 @@ import {
   normalizeStoredAttachment,
   serializeAttachmentMetadata
 } from "/modules/_core/admin/views/agent/attachments.js";
+// Typed tool entries (engine-swap Tier 1). Admin PERSISTS and READS them through the
+// SAME shared mapping onscreen uses, so the writer and the reader cannot drift and a
+// tool turn survives a reload instead of being erased by a narrow serializer. Admin
+// imports the reader/writer pair and the two projections; it does not carry a local
+// shape mapping. Legacy messages have neither typed field, so every write and read of
+// a legacy message stays byte-identical to before.
+import {
+  normalizeTypedHistoryFields,
+  projectHistoryEntryForDisplay,
+  projectHistoryEntryForPrompt,
+  serializeTypedHistoryFields
+} from "/modules/_core/framework/js/engine-swap/history-shapes.js";
 
 const huggingfaceManager = getHuggingFaceManager();
 
@@ -140,8 +152,15 @@ function createRuntimeMessageSnapshot(message) {
   };
 }
 
-function normalizeStoredMessage(message) {
-  return {
+// READ SEAM for stored history. Exported so the reload round-trip can drive THIS
+// function rather than a copy of it: a test that re-implements the read proves nothing
+// about what a real page reload does.
+//
+// Typed tool entries (engine-swap Tier 1) restore their payload through the SAME
+// shared mapping the writer used. A legacy text-protocol entry carries neither field,
+// so `normalizeTypedHistoryFields` answers `{}` and its normalized shape is unchanged.
+export function normalizeStoredMessage(message) {
+  const entry = {
     attachments: Array.isArray(message?.attachments)
       ? message.attachments.map((attachment) => normalizeStoredAttachment(attachment))
       : [],
@@ -153,6 +172,11 @@ function normalizeStoredMessage(message) {
     kind: typeof message?.kind === "string" ? message.kind : "",
     role: message?.role === "assistant" ? "assistant" : "user",
     streaming: message?.streaming === true
+  };
+
+  return {
+    ...entry,
+    ...normalizeTypedHistoryFields(message)
   };
 }
 
@@ -336,6 +360,27 @@ const model = {
   defaultSystemPrompt: "",
   draft: "",
   draftAttachments: [],
+  // --- Engine-swap consent affordance (P4a-3a) -------------------------------
+  //
+  // SURFACE-OWNED, and a REAL data property. `panel.html` binds `x-if` to it and
+  // prints the path it holds, so it must live on this store as data. Behind a getter
+  // onto engine state its reactivity would break SILENTLY: a driver's write never
+  // passes through this store proxy's set trap, so no trigger would fire and the
+  // confirm bar would simply stop appearing on a real held deletion — a production
+  // regression the whole node suite is structurally blind to, because every suite
+  // stubs the render. Pinned by a descriptor assertion, not by `hasOwnProperty`
+  // (an accessor is an own property too).
+  //
+  // INERT TODAY, BY CONSTRUCTION: `gate.hold()` is reachable only through the Tier 1
+  // dispatch pipeline, and admin still resolves Tier 3. Nothing in this lane can set
+  // a hold, so the bar cannot appear. That is correct, not a gap to close here.
+  engineSwapPendingHold: null,
+  // The Tier 1 session a held call belongs to. Populated ONLY by the adoption lane
+  // (steps 3-5); until then it stays null and every consent handler returns before
+  // touching state — which is what keeps a confirm from clearing a bar it cannot act
+  // on. Declared explicitly rather than left undefined so the guard reads as a
+  // contract instead of a coincidence.
+  engineSwapTier1Session: null,
   executionContext: null,
   executionOutputOverrides: Object.create(null),
   history: [],
@@ -1108,7 +1153,10 @@ const model = {
     const history = Array.isArray(options.history) ? options.history : this.history;
     const promptInput = await this.ensurePromptRuntime().build({
       defaultSystemPrompt: this.defaultSystemPrompt,
-      historyMessages: history,
+      // Projected, so a Tier 3 prompt still SEES the typed tool history a Tier 1 turn
+      // wrote. Legacy entries pass through untouched (the projection answers `null`
+      // for them), so today's prompt shape is unchanged.
+      historyMessages: this.projectHistoryForPrompt(history),
       options: this.getPromptBuildOptions(),
       systemPrompt: this.systemPrompt,
       transientSections: this.getPromptTransientSections()
@@ -1119,7 +1167,7 @@ const model = {
   },
 
   async refreshPromptInputFromHistory(history = this.history) {
-    const promptInput = await this.ensurePromptRuntime().updateHistory(history, {
+    const promptInput = await this.ensurePromptRuntime().updateHistory(this.projectHistoryForPrompt(history), {
       defaultSystemPrompt: this.defaultSystemPrompt,
       options: this.getPromptBuildOptions(),
       systemPrompt: this.systemPrompt,
@@ -1133,7 +1181,7 @@ const model = {
   async preparePromptRequest(history = this.history) {
     const promptInput = await prompt.buildAdminPromptInput({
       defaultSystemPrompt: this.defaultSystemPrompt,
-      historyMessages: history,
+      historyMessages: this.projectHistoryForPrompt(history),
       options: this.getPromptBuildOptions(),
       promptInstance: this.ensurePromptRuntime(),
       systemPrompt: this.systemPrompt,
@@ -1196,16 +1244,115 @@ const model = {
     return Boolean(this.historyText.trim()) && this.historyTokenCount > this.getConfiguredMaxTokens();
   },
 
+  // WRITE SEAM for stored history. Typed tool entries carry their payload in dedicated
+  // fields whose mapping lives in ONE place, the shared history layer, so the writer
+  // and the reader cannot drift. A legacy message has neither typed field, so its
+  // stored shape stays byte-identical to before (no new keys, not even null ones).
+  serializeHistoryMessages(history = this.history) {
+    return (Array.isArray(history) ? history : []).map((message) => {
+      const entry = {
+        attachments: Array.isArray(message.attachments)
+          ? message.attachments.map((attachment) => serializeAttachmentMetadata(attachment))
+          : [],
+        content: message.content,
+        id: message.id,
+        kind: message.kind || "",
+        role: message.role
+      };
+
+      return {
+        ...entry,
+        ...serializeTypedHistoryFields(message)
+      };
+    });
+  },
+
   serializeHistory() {
-    return this.history.map((message) => ({
-      attachments: Array.isArray(message.attachments)
-        ? message.attachments.map((attachment) => serializeAttachmentMetadata(attachment))
-        : [],
-      content: message.content,
-      id: message.id,
-      kind: message.kind || "",
-      role: message.role
-    }));
+    return this.serializeHistoryMessages(this.history);
+  },
+
+  // PROMPT projection. A conversation that ran on Tier 1 holds typed tool entries; if the
+  // config later resolves Tier 3 (the flag is per config, and a user can switch models)
+  // the text protocol must still SEE that history instead of silently dropping it. The
+  // shape decoding stays in the shared reader; this only maps. Legacy entries come back
+  // from `projectHistoryEntryForPrompt` as `null`, so they pass through untouched.
+  projectHistoryForPrompt(history = this.history) {
+    return (Array.isArray(history) ? history : []).map(
+      (entry) => projectHistoryEntryForPrompt(entry) || entry
+    );
+  },
+
+  // RENDER projection. Typed entries draw through the existing execution chip; legacy
+  // entries come back untouched, so today's thread renders exactly as before.
+  //
+  // Scope note (P4a-3a): this is projection ONLY. Admin does not pass `groupToolRuns`
+  // or derive display-only ids, so a typed turn draws one chip per stored entry — call
+  // chip plus result chip — where onscreen folds a single call into one chip. That
+  // folding needs the turn driver's run state and belongs to adoption, not here.
+  getRenderHistory(history = this.history) {
+    return (Array.isArray(history) ? history : []).map((entry) => projectHistoryEntryForDisplay(entry));
+  },
+
+  // --- Consent affordance handlers (P4a-3a) ---------------------------------
+  //
+  // Ported from onscreen's handlers with their ORDERING preserved, because the
+  // ordering is the honesty rule: the guard runs FIRST, so a confirm that has no
+  // session to execute through returns WITHOUT clearing the bar. A control that
+  // cannot act must not appear to have acted — the same class of lie this campaign
+  // removed from tool chips that claimed Success before the call ran.
+  //
+  // What is deliberately NOT ported: the transcript patch (`replaceEngineSwapHeldResult`)
+  // and the post-hold continuation. Both need the held-message bookkeeping the turn
+  // driver owns, so writing them here would be a second history mapping and
+  // adoption-lane logic in a lane forbidden to import the driver. Adoption adds them
+  // inside the `session` branch below; the guard and the bar-clearing order do not
+  // change.
+  //
+  // INERT TODAY: admin resolves Tier 3 and nothing in this lane can create a session
+  // or a hold, so both are null and every handler below returns on its guard.
+  async confirmEngineSwapHold() {
+    const session = this.engineSwapTier1Session;
+    const hold = this.engineSwapPendingHold;
+
+    if (!session || !hold) {
+      return;
+    }
+
+    // The affordance disappears immediately: the user answered, and a second click
+    // must not re-enter this path.
+    this.engineSwapPendingHold = null;
+    this.status = "Executing the confirmed deletion...";
+
+    const executed = await session.confirmHeld();
+
+    this.status =
+      executed && executed.status === "ok" ? "Confirmed and executed." : "The confirmed call failed.";
+    this.render({
+      preserveScroll: true
+    });
+  },
+
+  async denyEngineSwapHold() {
+    const session = this.engineSwapTier1Session;
+
+    if (!session) {
+      return;
+    }
+
+    const settled = session.denyHeld?.();
+
+    this.engineSwapPendingHold = null;
+    this.engineSwapTier1Session = null;
+    this.render({
+      preserveScroll: true
+    });
+    this.status = `Cancelled: the user denied ${settled?.description || settled?.tool || "the action"}.`;
+  },
+
+  cancelEngineSwapHold() {
+    this.engineSwapTier1Session?.cancelHeld?.();
+    this.engineSwapTier1Session = null;
+    this.engineSwapPendingHold = null;
   },
 
   async flushHistoryPersistence() {
@@ -1284,7 +1431,10 @@ const model = {
   },
 
   render(options = {}) {
-    agentView.renderMessages(this.refs.thread, this.history, {
+    // PROJECTED, not raw: a typed tool entry is stored in its typed shape and drawn
+    // through the existing execution chip. Legacy entries pass through untouched, so
+    // today's thread renders byte-identically.
+    agentView.renderMessages(this.refs.thread, this.getRenderHistory(), {
       isConversationBusy: this.isSending,
       outputOverrides: this.executionOutputOverrides,
       preserveScroll: options.preserveScroll === true,

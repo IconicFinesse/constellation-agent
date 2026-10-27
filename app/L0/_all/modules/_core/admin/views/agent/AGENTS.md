@@ -29,6 +29,26 @@ Current persistence paths:
 - config: `~/config/admin-chat.yaml`
 - history: `~/history/admin-chat.json`
 
+History is TWO shapes, and admin reads and writes both through the shared layer:
+
+- shape A — the legacy text protocol (`{ attachments, content, id, kind, role }`), every history on disk today, forever;
+- shape B — typed tool entries (`kind: "tool_call"` with `toolCall`, `kind: "tool_result"` with `toolResult`), written by a Tier 1 turn.
+
+`store.js` does the mapping in four places and NOWHERE else, all through
+`framework/js/engine-swap/history-shapes.js`:
+
+- write: `serializeHistoryMessages()` adds `...serializeTypedHistoryFields(message)`; `serializeHistory()` delegates to it
+- read: `normalizeStoredMessage()` (exported for the reload round-trip test) adds `...normalizeTypedHistoryFields(message)`
+- prompt: `projectHistoryForPrompt()` feeds `rebuildPromptInput`, `refreshPromptInputFromHistory` and `preparePromptRequest`, so a Tier 3 prompt still SEES a Tier 1 history
+- render: `getRenderHistory()` feeds `render()`, projecting typed entries onto the existing execution chip
+
+Rules that follow from that:
+
+- never write a second history mapping in this surface; a local copy is the drift defect the shared layer exists to prevent
+- a legacy message must serialize and normalize byte-identically — the typed fields are additive and answer `{}` for a legacy entry, so no stored format changes and no migration exists
+- the render projection is projection ONLY (P4a-3a): admin passes no `groupToolRuns` and derives no display-only ids, so a typed turn draws one chip per stored entry (call chip plus result chip) instead of onscreen's folded single-call chip. That folding needs the turn driver's run state and belongs to adoption. Do not "fix" the two-row shape here by inventing a second render path.
+- admin imports NO adoption machinery: no turn driver, no tool-turn transport, no dispatch pipeline, no tier1 session. Adding one of those is starting P4a-3 steps 3-5, not extending this surface.
+
 Current stored config fields are written in YAML as:
 
 - `llm_provider`
