@@ -431,6 +431,27 @@ test("a partial frame of a phrase from an earlier turn also paints", () => {
   );
 });
 
+// A framework follow-up row (legacy text protocol) also carries `role: "user"`, but it
+// belongs to the turn it follows. Accepting one as a turn opener would move the scope
+// boundary forward, leave this turn's narration outside the guard, and let the committed
+// reply be drawn a second time (chat-polish re-audit non-blocker 1).
+test("a framework follow-up row is never mistaken for a turn opener", () => {
+  const committed = [
+    { content: "first question", id: "u1", role: "user" },
+    { content: "Reply one.", id: "assistant-1780000000003-bbb222", role: "assistant" },
+    { content: "execution ok", id: "x1", kind: "execution-output", role: "user" }
+  ];
+  const projection = buildChatRenderProjection({
+    history: committed,
+    preview: previewEntry("Reply one.")
+  });
+
+  assert.ok(
+    !projection.some((entry) => entry.streaming === true),
+    "a follow-up row must not reopen the turn and let the committed reply stream again"
+  );
+});
+
 // Identity is the other half, and it is DEFENCE IN DEPTH rather than the mechanism that
 // fixes today's bug: in production the preview id is the reserved constant
 // `engine-swap-streaming-preview` while committed ids are

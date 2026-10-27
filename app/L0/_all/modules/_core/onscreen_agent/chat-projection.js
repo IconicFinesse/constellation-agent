@@ -89,7 +89,18 @@ function collectTurnCommittedAssistantTexts(entries) {
   for (let index = list.length - 1; index >= 0; index -= 1) {
     const entry = list[index];
 
-    if (entry?.role === "user" && !entry?.typedTool && entry?.provisional !== true) {
+    // A turn is opened by a REAL user message. Framework follow-up rows (a legacy
+    // text-protocol `execution-output` / `execution-retry` / `protocol-retry`) also
+    // carry `role: "user"` but they belong to the turn they follow, so accepting one
+    // as an opener would truncate this turn's scope and let its narration slip past
+    // the guard — reintroducing the double row the guard exists to prevent
+    // (chat-polish re-audit non-blocker 1). Real user messages normalize `kind: ""`.
+    if (
+      entry?.role === "user" &&
+      !entry?.typedTool &&
+      entry?.provisional !== true &&
+      !entry?.kind
+    ) {
       from = index + 1;
       break;
     }
