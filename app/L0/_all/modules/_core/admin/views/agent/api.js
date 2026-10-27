@@ -10,100 +10,27 @@ import {
   normalizeVisualDataList,
   prepareChatMessagesForVisionTransport
 } from "/modules/_core/agent-chat/visual-data.js";
-
-function createHeaders(apiKey) {
-  const headers = {
-    "Content-Type": "application/json"
-  };
-
-  if (apiKey) {
-    headers.Authorization = `Bearer ${apiKey}`;
-  }
-
-  return headers;
-}
-
-function extractTextContent(value) {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (!Array.isArray(value)) {
-    return "";
-  }
-
-  return value
-    .map((part) => {
-      if (typeof part === "string") {
-        return part;
-      }
-
-      if (part && typeof part.text === "string") {
-        return part.text;
-      }
-
-      return "";
-    })
-    .join("");
-}
-
-function extractStreamingDelta(payload) {
-  const choice = payload.choices?.[0];
-
-  if (!choice) {
-    return "";
-  }
-
-  const delta = choice.delta || choice.message || {};
-  return extractTextContent(delta.content || choice.text || "");
-}
-
-function extractNonStreamingMessage(payload) {
-  const choice = payload.choices?.[0];
-
-  if (!choice) {
-    return "";
-  }
-
-  const message = choice.message || {};
-  return extractTextContent(message.content || choice.text || "");
-}
-
-function createCompletionResponseMeta(mode) {
-  return {
-    finishReason: "",
-    mode,
-    payloadCount: 0,
-    protocolObserved: false,
-    sawDoneMarker: false,
-    textChunkCount: 0,
-    verifiedEmpty: false
-  };
-}
-
-function noteCompletionPayload(meta, payload, textChunk = "") {
-  meta.payloadCount += 1;
-
-  const finishReason = payload?.choices?.[0]?.finish_reason;
-
-  if (!meta.finishReason && typeof finishReason === "string" && finishReason) {
-    meta.finishReason = finishReason;
-  }
-
-  if (typeof textChunk === "string" && textChunk.trim()) {
-    meta.textChunkCount += 1;
-  }
-}
-
-function finalizeCompletionResponseMeta(meta) {
-  const protocolObserved = meta.mode === "standard" ? meta.payloadCount > 0 : meta.payloadCount > 0 || meta.sawDoneMarker;
-
-  return {
-    ...meta,
-    protocolObserved,
-    verifiedEmpty: protocolObserved && meta.textChunkCount === 0
-  };
-}
+// P4a-3b: the completion-body reader lives in the FRAMEWORK now, in ONE copy shared
+// with any other surface. This module imports it and keeps no second parser — a
+// duplicate left behind drifts, which is the defect this consolidation removes.
+// `onPayload` is NOT wired here: admin has no tool-call assembler, so the optional
+// fourth argument stays null and the text path behaves exactly as before.
+import {
+  createApiRequestHeaders,
+  createCompletionResponseMeta,
+  createUnsupportedCompletionBodyError,
+  extractNonStreamingMessage,
+  extractStreamingDelta,
+  extractTextContent,
+  finalizeCompletionResponseMeta,
+  looksLikeEventStreamBody,
+  noteCompletionPayload,
+  parseEventBlock,
+  pumpEventStreamText,
+  readBufferedResponse,
+  readStreamingResponse,
+  throwResponseError
+} from "/modules/_core/framework/js/sse-stream.js";
 
 function normalizeConversationMessage(message) {
   if (!["user", "assistant"].includes(message?.role)) {
@@ -332,162 +259,6 @@ function resolveChatRequestUrl(apiEndpoint) {
   return proxyUrl.buildProxyUrl(apiEndpoint);
 }
 
-async function throwResponseError(response) {
-  const contentType = response.headers.get("content-type") || "";
-  let detail = "";
-
-  if (contentType.includes("application/json")) {
-    try {
-      const payload = await response.json();
-      detail = payload.error?.message || payload.error || JSON.stringify(payload);
-    } catch {
-      detail = "Unable to parse JSON error body.";
-    }
-  } else {
-    detail = await response.text();
-  }
-
-  throw new Error(`Chat request failed with status ${response.status}: ${detail || response.statusText}`);
-}
-
-function createUnsupportedCompletionBodyError(response, bodyText) {
-  const contentType = response.headers.get("content-type") || "unknown";
-  const snippet = String(bodyText || "")
-    .trim()
-    .slice(0, 120)
-    .replace(/\s+/gu, " ");
-
-  return new Error(
-    `Chat request returned status ${response.status} with an unsupported response body ` +
-      `(content-type: ${contentType}). Expected an OpenAI-compatible JSON completion or a ` +
-      `text/event-stream payload but received: ${snippet || "<empty body>"}`
-  );
-}
-
-function looksLikeEventStreamBody(bodyText) {
-  return /^(?:data|event|id|retry):|^:/u.test(String(bodyText || "").trimStart());
-}
-
-function pumpEventStreamText(bodyText, onDelta, meta) {
-  let buffer = String(bodyText || "");
-  let boundary = buffer.indexOf("\n\n");
-
-  while (boundary !== -1) {
-    const eventBlock = buffer.slice(0, boundary).trim();
-    buffer = buffer.slice(boundary + 2);
-
-    if (eventBlock && parseEventBlock(eventBlock, onDelta, meta)) {
-      return finalizeCompletionResponseMeta(meta);
-    }
-
-    boundary = buffer.indexOf("\n\n");
-  }
-
-  const remaining = buffer.trim();
-
-  if (remaining) {
-    parseEventBlock(remaining, onDelta, meta);
-  }
-
-  return finalizeCompletionResponseMeta(meta);
-}
-
-async function readBufferedResponse(response, onDelta) {
-  const bodyText = await response.text();
-
-  if (looksLikeEventStreamBody(bodyText)) {
-    return pumpEventStreamText(bodyText, onDelta, createCompletionResponseMeta("stream"));
-  }
-
-  let payload;
-
-  try {
-    payload = JSON.parse(bodyText);
-  } catch {
-    throw createUnsupportedCompletionBodyError(response, bodyText);
-  }
-
-  const meta = createCompletionResponseMeta("standard");
-  const message = extractNonStreamingMessage(payload);
-
-  noteCompletionPayload(meta, payload, message);
-
-  if (message) {
-    onDelta(message);
-  }
-
-  return finalizeCompletionResponseMeta(meta);
-}
-
-function parseEventBlock(eventBlock, onDelta, meta) {
-  const lines = eventBlock.split(/\r?\n/u);
-
-  for (const line of lines) {
-    if (!line.startsWith("data:")) {
-      continue;
-    }
-
-    const value = line.slice(5).trim();
-
-    if (!value) {
-      continue;
-    }
-
-    if (value === "[DONE]") {
-      meta.sawDoneMarker = true;
-      return true;
-    }
-
-    const payload = JSON.parse(value);
-    const delta = extractStreamingDelta(payload);
-
-    noteCompletionPayload(meta, payload, delta);
-
-    if (delta) {
-      onDelta(delta);
-    }
-  }
-
-  return false;
-}
-
-async function readStreamingResponse(response, onDelta) {
-  const meta = createCompletionResponseMeta("stream");
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value || new Uint8Array(), {
-      stream: !done
-    });
-
-    let boundary = buffer.indexOf("\n\n");
-
-    while (boundary !== -1) {
-      const eventBlock = buffer.slice(0, boundary).trim();
-      buffer = buffer.slice(boundary + 2);
-
-      if (eventBlock && parseEventBlock(eventBlock, onDelta, meta)) {
-        return finalizeCompletionResponseMeta(meta);
-      }
-
-      boundary = buffer.indexOf("\n\n");
-    }
-
-    if (done) {
-      const remaining = buffer.trim();
-
-      if (remaining) {
-        parseEventBlock(remaining, onDelta, meta);
-      }
-
-      return finalizeCompletionResponseMeta(meta);
-    }
-  }
-}
-
 export const prepareAdminAgentApiRequest = globalThis.space.extend(
   import.meta,
   async function prepareAdminAgentApiRequest({
@@ -524,7 +295,7 @@ export const prepareAdminAgentApiRequest = globalThis.space.extend(
 
     return {
       apiEndpoint,
-      headers: createHeaders(String(effectiveSettings?.apiKey || "").trim()),
+      headers: createApiRequestHeaders(String(effectiveSettings?.apiKey || "").trim()),
       messages: Array.isArray(messages) ? messages : [],
       method: "POST",
       promptContext: normalizedPromptContext,
