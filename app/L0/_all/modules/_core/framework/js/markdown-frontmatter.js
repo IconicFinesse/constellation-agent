@@ -1,5 +1,8 @@
 import { marked } from "./marked.esm.js";
 import * as yaml from "./yaml-lite.js";
+// The fence classifier is REUSED, never copied: `execution-blocks.js` owns what counts
+// as fenced code for every first-party surface (BUG-007 contract).
+import { collectExecutionFenceRegions } from "./execution-blocks.js";
 
 const SAFE_MARKDOWN_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 const MARKDOWN_ROOT_CLASS = "markdown";
@@ -10,13 +13,155 @@ function normalizeMarkdownText(text = "") {
   return typeof text === "string" ? text.replace(/\r\n/gu, "\n").replace(/\r/gu, "\n") : "";
 }
 
+// Neutralize the ONLY thing the parser would otherwise pass through as markup: a raw
+// `<`/`>` in prose. `marked` sanitizes nothing, so `<img onerror=...>` typed in a chat
+// reply would become live HTML; escaping the angle brackets before parse is what keeps
+// prose inert, and it is still applied.
+function escapeProseAngleBrackets(text) {
+  return String(text || "").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+// Escape prose WITHOUT creating a second entity (chat-polish-3 item 2).
+//
+// `marked` already escapes quotes, apostrophes and ampersands itself, in text AND in
+// code: `"intent": "x"` renders as `&quot;intent&quot;: &quot;x&quot;` from RAW input.
+// Escaping those characters BEFORE the parse therefore produced a SECOND entity
+// (`&amp;quot;`), which the parser then rendered literally — the owner-visible
+// `&quot;` in code bodies.
+//
+// Fenced regions are skipped entirely, for the same reason: the parser escapes fenced
+// code itself, so an escape applied there is precisely the double-escape being removed.
+// Skipping cannot widen the HTML surface — whatever sits in a fence is still escaped by
+// the parser before it reaches `innerHTML` (the hostile-fence case is pinned by tests).
+// Inline code spans, for the same reason fenced regions are skipped: the parser
+// escapes a span's content itself, so escaping it first would double it
+// (`<div>` in backticks rendered as `&amp;lt;div&amp;gt;`).
+//
+// A run of backticks with NO matching closing run on the same line is NOT treated as
+// code here: `marked` would render those backticks literally and pass a raw `<` in
+// between straight through, so that text must keep the angle-bracket escape.
+const INLINE_BACKTICK_RUN_PATTERN = /`+/gu;
+
+function collectInlineCodeRegions(text, from, to) {
+  const regions = [];
+  const slice = text.slice(from, to);
+  const lineBreaks = [];
+
+  for (let index = 0; index < slice.length; index += 1) {
+    if (slice[index] === "\n") {
+      lineBreaks.push(index);
+    }
+  }
+
+  const lineEndAfter = (index) => {
+    const nextBreak = lineBreaks.find((lineBreak) => lineBreak > index);
+    return nextBreak === undefined ? slice.length : nextBreak;
+  };
+
+  INLINE_BACKTICK_RUN_PATTERN.lastIndex = 0;
+
+  let match = INLINE_BACKTICK_RUN_PATTERN.exec(slice);
+
+  while (match) {
+    const opener = match[0];
+    const openStart = match.index;
+    const openEnd = openStart + opener.length;
+    const lineEnd = lineEndAfter(openStart);
+    let searchIndex = openEnd;
+    let closed = null;
+
+    while (searchIndex < lineEnd) {
+      const closeIndex = slice.indexOf(opener, searchIndex);
+
+      if (closeIndex === -1 || closeIndex >= lineEnd) {
+        break;
+      }
+
+      // The closing run must be exactly as long as the opener; a longer run belongs
+      // to a different span.
+      const afterClose = slice[closeIndex + opener.length] || "";
+
+      if (afterClose === "`") {
+        searchIndex = closeIndex + opener.length;
+        continue;
+      }
+
+      closed = { closeEnd: closeIndex + opener.length, closeStart: closeIndex, openEnd, openStart };
+      break;
+    }
+
+    if (!closed) {
+      INLINE_BACKTICK_RUN_PATTERN.lastIndex = openEnd;
+      match = INLINE_BACKTICK_RUN_PATTERN.exec(slice);
+      continue;
+    }
+
+    regions.push({ end: from + closed.closeEnd, start: from + closed.openStart });
+    INLINE_BACKTICK_RUN_PATTERN.lastIndex = closed.closeEnd;
+    match = INLINE_BACKTICK_RUN_PATTERN.exec(slice);
+  }
+
+  return regions;
+}
+
+// The byte ranges the parser escapes itself: fenced blocks and inline code spans.
+// Everything OUTSIDE them is prose, which is where a raw angle bracket must be
+// neutralized before the parse.
+function collectParserEscapedRegions(text) {
+  const fenced = collectExecutionFenceRegions(text);
+  const regions = fenced.slice();
+  let cursor = 0;
+
+  fenced.forEach((region) => {
+    if (region.start > cursor) {
+      collectInlineCodeRegions(text, cursor, region.start).forEach((inlineRegion) => regions.push(inlineRegion));
+    }
+
+    cursor = Math.max(cursor, region.end);
+  });
+
+  if (cursor < text.length) {
+    collectInlineCodeRegions(text, cursor, text.length).forEach((inlineRegion) => regions.push(inlineRegion));
+  }
+
+  return regions.sort((left, right) => left.start - right.start);
+}
+
 function escapeHtml(text) {
-  return String(text || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  const source = String(text || "");
+
+  if (!source) {
+    return source;
+  }
+
+  const escapedRegions = collectParserEscapedRegions(source);
+
+  if (!escapedRegions.length) {
+    return escapeProseAngleBrackets(source);
+  }
+
+  let escaped = "";
+  let cursor = 0;
+
+  escapedRegions.forEach((region) => {
+    // Overlapping regions (an inline span that begins before a fence closes, which the
+    // fence scan already swallowed) are clamped so nothing is ever escaped twice.
+    const start = Math.max(cursor, region.start);
+    const end = Math.max(start, region.end);
+
+    if (start > cursor) {
+      escaped += escapeProseAngleBrackets(source.slice(cursor, start));
+    }
+
+    escaped += source.slice(start, end);
+    cursor = end;
+  });
+
+  if (cursor < source.length) {
+    escaped += escapeProseAngleBrackets(source.slice(cursor));
+  }
+
+  return escaped;
 }
 
 function joinClassNames(...classNames) {

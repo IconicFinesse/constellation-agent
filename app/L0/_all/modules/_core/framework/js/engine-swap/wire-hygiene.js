@@ -203,23 +203,161 @@ export const TIER1_CORRECTIVE_RETRY_LIMIT = 1;
 export const TIER1_CORRECTIVE_PROMPT =
   "That reply only showed code; nothing ran. Call the matching tool for this request instead of writing separator code.";
 
-// A Tier-1 turn needs ONE corrective retry when it answered with separator text and
-// never made a single tool call. `turns` is the loop's own per-iteration record, so
-// the decision comes from what actually happened on the wire, not from parsing text.
+// THE DISPLAY-FORM SHAPES (chat-polish-3 item 3).
 //
-export function needsTier1CorrectiveRetry({ answer = "", findSeparatorIndex = null, attempts = 0, turns = [] } = {}) {
-  if (Number(attempts) >= TIER1_CORRECTIVE_RETRY_LIMIT) {
-    return false;
+// The owner's live turn ended with `tool call: run_code {...}` written as CHAT PROSE and
+// nothing executed. The Tier-1 steering already says, verbatim, that a tool call is the
+// only thing that runs — the model was told plainly and wrote display text anyway. More
+// prompt text is therefore not the lever; DETECTION plus a correction that names the
+// specific mistake is.
+//
+// Only SHAPES are recognised here. Intent is not measured and cannot be: a fenced block
+// of code is legitimate display (BUG-007 — showing the user code they asked to see is
+// not a fault), so a catch is a counted observation that the turn produced call-shaped
+// display text AND dispatched nothing, never a claim about what the model meant.
+export const TIER1_DISPLAY_FORM_SHAPE = Object.freeze({
+  // `_____javascript` outside any fence: the retired protocol's own act form.
+  BARE_SEPARATOR: "bare-separator",
+  // A FENCE that contains the separator: the call was written where code is shown.
+  FENCED_SEPARATOR: "fenced-separator",
+  // A fence whose body is a call: `space.api.x(...)`, or a JSON object carrying a name
+  // plus arguments (the wire shape of a typed call, pasted as text).
+  FENCED_CALL_BODY: "fenced-call-body",
+  // `tool call:`/`tool_call:` (or `call:`) followed by a JSON object, unfenced.
+  PROSE_TOOL_CALL: "prose-tool-call"
+});
+
+// A fence body that is unmistakably a CALL rather than incidental code.
+const FENCED_CALL_BODY_PATTERN = /(?:\bspace\s*\.\s*api\s*\.\s*[a-z_$][\w$]*\s*\(|\{\s*"(?:tool|name|tool_name)"\s*:\s*"[^"]+"[\s\S]{0,240}?"arguments"\s*:)/iu;
+
+// `tool call:` and friends, unfenced, introducing a JSON body on this or the next lines.
+const PROSE_TOOL_CALL_PATTERN = /^[ \t]*(?:tool[ \t]*call|tool_call|call)[ \t]*[:\-][\s\S]{0,240}?\{/iu;
+
+function fenceRegionTexts(content, fenceRegions) {
+  const regions = Array.isArray(fenceRegions) ? fenceRegions : [];
+
+  return regions
+    .map((region) => {
+      const start = Number(region?.start);
+      const end = Number(region?.end);
+
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+        return "";
+      }
+
+      return content.slice(Math.max(0, start), Math.min(content.length, end));
+    })
+    .filter(Boolean);
+}
+
+// The prose outside every fence: what the model wrote as CHAT rather than as code.
+function unfolderedText(content, fenceRegions) {
+  const regions = Array.isArray(fenceRegions) ? fenceRegions : [];
+
+  if (!regions.length) {
+    return content;
   }
 
-  if (typeof findSeparatorIndex !== "function") {
-    return false;
+  let text = "";
+  let cursor = 0;
+
+  regions.forEach((region) => {
+    const start = Math.max(cursor, Number(region?.start) || 0);
+
+    if (start > cursor) {
+      text += `${content.slice(cursor, start)}\n`;
+    }
+
+    cursor = Math.max(cursor, Number(region?.end) || 0);
+  });
+
+  if (cursor < content.length) {
+    text += content.slice(cursor);
   }
 
+  return text;
+}
+
+// WHICH display-form mistake this reply made, or "" for none. Pure, and seam-injected:
+// the fence classifier and the separator test both come from their owning modules, so no
+// second copy of fence logic exists (BUG-007 anti-pattern).
+//
+// Precedence runs most-specific first, so the correction can name the exact mistake: a
+// fenced call, then prose `tool call:`, then an uncontained separator.
+//
+// `separator` is optional and only used for the FENCE test: a fence is examined for the
+// literal token, because "is this separator inside a fence" is exactly the question the
+// shared executable-index finder answers the other way round.
+export function detectTier1DisplayFormToolCall({
+  answer = "",
+  fenceRegions = null,
+  findSeparatorIndex = null,
+  separator = ""
+} = {}) {
   const text = typeof answer === "string" ? answer : "";
 
-  if (!text || Number(findSeparatorIndex(text)) < 0) {
-    return false;
+  if (!text.trim()) {
+    return "";
+  }
+
+  const regions = Array.isArray(fenceRegions) ? fenceRegions : [];
+  const regionTexts = fenceRegionTexts(text, regions);
+  const separatorToken = typeof separator === "string" ? separator : "";
+
+  if (regionTexts.some((regionText) => FENCED_CALL_BODY_PATTERN.test(regionText))) {
+    return TIER1_DISPLAY_FORM_SHAPE.FENCED_CALL_BODY;
+  }
+
+  if (separatorToken && regionTexts.some((regionText) => regionText.includes(separatorToken))) {
+    return TIER1_DISPLAY_FORM_SHAPE.FENCED_SEPARATOR;
+  }
+
+  if (PROSE_TOOL_CALL_PATTERN.test(unfolderedText(text, regions))) {
+    return TIER1_DISPLAY_FORM_SHAPE.PROSE_TOOL_CALL;
+  }
+
+  if (typeof findSeparatorIndex === "function" && Number(findSeparatorIndex(text)) >= 0) {
+    return TIER1_DISPLAY_FORM_SHAPE.BARE_SEPARATOR;
+  }
+
+  return "";
+}
+
+// The coaching turn for a SPECIFIC shape (item 3). Naming the mistake is the whole point:
+// a generic "use tools" nudge is what the steering leg already says, and repeating it
+// louder is superstition. Each line states what happened, that it cannot execute, and the
+// one action to take instead — and none of them forbids showing code (BUG-007).
+const TIER1_SHAPE_PROMPTS = Object.freeze({
+  [TIER1_DISPLAY_FORM_SHAPE.BARE_SEPARATOR]: TIER1_CORRECTIVE_PROMPT,
+  [TIER1_DISPLAY_FORM_SHAPE.FENCED_CALL_BODY]:
+    "That reply put the tool call inside a fenced code block, which is display only on this tier and never executes. Re-issue it as an actual tool call.",
+  [TIER1_DISPLAY_FORM_SHAPE.FENCED_SEPARATOR]:
+    "That reply put the execution separator inside a fenced code block, which is display only on this tier and never executes. If you meant to act, re-issue it as an actual tool call.",
+  [TIER1_DISPLAY_FORM_SHAPE.PROSE_TOOL_CALL]:
+    "That reply wrote `tool call:` as chat prose, which is display only on this tier and never executes. Re-issue it as an actual tool call."
+});
+
+export function resolveTier1CorrectivePrompt(shape = "") {
+  return TIER1_SHAPE_PROMPTS[String(shape || "")] || TIER1_CORRECTIVE_PROMPT;
+}
+
+// ONE decision function for the bounded correction. It answers `{ retry, shape }` so the
+// caller can send a correction that names the SHAPE, and it is the only place the cap is
+// applied.
+//
+// `turns` is the loop's own per-iteration record, so "did this turn dispatch anything"
+// comes from what actually happened on the wire, never from parsing prose.
+//
+export function resolveTier1CorrectiveRetry({
+  answer = "",
+  attempts = 0,
+  findSeparatorIndex = null,
+  fenceRegions = null,
+  separator = "",
+  turns = []
+} = {}) {
+  if (Number(attempts) >= TIER1_CORRECTIVE_RETRY_LIMIT) {
+    return Object.freeze({ retry: false, shape: "" });
   }
 
   const iterations = Array.isArray(turns) ? turns : [];
@@ -228,7 +366,27 @@ export function needsTier1CorrectiveRetry({ answer = "", findSeparatorIndex = nu
     0
   );
 
-  return toolCallCount === 0;
+  // A turn that dispatched a call is never corrected, whatever its prose looked like:
+  // the action happened, so display text alongside it is honest display.
+  if (toolCallCount !== 0) {
+    return Object.freeze({ retry: false, shape: "" });
+  }
+
+  const shape = detectTier1DisplayFormToolCall({ answer, fenceRegions, findSeparatorIndex, separator });
+
+  return Object.freeze({ retry: Boolean(shape), shape });
+}
+
+// Compatibility predicate over the same ONE decision: a Tier-1 turn needs a correction
+// when it answered with call-shaped display content and made no typed call.
+export function needsTier1CorrectiveRetry({ answer = "", findSeparatorIndex = null, attempts = 0, turns = [] } = {}) {
+  return resolveTier1CorrectiveRetry({ answer, attempts, findSeparatorIndex, turns }).retry;
+}
+
+// One line for the diagnostics channel. Counts the SHAPE, never message content, so the
+// owner can tell rare drift from a habitual pattern without the log carrying replies.
+export function formatDisplayFormToolCallLine(shape = "") {
+  return `[engine-swap] display-form-tool-call detected=1 shape=${String(shape || "unknown")}`;
 }
 
 // One line for the diagnostics log. Never includes message content.

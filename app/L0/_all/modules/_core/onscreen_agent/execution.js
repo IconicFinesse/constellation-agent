@@ -9,6 +9,7 @@ import {
   formatExecutionTranscriptValue
 } from "/modules/_core/framework/js/execution-format.js";
 import {
+  collectExecutionFenceRegions as sharedCollectExecutionFenceRegions,
   countExecutionSeparators as sharedCountExecutionSeparators,
   extractExecuteBlocks as sharedExtractExecuteBlocks,
   findExecutableSeparatorIndex as sharedFindExecutableSeparatorIndex,
@@ -71,6 +72,13 @@ export function extractExecuteBlocks(content) {
 // this so a fenced display that merely shows the separator is never cut in half.
 export function findExecutableSeparatorIndex(content) {
   return sharedFindExecutableSeparatorIndex(content, EXECUTION_SEPARATOR);
+}
+
+// Fence REGIONS, re-exported for the same reason: the display-form detector needs to
+// know what was fenced, and a second copy of fence logic is the BUG-007 anti-pattern.
+// Display text is never an execution, so the detector must ask exactly this module.
+export function findExecutionFenceRegions(content) {
+  return sharedCollectExecutionFenceRegions(content);
 }
 
 function countExecutionSeparators(content) {

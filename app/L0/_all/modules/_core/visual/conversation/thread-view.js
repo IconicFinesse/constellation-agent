@@ -28,6 +28,27 @@ export const EXECUTION_DISPLAY_ONLY_STATE = "display-only";
 export const EXECUTION_DISPLAY_ONLY_LABEL = "Shown, not executed";
 export const EXECUTION_DISPLAY_ONLY_OUTPUT_TEXT = "Nothing was executed.";
 
+// ONE VOCABULARY PER TIER (chat-polish-3 item 1).
+//
+// A separator-bearing reply on a TYPED turn (Tier 1) is display text BY CONSTRUCTION: on
+// that tier nothing executes separator code, ever — actions happen only through typed
+// tool calls. Yet the live reply still rendered the Tier 3 card, `Writing 70 lines of
+// code` with the pencil icon, BESIDE the typed `run_code · Running` chip for the same
+// turn. Two mechanisms, two vocabularies, one turn: the exact inconsistency the owner
+// reported.
+//
+// The message carries the mark (`tier1Turn: true`) because the STORE created it as the
+// engine-swap preview; that is the only thing that knows which tier is running. With the
+// mark, the card resolves display-only even while the text is still arriving, and the
+// turn reads in ONE vocabulary: typed calls say `run_code · Running/Success/Error`,
+// displayed code says `Shown, not executed`.
+//
+// A Tier 3 turn carries no mark, so its cards (and their `Writing N lines` /
+// `Executed N lines` wording) stay byte-identical.
+function isTier1DisplayOnlyTurn(message) {
+  return message?.tier1Turn === true;
+}
+
 // ONE resolver for the execution card's visual state, so the summary label, the
 // status icon, the output pane, and the render signature cannot disagree.
 //
@@ -39,6 +60,7 @@ export const EXECUTION_DISPLAY_ONLY_OUTPUT_TEXT = "Nothing was executed.";
 // meaning for every other message: no results yet and the surface is still busy.
 export function resolveExecutionCardState({
   displayOnly = false,
+  displayOnlyTier = false,
   hasError = false,
   hasResults = false,
   isConversationBusy = false,
@@ -46,6 +68,27 @@ export function resolveExecutionCardState({
   isRerunning = false,
   isStreaming = false
 } = {}) {
+  // A TYPED-TIER (Tier 1) card has ONE reading, whatever else is true of it: nothing on
+  // that tier executes separator text, so the card describes shown code and cannot
+  // legitimately claim to be writing or running anything. Its own facts still outrank it
+  // — a rerun that really executed turns the same card into Success/Error, exactly as on
+  // any other message.
+  //
+  // This branch is why a live Tier 1 turn no longer reads `Writing 70 lines of code`
+  // beside its typed `run_code · Running` chip. Streaming still outranks display-only for
+  // every OTHER message (Tier 3), which the resolver's existing tests pin.
+  if (displayOnlyTier) {
+    if (hasError) {
+      return { iconName: "error", pendingState: "", tone: "is-error" };
+    }
+
+    if (hasResults) {
+      return { iconName: "check_circle", pendingState: "", tone: "is-success" };
+    }
+
+    return { iconName: "visibility", pendingState: EXECUTION_DISPLAY_ONLY_STATE, tone: "is-pending" };
+  }
+
   if (isStreaming) {
     return { iconName: "edit_note", pendingState: "generating", tone: "is-writing" };
   }
@@ -888,6 +931,7 @@ export function createAgentThreadView(config = {}) {
 
   function createExecutionCard({
     displayOnly = false,
+    displayOnlyTier = false,
     executeDisplay,
     isConversationBusy,
     isProvisional = false,
@@ -913,6 +957,7 @@ export function createAgentThreadView(config = {}) {
         }
       : resolveExecutionCardState({
           displayOnly,
+          displayOnlyTier,
           hasError: executionResultsHaveError(displayOutputResults),
           hasResults: Array.isArray(displayOutputResults) && displayOutputResults.length > 0,
           isConversationBusy,
@@ -1245,6 +1290,10 @@ export function createAgentThreadView(config = {}) {
         sectionElement.append(
           createExecutionCard({
             displayOnly: section.displayOnly === true,
+            // A TYPED-tier turn's separator text is display BY CONSTRUCTION, so its card
+            // reads `Shown, not executed` from the first painted frame — not after the
+            // turn ends, and never as `Writing N lines of code` beside a typed chip.
+            displayOnlyTier: isTier1DisplayOnlyTurn(section.message),
             executeDisplay: section.executeDisplay,
             isConversationBusy: options.isConversationBusy,
             isStreaming: Boolean(section.message.streaming),
@@ -1392,11 +1441,24 @@ export function createAgentThreadView(config = {}) {
     bubble.classList.add("is-streaming");
     row.dataset.streamingMessageId = message.id;
     const lineCount = getExecuteDisplayLineCount(executeDisplay);
-    const summaryState = getExecutionSummaryState([], "generating");
+    // ONE VOCABULARY PER TIER, on the live path too (item 1). The patch used to force
+    // `generating` on every mid-stream card, so a typed-tier turn showed `Writing N lines
+    // of code` next to its own `run_code · Running` chip until the turn ended. A typed-tier
+    // card resolves through the SAME resolver as its committed form, so the live frame and
+    // the settled row cannot disagree — and the transition is unskippable because the
+    // pending state is in the render signature.
+    const summaryState = isTier1DisplayOnlyTurn(message)
+      ? resolveExecutionCardState({ displayOnlyTier: true })
+      : getExecutionSummaryState([], "generating");
 
     status.className = `execution-status ${summaryState.tone}`;
     setElementText(statusIcon, summaryState.iconName);
-    setElementText(summaryTitle, formatExecutionSummaryLabel(lineCount, "generating", []));
+    setElementText(
+      summaryTitle,
+      isTier1DisplayOnlyTurn(message)
+        ? EXECUTION_DISPLAY_ONLY_LABEL
+        : formatExecutionSummaryLabel(lineCount, "generating", [])
+    );
     setElementText(inputLabel, lineCount ? `Input • ${formatLineCount(lineCount)}` : "Input");
 
     syncStreamingExecutionNarration(sectionElement, executeDisplay);
@@ -1939,6 +2001,10 @@ export function createAgentThreadView(config = {}) {
             // Keying on the resolved state makes that transition un-skippable.
             const cardState = resolveExecutionCardState({
               displayOnly: section.displayOnly === true,
+              // Part of the signature for the same reason the busy flag is: the row built
+              // for a typed-tier turn must not be reused with a legacy `Writing N lines`
+              // summary, and the mark is what makes its reading terminal.
+              displayOnlyTier: isTier1DisplayOnlyTurn(section.message),
               hasError: executionResultsHaveError(section.outputResults),
               hasResults: Array.isArray(section.outputResults) && section.outputResults.length > 0,
               isConversationBusy: options.isConversationBusy,
