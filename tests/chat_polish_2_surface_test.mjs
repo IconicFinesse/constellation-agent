@@ -583,9 +583,29 @@ test("C: the commit-race guard still refuses a preview the turn already committe
   );
 });
 
-test("C: the painter decision is the shared one, and the preview takes it", () => {
+test("C: the painter decision is the shared one, and the live rows actually take it", () => {
   assert.equal(selectMessageContentPainter({ streaming: true }), MESSAGE_CONTENT_PAINTER.PREVIEW);
   assert.equal(selectMessageContentPainter({ streaming: false }), MESSAGE_CONTENT_PAINTER.COMMITTED);
+
+  // LIVE PATH, not just policy (a seeded mutation that routes this painter to plain text
+  // was MISSED while this case only asserted the policy: the class is what the painter
+  // itself sets, so asserting it is what tells the two apart from the outside).
+  const thread = renderThread([
+    {
+      content: "Narration with **bold** and `code`.",
+      id: "assistant-live-text",
+      kind: "",
+      role: "assistant",
+      streaming: true
+    }
+  ]);
+  const liveContent = thread.querySelector("[data-streaming-content]");
+
+  assert.ok(liveContent, "a streaming text turn paints its preview block");
+  assert.ok(
+    liveContent.classList.contains("message-markdown"),
+    "the live preview took the MARKDOWN painter, not the plain one"
+  );
 
   // An unclosed fence GROWS as a code block rather than sitting there as literal backticks.
   const painted = [];
