@@ -123,7 +123,7 @@ function callArities(source, name) {
       const ch = source[index];
 
       if (quote) {
-        if (ch === quote && source[index - 1] !== "") {
+        if (ch === quote) {
           quote = "";
         }
 
@@ -433,23 +433,33 @@ test("admin's api.js never threads the onPayload hook", () => {
   );
 });
 
-test("no admin call site passes a fourth argument to the shared reader", () => {
+test("no admin call site can reach the shared reader's payload parameter", () => {
   // The stronger form of the assertion above: the raw-payload hook must not reach
-  // the reader under ANY name. Four shared functions accept it as their optional
-  // fourth parameter, so every admin call to them must stay at three arguments or
-  // fewer. This catches a premature wiring that renamed the hook.
+  // the reader under ANY name. The hook's POSITION differs per function, which is
+  // exactly why this is a table and not one threshold:
+  //
+  //   readStreamingResponse(response, onDelta, onPayload)       hook THIRD
+  //   readBufferedResponse(response, onDelta, onPayload)        hook THIRD
+  //   pumpEventStreamText(bodyText, onDelta, meta, onPayload)   hook FOURTH
+  //   parseEventBlock(eventBlock, onDelta, meta, onPayload)     hook FOURTH
+  //
+  // An earlier version of this case asserted a flat "three or fewer" against all
+  // four, which silently could not see a third-argument hook on the two READERS —
+  // including `readStreamingResponse`, the one admin actually calls. A seeded
+  // mutation wiring the hook there survived that version; this table is the fix.
+  const MAX_ARITY_WITHOUT_HOOK = Object.freeze({
+    parseEventBlock: 3,
+    pumpEventStreamText: 3,
+    readBufferedResponse: 2,
+    readStreamingResponse: 2
+  });
   const code = stripComments(readSource(ADMIN_API_URL));
   const offenders = [];
 
-  for (const name of [
-    "readStreamingResponse",
-    "readBufferedResponse",
-    "pumpEventStreamText",
-    "parseEventBlock"
-  ]) {
+  for (const [name, max] of Object.entries(MAX_ARITY_WITHOUT_HOOK)) {
     for (const argc of callArities(code, name)) {
-      if (argc > 3) {
-        offenders.push(`${name} called with ${argc} arguments`);
+      if (argc > max) {
+        offenders.push(`${name} called with ${argc} arguments (max ${max} without the hook)`);
       }
     }
   }
@@ -471,6 +481,15 @@ test("the call-arity scanner detects a fourth argument when one exists", () => {
   assert.deepEqual(callArities(three, "readStreamingResponse"), [3]);
   assert.deepEqual(callArities(four, "readStreamingResponse"), [4]);
   assert.deepEqual(callArities(nested, "pumpEventStreamText"), [3]);
+
+  // The position that mattered: the two READERS take the hook third, so the self
+  // check must prove a two-argument call and a three-argument call are told apart.
+  assert.deepEqual(callArities('readStreamingResponse(response, onDelta);', "readStreamingResponse"), [2]);
+  assert.deepEqual(callArities('readBufferedResponse(response, onDelta);', "readBufferedResponse"), [2]);
+  assert.deepEqual(
+    callArities('readBufferedResponse(response, onDelta, (p) => p);', "readBufferedResponse"),
+    [3]
+  );
 });
 
 test("a tool_calls-only payload still renders no text on admin", async () => {
