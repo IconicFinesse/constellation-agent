@@ -681,6 +681,67 @@
   justify-content: space-between;
 }
 
+/* SMART GROUPING (chat-surface polish, item 1): one collapsible summary row for a
+   run of contiguous tool calls. Scoped to this run card only; the per-call execution
+   cards inside it keep their existing presentation untouched. */
+.agent-thread-surface .tool-run-card {
+  border: 1px solid var(--agent-thread-markdown-rule-color);
+  border-radius: 10px;
+  background: var(--agent-thread-execution-bg);
+  overflow: hidden;
+}
+
+.agent-thread-surface .tool-run-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  color: var(--agent-thread-muted-color);
+  font-size: 0.86rem;
+  list-style: none;
+}
+
+.agent-thread-surface .tool-run-summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-thread-surface .tool-run-summary:hover {
+  color: var(--agent-thread-text-color);
+  background: var(--agent-thread-markdown-inline-bg);
+}
+
+.agent-thread-surface .tool-run-icon {
+  flex: none;
+  font-size: 1rem;
+}
+
+.agent-thread-surface .tool-run-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-thread-surface .tool-run-chevron {
+  flex: none;
+  font-size: 1rem;
+  transition: transform 120ms ease;
+}
+
+.agent-thread-surface .tool-run-card[open] .tool-run-chevron {
+  transform: rotate(90deg);
+}
+
+.agent-thread-surface .tool-run-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--agent-thread-terminal-bubble-gap);
+  padding: 0 6px 6px;
+  border-top: 1px solid var(--agent-thread-terminal-divider);
+}
+
 @keyframes agent-thread-spin {
   from {
     transform: rotate(0deg);

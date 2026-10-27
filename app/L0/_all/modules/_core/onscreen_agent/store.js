@@ -1,5 +1,7 @@
 import * as config from "/modules/_core/onscreen_agent/config.js";
 import * as agentApi from "/modules/_core/onscreen_agent/api.js";
+import { buildChatRenderProjection } from "/modules/_core/onscreen_agent/chat-projection.js";
+import { createToolRunOpenState } from "/modules/_core/visual/conversation/tool-run.js";
 import {
   installPromptItemAccess,
   rebalancePromptBudgetRatios
@@ -1411,6 +1413,21 @@ const model = {
   // turn, so persistence and the display-only derivation can never observe a
   // half-streamed reply, and a reload cannot resurrect one.
   engineSwapStreamingPreview: null,
+  // PROVISIONAL tool-call chips (chat-surface polish, item 2). A call whose streamed
+  // arguments COMPLETED gets a `running` chip immediately, so the user can see work
+  // accumulating instead of waiting for the turn to end. Like the streaming preview
+  // this is projection-only state: it never enters `this.history`, is never
+  // serialized, and nothing dispatches off it.
+  engineSwapProvisionalCalls: [],
+  // The preview belongs to ONE turn. Sealing it at commit is what makes the doubled
+  // row impossible: a late delta from a finished turn cannot resurrect a preview row
+  // next to the committed reply, and the commit render runs with the slot already
+  // empty (item 4).
+  engineSwapPreviewSealed: false,
+  // Expanded state for grouped tool-call runs. Held HERE rather than on the DOM
+  // because the thread view replaces rows on every render; a `<details open>`
+  // boolean living only on a node would be lost as soon as a result landed.
+  toolRunOpenState: createToolRunOpenState(),
   pendingHistorySnapshot: null,
   pendingStreamingDelta: "",
   pendingStreamingDeltaFrame: 0,
@@ -3346,6 +3363,23 @@ const model = {
     return (Array.isArray(history) ? history : []).map((entry) => projectHistoryEntryForDisplay(entry));
   },
 
+  // The render history a paint actually consumes: committed display projection PLUS the
+  // two projection-only classes of state (provisional chips, streaming preview).
+  //
+  // ORDER IS THE FIX (chat-polish audit blocker 2, 2026-10-27):
+  // `buildChatRenderProjection` matches committed calls by `typedTool`/`typedToolCallId`,
+  // and those marks are added by `projectHistoryEntryForDisplay`. Guarding raw history
+  // therefore matched nothing and the stranding guard was inert in production — green
+  // tests only because the test fixture pre-projected its input. Projecting first makes
+  // the guarantee the report claims actually hold at the one call site that draws.
+  buildRenderHistory(history = this.history) {
+    return buildChatRenderProjection({
+      history: this.getRenderHistory(history),
+      preview: this.engineSwapStreamingPreview,
+      provisionalCalls: this.engineSwapProvisionalCalls
+    });
+  },
+
   async flushHistoryPersistence() {
     if (this.historyPersistPromise) {
       return this.historyPersistPromise;
@@ -4112,25 +4146,34 @@ const model = {
       return;
     }
 
-    // The Tier 1 streaming preview renders as an EXTRA row, exactly like the queued
-    // previews below. It is added to the projection here and nowhere else, so no
+    // The Tier 1 streaming preview and the provisional tool-call chips render as
+    // EXTRA rows, exactly like the queued previews below. BOTH are added to the
+    // projection in ONE place (`chat-projection.js`) and nowhere else, so no
     // persistence, commit or display-only derivation can ever see a half-streamed
-    // reply, and a reload cannot resurrect one.
-    const renderHistory = this.getRenderHistory();
-    const streamingPreview = this.engineSwapStreamingPreview;
-
-    if (streamingPreview && String(streamingPreview.content || "").trim()) {
-      renderHistory.push(projectHistoryEntryForDisplay(streamingPreview));
-    }
+    // reply or a chip for a call that has not happened, and a reload cannot
+    // resurrect either.
+    //
+    // That helper also owns the commit-race guard: a preview whose id is committed — or
+    // whose text THIS TURN already committed — is dropped, so "one assistant message,
+    // one row" is a property of the projection rather than a promise about call ordering
+    // (the doubled row the owner saw on the first turn of a session).
+    //
+    // `buildRenderHistory` projects the committed history FIRST and only then appends the
+    // projection-only state, because the stranding guard matches display-projection marks
+    // (`typedTool`/`typedToolCallId`) that raw stored entries do not carry. Handing raw
+    // history here made that guard inert in production (chat-polish audit blocker 2).
+    const renderHistory = this.buildRenderHistory();
 
     agentView.renderMessages(this.refs.thread, renderHistory, {
       displayOnlyMessageIds: this.engineSwapDisplayOnlyMessageIds,
+      groupToolRuns: true,
       isConversationBusy: this.isSending,
       outputOverrides: this.executionOutputOverrides,
       preserveScroll: options.preserveScroll === true,
       queuedMessages: this.getQueuedPreviewMessages(),
       rerunningMessageId: this.rerunningMessageId,
-      scroller: this.refs.scroller
+      scroller: this.refs.scroller,
+      toolRunOpenState: this.toolRunOpenState
     });
   },
 
@@ -5388,6 +5431,14 @@ const model = {
   appendEngineSwapStreamingDelta(delta) {
     const text = typeof delta === "string" ? delta : "";
 
+    // SEALED (item 4). The turn that owned this slot has committed, so a delta
+    // arriving late (an in-flight frame, a transport that resolved after abort) must
+    // not resurrect a preview row beside the committed reply. Dropping it here is the
+    // other half of the ordering guarantee; the projection's id check is the first.
+    if (this.engineSwapPreviewSealed) {
+      return;
+    }
+
     if (!text) {
       return;
     }
@@ -5408,11 +5459,65 @@ const model = {
     this.scheduleStreamingMessageRender(this.engineSwapStreamingPreview);
   },
 
+  // PROVISIONAL chips, painted as a call's streamed arguments complete.
+  //
+  // Deduped by call id: providers repeat a completed call in later deltas, and a
+  // second chip for one call would be a lie about how many calls are running. This
+  // NEVER dispatches anything — the loop dispatches from the assembled result only.
+  recordEngineSwapProvisionalCall(call = {}) {
+    const callId = String(call?.callId || call?.id || "");
+    const name = String(call?.name || "tool");
+
+    if (!callId || this.engineSwapPreviewSealed) {
+      return false;
+    }
+
+    const exists = this.engineSwapProvisionalCalls.some(
+      (entry) => String(entry?.callId || "") === callId
+    );
+
+    if (exists) {
+      return false;
+    }
+
+    this.engineSwapProvisionalCalls = [...this.engineSwapProvisionalCalls, { callId, name }];
+    // Same frame discipline as streamed text: one coalesced repaint, never a render
+    // per delta. Full mode only, because that is the surface that draws the thread.
+    if (this.isFullMode && !this.streamingRenderFrame) {
+      this.streamingRenderFrame = window.requestAnimationFrame(() => {
+        this.streamingRenderFrame = 0;
+        this.render({ preserveScroll: true });
+      });
+    }
+
+    return true;
+  },
+
   // A streaming preview that outlived its turn would be a message the user never
   // received, so every exit clears it: commit, hold, error, stop and a thrown
   // transport all pass through the turn's `finally`.
+  //
+  // THE ONE CLEANUP SITE (items 2 and 4). Provisional chips are the same class of
+  // state as the text preview — projection-only, meaningless outside the turn that
+  // produced them — so they are cleared HERE rather than in a second place that
+  // could drift. Every provisional chip therefore ends its life at commit, at an
+  // error, at a stop, at a hold, or at a thrown transport: none can strand.
   clearEngineSwapStreamingPreview() {
     this.engineSwapStreamingPreview = null;
+    this.engineSwapProvisionalCalls = [];
+  },
+
+  // Sealing is what makes the ordering guarantee hold against a LATE delta: once a
+  // turn has committed, nothing may create preview state again until the next turn
+  // opens it explicitly.
+  sealEngineSwapPreview() {
+    this.engineSwapPreviewSealed = true;
+    this.clearEngineSwapStreamingPreview();
+  },
+
+  openEngineSwapPreview() {
+    this.engineSwapPreviewSealed = false;
+    this.clearEngineSwapStreamingPreview();
   },
 
   // --- engine-swap Tier 1 (P2) ---------------------------------------------
@@ -5516,7 +5621,9 @@ const model = {
           // instead of appending a second one.
           if (!previewStarted) {
             previewStarted = true;
-            this.clearEngineSwapStreamingPreview();
+            // Opens the slot for THIS turn: clears any stale preview and lifts the
+            // seal the previous turn left behind (item 4).
+            this.openEngineSwapPreview();
           } else {
             previewBoundaryPending = true;
           }
@@ -5528,6 +5635,10 @@ const model = {
             // Routed through the turn's accumulator so an iteration boundary is
             // inserted between this iteration's prose and the next one's.
             onDelta: (delta) => appendPreviewDelta(delta),
+            // A call whose arguments COMPLETE paints a provisional `running` chip
+            // immediately (item 2). Display only: the loop still dispatches from the
+            // assembled turn, and every chip is cleared at ONE cleanup site.
+            onToolCallComplete: (call) => this.recordEngineSwapProvisionalCall(call),
             requestBody: request.body,
             settings: this.settings,
             signal: controller.signal
@@ -5586,6 +5697,7 @@ const model = {
 
               return agentApi.streamOnscreenAgentToolTurn({
                 onDelta: (delta) => appendPreviewDelta(delta),
+                onToolCallComplete: (call) => this.recordEngineSwapProvisionalCall(call),
                 requestBody: request.body,
                 settings: this.settings,
                 signal: controller.signal
@@ -5635,10 +5747,16 @@ const model = {
         wireMessageCount: messages.length
       };
     } finally {
-      // The preview dies with the turn. Commit, hold, error and stop all return
-      // through here, so a streamed reply the user watched can never linger as a
-      // row that history does not contain.
-      this.clearEngineSwapStreamingPreview();
+      // The preview dies with the turn. Commit, hold, error, stop, iteration cap and
+      // a thrown transport all return through here, so a streamed reply the user
+      // watched can never linger as a row that history does not contain.
+      //
+      // SEAL + CLEAR in ONE call, in that order (items 2 and 4): sealing makes a LATE
+      // delta (an in-flight frame, a transport resolving after an abort) unable to
+      // recreate preview state beside the committed reply, and the same call settles
+      // every provisional chip. Both kinds of projection state therefore exit through
+      // a single line on every path.
+      this.sealEngineSwapPreview();
 
       if (this.activeRequestController === controller) {
         this.activeRequestController = null;

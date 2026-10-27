@@ -621,7 +621,13 @@ export const completeOnscreenAgentToolTurn = globalThis.space.extend(
 // still assembling. Rendering is optional; assembly is not.
 export const streamOnscreenAgentToolTurn = globalThis.space.extend(
   import.meta,
-  async function streamOnscreenAgentToolTurn({ onDelta = null, requestBody, settings, signal } = {}) {
+  async function streamOnscreenAgentToolTurn({
+    onDelta = null,
+    onToolCallComplete = null,
+    requestBody,
+    settings,
+    signal
+  } = {}) {
     const effectiveSettings =
       settings && typeof settings === "object" ? settings : config.DEFAULT_ONSCREEN_AGENT_SETTINGS;
     const apiEndpoint = String(effectiveSettings?.apiEndpoint || "").trim();
@@ -654,7 +660,37 @@ export const streamOnscreenAgentToolTurn = globalThis.space.extend(
       await throwResponseError(response);
     }
 
-    const onPayload = (payload) => assembler.applyPayload(payload);
+    const onPayload = (payload) => {
+      assembler.applyPayload(payload);
+
+      // PROVISIONAL CHIP HOOK (chat-surface polish, item 2). The surface wants to
+      // paint a `running` chip as soon as a call's arguments COMPLETE, not only when
+      // the turn ends. `finish()` is pure and non-mutating, so asking it mid-stream
+      // reuses the ONE completeness owner instead of re-deriving a second verdict
+      // beside it. The loop still dispatches from the FINAL assembled result; this
+      // notification changes nothing about assembly or dispatch.
+      if (typeof onToolCallComplete === "function") {
+        let assembledNow = null;
+
+        try {
+          assembledNow = assembler.finish();
+        } catch {
+          assembledNow = null;
+        }
+
+        (assembledNow?.toolCalls || []).forEach((call) => {
+          if (call.argumentsComplete !== true) {
+            return;
+          }
+
+          try {
+            onToolCallComplete({ id: call.id, name: call.name });
+          } catch {
+            // Painting must never break assembly or dispatch.
+          }
+        });
+      }
+    };
     const deliver = (delta) => {
       try {
         onDelta?.(delta);

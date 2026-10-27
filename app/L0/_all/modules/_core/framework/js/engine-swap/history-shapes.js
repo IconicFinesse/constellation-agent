@@ -401,7 +401,13 @@ export function projectHistoryEntryForDisplay(entry) {
       id: read.id || `tool-call-${read.callId}`,
       kind: "execution-output",
       role: "user",
-      typedTool: "call"
+      typedTool: "call",
+      // Identity and outcome travel WITH the projection so the chat surface can
+      // derive grouping from the stored entry sequence instead of re-reading the
+      // typed shapes itself (the second-reader anti-pattern).
+      typedToolCallId: read.callId,
+      typedToolName: read.name,
+      typedToolOutcome: TOOL_RESULT_OUTCOME.PENDING
     });
   }
 
@@ -415,11 +421,63 @@ export function projectHistoryEntryForDisplay(entry) {
       id: read.id || `tool-result-${read.callId}`,
       kind: "execution-output",
       role: "user",
-      typedTool: "result"
+      typedTool: "result",
+      typedToolCallId: read.callId,
+      typedToolName: read.name,
+      typedToolOutcome: classifyToolResultOutcome(entry)
     });
   }
 
   return entry;
+}
+
+// Outcome of a typed tool RESULT, in the closed vocabulary the CHAT SURFACE needs to
+// group a run of calls and to keep consent affordances individually visible.
+//
+// The two non-terminal words are not decoration: a `held` call is waiting for the
+// human's confirmation, and a `deferred` call was never executed because a sibling was
+// held. Both are things the user must still SEE and act on, so the renderer is told
+// about them here rather than re-deriving them by string-matching prose somewhere else.
+// This reader is the one place that knows how the loop spells those outcomes.
+export const TOOL_RESULT_OUTCOME = Object.freeze({
+  SUCCESS: "success",
+  ERROR: "error",
+  HELD: "held",
+  DEFERRED: "deferred",
+  PENDING: "pending"
+});
+
+export function classifyToolResultOutcome(entry) {
+  const read = readHistoryEntry(entry);
+
+  if (read.kind !== HISTORY_ENTRY_KIND.TOOL_RESULT) {
+    return TOOL_RESULT_OUTCOME.PENDING;
+  }
+
+  if (read.error) {
+    return TOOL_RESULT_OUTCOME.ERROR;
+  }
+
+  const text = typeof read.payload === "string" ? read.payload.trim() : "";
+
+  // `held:` is the reachable non-terminal word: the loop reports a held call as a
+  // normal (non-error) tool message, so it lands here as a payload. The consent
+  // affordance the comment above describes is therefore real.
+  //
+  // `policy:` is deliberately NOT matched here. `canonicalMessagesToTypedEntries`
+  // classifies any `policy:` tool message as an ERROR result before it reaches this
+  // reader (`history-shapes.js:247`), so a payload can never begin with it and a check
+  // for it would be dead code that implies a consent affordance this branch cannot
+  // produce (chat-polish audit non-blocker a, 2026-10-27).
+  if (text.startsWith("held:")) {
+    return TOOL_RESULT_OUTCOME.HELD;
+  }
+
+  if (text.startsWith("deferred:")) {
+    return TOOL_RESULT_OUTCOME.DEFERRED;
+  }
+
+  return TOOL_RESULT_OUTCOME.SUCCESS;
 }
 
 // Prompt projection for the text-protocol (Tier 3) path.
