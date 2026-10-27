@@ -1405,6 +1405,12 @@ const model = {
   isSending: false,
   engineSwapPendingHold: null,
   engineSwapTier1Session: null,
+  // Tier 1 streaming preview. Text deltas from the tool-turn transport accumulate
+  // here so the surface can paint prose while tool calls are still assembling.
+  // Deliberately NOT part of `this.history`: history stays exactly the committed
+  // turn, so persistence and the display-only derivation can never observe a
+  // half-streamed reply, and a reload cannot resurrect one.
+  engineSwapStreamingPreview: null,
   pendingHistorySnapshot: null,
   pendingStreamingDelta: "",
   pendingStreamingDeltaFrame: 0,
@@ -4106,7 +4112,18 @@ const model = {
       return;
     }
 
-    agentView.renderMessages(this.refs.thread, this.getRenderHistory(), {
+    // The Tier 1 streaming preview renders as an EXTRA row, exactly like the queued
+    // previews below. It is added to the projection here and nowhere else, so no
+    // persistence, commit or display-only derivation can ever see a half-streamed
+    // reply, and a reload cannot resurrect one.
+    const renderHistory = this.getRenderHistory();
+    const streamingPreview = this.engineSwapStreamingPreview;
+
+    if (streamingPreview && String(streamingPreview.content || "").trim()) {
+      renderHistory.push(projectHistoryEntryForDisplay(streamingPreview));
+    }
+
+    agentView.renderMessages(this.refs.thread, renderHistory, {
       displayOnlyMessageIds: this.engineSwapDisplayOnlyMessageIds,
       isConversationBusy: this.isSending,
       outputOverrides: this.executionOutputOverrides,
@@ -5357,6 +5374,47 @@ const model = {
     return executionResults;
   },
 
+  // --- engine-swap Tier 1 streaming preview --------------------------------
+  //
+  // Tool turns STREAM text as well as tool calls. The transport already reports
+  // each text delta (`api.js` `onDelta`), but the Tier 1 path passed no callback,
+  // so the prose only appeared when the whole turn returned: "text arrives all at
+  // once". These three methods are the whole surface half of the fix.
+  //
+  // The preview lives OUTSIDE `this.history` on purpose. History is the committed
+  // turn: persistence serializes it, the display-only derivation reads it, and a
+  // reload replays it. A half-streamed reply has no business in any of those, so a
+  // preview that is merely ADDED TO THE RENDER PROJECTION cannot leak into them.
+  appendEngineSwapStreamingDelta(delta) {
+    const text = typeof delta === "string" ? delta : "";
+
+    if (!text) {
+      return;
+    }
+
+    if (!this.engineSwapStreamingPreview) {
+      const preview = createStreamingAssistantMessage();
+      // A stable, reserved id: the row patch looks its row up by id, and it must
+      // never collide with a committed message or a queued preview.
+      preview.id = "engine-swap-streaming-preview";
+      this.engineSwapStreamingPreview = preview;
+    }
+
+    this.engineSwapStreamingPreview.content += text;
+    // Compact and full mode paint streaming text through different seams; feed
+    // both, exactly as the Tier 3 delta path does.
+    this.setStreamingAssistantStatus(this.engineSwapStreamingPreview.content);
+    this.maybeShowCompactStreamingAssistantBubble(this.engineSwapStreamingPreview);
+    this.scheduleStreamingMessageRender(this.engineSwapStreamingPreview);
+  },
+
+  // A streaming preview that outlived its turn would be a message the user never
+  // received, so every exit clears it: commit, hold, error, stop and a thrown
+  // transport all pass through the turn's `finally`.
+  clearEngineSwapStreamingPreview() {
+    this.engineSwapStreamingPreview = null;
+  },
+
   // --- engine-swap Tier 1 (P2) ---------------------------------------------
   //
   // Dispatch-ON turns for a tools-capable config run the typed tool loop from the
@@ -5429,12 +5487,23 @@ const model = {
         // P3: tool turns STREAM. The transport assembles `tool_calls` fragments per
         // call index and reports each call complete only when its arguments are
         // complete JSON, so the loop can dispatch without ever seeing half a call.
-        sendCompletion: async ({ request }) =>
-          agentApi.streamOnscreenAgentToolTurn({
+        sendCompletion: async ({ request }) => {
+          // One preview slot, reset per request: the prose the user is watching
+          // belongs to the call in flight, and a previous iteration's narration must
+          // not concatenate onto this one. The reserved id makes the row patch
+          // REPLACE the same row instead of appending a second one.
+          this.clearEngineSwapStreamingPreview();
+
+          return agentApi.streamOnscreenAgentToolTurn({
+            // Text deltas reach the surface while tool-call fragments are still
+            // assembling. This is the "text appears all at once" fix: without it the
+            // transport buffered the prose and the turn returned it in one piece.
+            onDelta: (delta) => this.appendEngineSwapStreamingDelta(delta),
             requestBody: request.body,
             settings: this.settings,
             signal: controller.signal
-          })
+          });
+        }
       });
 
       // BOUNDED CORRECTIVE RETRY. A sanitized wire is the fix; this is the belt for
@@ -5473,12 +5542,19 @@ const model = {
             model: String(this.settings.model || ""),
             params: llmParams.parseOnscreenAgentParamsText(this.settings.paramsText || ""),
             providerKey: "",
-            sendCompletion: async ({ request }) =>
-              agentApi.streamOnscreenAgentToolTurn({
+            sendCompletion: async ({ request }) => {
+              // Same one preview slot, reset for the retry: the coaching turn is
+              // scaffolding, so what the user watches must be THIS call's prose, not
+              // the abandoned first attempt's.
+              this.clearEngineSwapStreamingPreview();
+
+              return agentApi.streamOnscreenAgentToolTurn({
+                onDelta: (delta) => this.appendEngineSwapStreamingDelta(delta),
                 requestBody: request.body,
                 settings: this.settings,
                 signal: controller.signal
-              })
+              });
+            }
           });
 
           // The coaching turn is scaffolding, not conversation. Dropping it from
@@ -5523,6 +5599,11 @@ const model = {
         wireMessageCount: messages.length
       };
     } finally {
+      // The preview dies with the turn. Commit, hold, error and stop all return
+      // through here, so a streamed reply the user watched can never linger as a
+      // row that history does not contain.
+      this.clearEngineSwapStreamingPreview();
+
       if (this.activeRequestController === controller) {
         this.activeRequestController = null;
       }
@@ -5888,6 +5969,14 @@ const model = {
         // turn, and the submitted user turn reaches disk before the request so a
         // page teardown cannot lose it.
         this.applyPromptInput(preparedRequest.promptInput);
+        // The user's turn enters HISTORY before the render, not at commit. `render`
+        // draws `getRenderHistory()`, which reads `this.history`, so without this
+        // assignment the pre-request render paints the PREVIOUS turn: the user's own
+        // message stayed invisible until the reply landed and both appeared together,
+        // and on a fresh chat the empty-state early return drew nothing at all. The
+        // commit still rewrites history as `[...requestMessages, ...tailEntries]`, so
+        // this is a preview of the same prefix, never a second source of truth.
+        this.history = [...requestMessages];
         this.activeTurnRequestMessages = requestMessages;
         this.status = "Thinking...";
         this.render();
