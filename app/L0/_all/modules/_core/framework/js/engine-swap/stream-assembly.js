@@ -41,6 +41,51 @@ function normalizeFragment(value) {
   }
 }
 
+// THE NAME RULE: a name may be REPEATED, RE-SENT, or genuinely SPLIT across deltas, and
+// the wire gives no flag to say which. The one thing that must never happen is a wrong
+// name, because the name is what dispatch validates against the registry — a mangled name
+// is a REFUSED call (`No tool named "code" exists`), which is a dispatch-semantics
+// regression, not a cosmetic one.
+//
+// Each rule covers a shape observed in the wild or reported:
+//
+//   A  sent once            "run_code"                     -> first sighting, take it
+//   B  repeated per delta   "run_code" + "run_code"        -> accumulated ENDS WITH incoming
+//   C  genuinely split      "run_"     + "code"            -> neither contains the other, JOIN
+//   D  full then partial    "run_code" + "code"            -> accumulated still ends with it
+//   E  partial then full    "run_c"    + "run_code"        -> incoming STARTS WITH accumulated
+//
+// Appending blindly breaks B and D (`run_coderun_coderun_code`, `run_codecode`); replacing
+// blindly breaks C and E (the last fragment becomes the tool name). Ordering the tests this
+// way makes each shape satisfy exactly one rule.
+//
+// KNOWN UNDECIDABLE SHAPE, stated rather than hidden: a name split at a point where the
+// continuation REPEATS the tail is indistinguishable from a repeat — "abb" arriving as
+// "ab" + "b" is read as a repeat and stays "ab". No rule reading only the two fragments
+// can tell those apart. Resolving it would need the registry's tool list, and this module
+// is a pure leaf with no imports and no config by contract; a registry-informed recovery
+// belongs in dispatch validation (refuse, then resolve against known names), not here.
+// No launch tool name is shaped that way today, so this is a documented limit, not a bug.
+function resolveToolNameFragment(accumulated, incoming) {
+  if (!accumulated) {
+    return incoming;
+  }
+
+  if (!incoming) {
+    return accumulated;
+  }
+
+  if (accumulated.endsWith(incoming)) {
+    return accumulated;
+  }
+
+  if (incoming.startsWith(accumulated)) {
+    return incoming;
+  }
+
+  return accumulated + incoming;
+}
+
 // True only for a complete, dispatchable argument payload. Empty text is complete
 // (a no-argument call) because that is how providers spell one.
 export function isCompleteToolArguments(text) {
@@ -121,7 +166,7 @@ export function createStreamingToolCallAssembler() {
     const name = normalizeFragment(delta?.function?.name);
 
     if (name) {
-      record.name += name;
+      record.name = resolveToolNameFragment(record.name, name);
     }
 
     record.argumentsText += normalizeFragment(delta?.function?.arguments);
