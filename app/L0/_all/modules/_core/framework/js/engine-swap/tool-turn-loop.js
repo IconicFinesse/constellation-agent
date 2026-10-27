@@ -269,7 +269,44 @@ export async function runToolTurn({
         name: call.name
       });
 
-      emit({ call, outcome, position, type: "dispatch" });
+      // THE COMMITTED RESULT TEXT IS DECIDED ONCE, HERE.
+      //
+      // It is then used TWICE: for the tool message this loop commits, and for the
+      // `result` carried on the dispatch event the surface paints its provisional chip
+      // from. One string, one formatter, two readers — which is what makes the mid-turn
+      // output pane byte-identical to the committed row instead of a lookalike. Rebuilding
+      // the pane from `outcome.result` on the surface side would drift on exactly the
+      // shapes that need care (`undefined` commits as the quoted
+      // `"the tool returned no value."` string, an error commits with the coaching prefix
+      // repeated, a held call commits its consent sentence).
+      let resultContent = "";
+      let resultIsError = false;
+
+      if (outcome.status === DISPATCH_OUTCOME.HELD) {
+        resultContent = formatHeldToolResult({
+          description: outcome.hold?.description,
+          tool: outcome.hold?.tool
+        });
+      } else if (outcome.status === DISPATCH_OUTCOME.ERROR) {
+        // A failure answers its own call and the turn goes on: the remaining calls still
+        // run, in order. That is the difference between "this call failed" and "the turn
+        // failed".
+        resultContent = withRepeatNote(formatToolResultForModel(outcome));
+        resultIsError = true;
+      } else {
+        resetRepeat();
+        resultContent = formatToolResultForModel(outcome);
+      }
+
+      emit({
+        call,
+        outcome,
+        position,
+        // The exact text (and error flag) this loop is about to commit. Display-only:
+        // the surface paints it, nothing reads it back into dispatch.
+        result: { content: resultContent, isError: resultIsError },
+        type: "dispatch"
+      });
 
       // Held by the destructive gate. Execution happens only after the human
       // confirms, from the surface, so the loop ends here. Any later call in the
@@ -278,7 +315,7 @@ export async function runToolTurn({
         heldOutcome = outcome;
         messages.push(
           createToolResultMessage({
-            content: formatHeldToolResult({ description: outcome.hold?.description, tool: outcome.hold?.tool }),
+            content: resultContent,
             isError: false,
             toolCallId: call.id
           })
@@ -287,12 +324,9 @@ export async function runToolTurn({
       }
 
       if (outcome.status === DISPATCH_OUTCOME.ERROR) {
-        // A failure answers its own call and the turn goes on: the remaining calls
-        // still run, in order. That is the difference between "this call failed"
-        // and "the turn failed".
         messages.push(
           createToolResultMessage({
-            content: withRepeatNote(formatToolResultForModel(outcome)),
+            content: resultContent,
             isError: true,
             toolCallId: call.id
           })
@@ -300,10 +334,9 @@ export async function runToolTurn({
         continue;
       }
 
-      resetRepeat();
       messages.push(
         createToolResultMessage({
-          content: formatToolResultForModel(outcome),
+          content: resultContent,
           toolCallId: call.id
         })
       );

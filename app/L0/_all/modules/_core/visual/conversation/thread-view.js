@@ -1,4 +1,9 @@
 import { renderMarkdown } from "/modules/_core/framework/js/markdown-frontmatter.js";
+// The ONE reader of the projected chip format (`execution <name> call|result` + newline
+// + body). It lives beside the writer that produces that format, so the committed row and
+// the mid-turn provisional chip slice the body identically instead of keeping two copies
+// of the rule. Pure data transform: no I/O, no dispatch, no engine-swap machinery.
+import { readProjectedChipBody } from "/modules/_core/framework/js/engine-swap/history-shapes.js";
 import {
   collectToolRun,
   collectToolRunCalls,
@@ -1534,10 +1539,13 @@ export function createAgentThreadView(config = {}) {
   // is read from the projected text rather than by re-reading the stored typed shape (the
   // second-reader anti-pattern the shared history reader exists to prevent).
   function getTypedEntryBodyText(entry) {
-    const content = String(entry?.content || "");
-    const newlineIndex = content.indexOf("\n");
-
-    return newlineIndex === -1 ? "" : content.slice(newlineIndex + 1).trim();
+    // ONE BODY READER, shared with the mid-turn provisional chip.
+    //
+    // This used to slice the projected prose itself, which meant the committed row and the
+    // provisional chip each had their own copy of "take everything after the first
+    // newline". Two copies of a reader drift exactly like two formatters do, so the slice
+    // lives beside the writer that produces the format and both callers use it.
+    return readProjectedChipBody(entry);
   }
 
   // One descriptor per CALL (item A): the call entry supplies the arguments and the name,
@@ -1626,13 +1634,26 @@ export function createAgentThreadView(config = {}) {
       const ownOutcome = String(entry.typedToolOutcome || "").trim();
       const ownTerminalOutcome = TYPED_TOOL_TERMINAL_OUTCOMES.has(ownOutcome) ? ownOutcome : "";
 
+      // THE ENTRY'S OWN PANES, when the projection supplied them.
+      //
+      // A provisional chip carries `typedToolArgumentsText` / `typedToolOutputText`, which
+      // the projection produced through the SAME formatters the committed row uses. The
+      // fallbacks below are what a COMMITTED entry needs (it carries neither field), so the
+      // committed row's bytes are exactly what they were: arguments sliced from its own
+      // projected prose, output resolved from its result entry.
+      //
+      // Output is deliberately `""` when the entry has none: an args-complete-but-
+      // undispatched chip has no result yet, and rendering `No output yet.` there is honest.
+      const projectedArguments = String(entry.typedToolArgumentsText ?? "");
+      const projectedOutput = String(entry.typedToolOutputText ?? "");
+
       // The CLASSIFIED outcome of this call's own result when one exists; `running` only
       // when nothing has answered this call yet, which is the one case where it is true.
       return {
-        argumentsText: getTypedEntryBodyText(entry) || "{}",
+        argumentsText: projectedArguments || getTypedEntryBodyText(entry) || "{}",
         name: resolvedName || "tool",
         outcome: ownTerminalOutcome || settledOutcome || "running",
-        outputText: ""
+        outputText: projectedOutput
       };
     }
 

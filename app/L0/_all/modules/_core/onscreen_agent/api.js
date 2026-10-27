@@ -684,7 +684,13 @@ export const streamOnscreenAgentToolTurn = globalThis.space.extend(
           }
 
           try {
-            onToolCallComplete({ id: call.id, name: call.name });
+            // The ARGUMENTS travel with the notification. The chip must show the code the
+            // model actually sent, and the assembler has it right here — the surface only
+            // ever lacked the plumbing. The raw JSON string is passed exactly as the
+            // provider sent it, so the shared history formatter parses it through the SAME
+            // canonical writer the committed row uses (parity by construction, not by a
+            // lookalike formatter).
+            onToolCallComplete({ arguments: call.arguments, id: call.id, name: call.name });
           } catch {
             // Painting must never break assembly or dispatch.
           }

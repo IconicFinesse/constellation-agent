@@ -5526,6 +5526,13 @@ const model = {
     this.engineSwapProvisionalCalls = [
       ...this.engineSwapProvisionalCalls,
       {
+        // THE CALL'S ARGUMENTS (P3 provisional panes). The transport had them all along
+        // and simply did not pass them, so the chip had nothing real to show and fell back
+        // to whatever the projection wrote after the newline. They are kept verbatim — the
+        // raw JSON string the provider streamed — because the projection formats them
+        // through the shared canonical writer, which is what makes the mid-turn pane
+        // byte-identical to the committed row's.
+        arguments: call?.arguments,
         // INTERLEAVE OFFSET (chat-polish-2 item C). The chip belongs WHERE IT APPEARED, so
         // the preview's length at this instant is recorded with it and the projection
         // splits the accumulated text there. Reading the length at paint time instead
@@ -5570,7 +5577,7 @@ const model = {
   // Non-terminal words are refused HERE rather than downstream so exactly one place
   // decides what "settled" means: an `ok`/`error`/`held` dispatch status settles, and
   // anything else leaves the chip `Running` for the turn-exit clear to finish.
-  settleEngineSwapProvisionalCall({ callId, outcome } = {}) {
+  settleEngineSwapProvisionalCall({ callId, outcome, result = null } = {}) {
     const id = String(callId || "");
     const settledOutcome = String(outcome || "").trim();
 
@@ -5596,8 +5603,18 @@ const model = {
       return false;
     }
 
+    // THE RESULT PANE'S TEXT, taken from the loop's own committed tool message. The
+    // loop decides that string once and hands it over on the dispatch event, so this is
+    // not a second formatter: it is the very text history will hold, and the projection
+    // renders it through the same reader the committed row uses. A result that arrives
+    // without content (an older caller) leaves the field absent rather than inventing a
+    // payload, so the chip keeps the honest `No output yet.` reading.
+    const resultContent = typeof result?.content === "string" ? result.content : null;
+
     const next = this.engineSwapProvisionalCalls.slice();
-    next[index] = { ...current, outcome: settledOutcome };
+    next[index] = resultContent === null
+      ? { ...current, outcome: settledOutcome }
+      : { ...current, outcome: settledOutcome, resultContent, resultIsError: result?.isError === true };
     this.engineSwapProvisionalCalls = next;
 
     this.scheduleEngineSwapChipRender();
@@ -5628,7 +5645,11 @@ const model = {
         return false;
       }
 
-      return this.settleEngineSwapProvisionalCall({ callId, outcome });
+      // The loop's committed result text travels with the event so the chip's OUTPUT pane
+      // can show the same bytes the committed row will show. Absent on a caller that does
+      // not supply it (and on the held/deferred paths that never had one), which leaves the
+      // honest empty pane rather than a fabricated payload.
+      return this.settleEngineSwapProvisionalCall({ callId, outcome, result: event?.result || null });
     } catch {
       // A chip is presentation. It never gets to fail a turn.
       return false;
