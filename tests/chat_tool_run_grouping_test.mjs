@@ -225,16 +225,195 @@ test("interleaved call/result order groups exactly like call-then-result order",
   );
 });
 
-// A single call is already one row: grouping it would only add a click.
-test("a single-call run is not grouped", () => {
+// ONE CALL IS ONE CHIP (owner-reported live defect, 2026-10-27).
+//
+// This case used to pin the OPPOSITE layout — a call chip plus a second result chip — on
+// the premise that "a single call is already one row". Owner live screenshots proved that
+// premise false: one call stores TWO entries, so it drew TWO rows, the first with the real
+// arguments and `OUTPUT: No output yet.`, the second with `ARGUMENTS {}` and the real
+// payload. The correction below is the same per-call fold the grouped card already uses
+// (`collectToolRunCalls`), not a second pairing reader.
+//
+// It must stay a standalone CHIP: folding a single call into a collapsible tool-run card
+// would make the user click to see one call, which is what this case now forbids.
+test("a single call folds into ONE chip carrying its arguments and its result", () => {
   const entries = typedHistory([
-    { content: "Just one.", role: "assistant", toolCalls: [{ arguments: {}, id: "c1", name: "file_read" }] },
+    { content: "Just one.", role: "assistant", toolCalls: [{ arguments: { path: "~/a" }, id: "c1", name: "file_read" }] },
     { content: "ok: 1", role: "tool", toolCallId: "c1" }
   ]);
 
   const groups = view.buildMessageDisplayGroups(project(entries), { groupToolRuns: true });
 
+  assert.deepEqual(layout(groups), ["text:Just one.", "chip:tool-call-c1"], "one call, one chip");
+  assert.ok(
+    !groups.some((group) => group.type === "tool-run"),
+    "a single call must NOT become a collapsible tool-run card: one call is one click-free chip"
+  );
+
+  const chip = groups.find((group) => group.type === "standalone-output");
+
+  assert.equal(chip.messageId, "tool-call-c1", "the chip keeps the CALL's identity");
+  assert.equal(chip.typedTool.name, "file_read");
+  assert.equal(chip.typedTool.outcome, "success", "the outcome comes from the call's own result");
+  assert.match(chip.typedTool.argumentsText, /~\/a/u, "the arguments pane is the call's own body");
+  assert.equal(chip.typedTool.outputText, "1", "the output pane is the result's own payload");
+});
+
+// MID-TURN: the same single call before its result lands must ALREADY be one chip, reading
+// `running` with no output invented. This is the live frame the user watches, so it cannot
+// be allowed to stack a second row when the result arrives.
+test("a single call with no result yet is one chip, running, with no invented output", () => {
+  const entries = typedHistory([
+    { content: "Just one.", role: "assistant", toolCalls: [{ arguments: { path: "~/b" }, id: "m1", name: "file_read" }] }
+  ]);
+
+  const groups = view.buildMessageDisplayGroups(project(entries), { groupToolRuns: true });
+
+  assert.deepEqual(layout(groups), ["text:Just one.", "chip:tool-call-m1"], "still exactly one chip");
+  assert.ok(!groups.some((group) => group.type === "tool-run"), "and never a one-item run card");
+
+  const chip = groups.find((group) => group.type === "standalone-output");
+
+  assert.equal(chip.typedTool.outcome, "running", "work in flight is the only honest word");
+  assert.equal(chip.typedTool.outputText, "", "nothing is invented before the result lands");
+  assert.match(chip.typedTool.argumentsText, /~\/b/u);
+});
+
+// A SINGLE HELD CALL is a consent affordance: `collectToolRun` returns null for a withheld
+// run, so it must stay individual and must never fold into a chip that claims success.
+test("a single held call stays individual and never claims success", () => {
+  const entries = typedHistory([
+    { content: "Deleting.", role: "assistant", toolCalls: [{ arguments: { path: "~/x" }, id: "h1", name: "file_delete" }] },
+    { content: "held: delete is waiting for your confirmation in the chat.", role: "tool", toolCallId: "h1" }
+  ]);
+
+  const groups = view.buildMessageDisplayGroups(project(entries), { groupToolRuns: true });
+
+  assert.deepEqual(
+    layout(groups),
+    ["text:Deleting.", "chip:tool-call-h1", "chip:tool-result-h1"],
+    "the consent episode keeps BOTH rows individually visible"
+  );
+  assert.ok(!groups.some((group) => group.type === "tool-run"), "nothing is summarized away");
+  assert.deepEqual(
+    groups.filter((group) => group.type === "standalone-output").map((group) => group.typedTool.outcome),
+    ["held", "held"],
+    "neither row may read as success"
+  );
+});
+
+// GROUPING OFF IS UNCHANGED: every entry keeps its own row, one per ENTRY, exactly as the
+// order-contract suites and Tier 3 require. The fold is opt-in behaviour, not a new default.
+test("grouping OFF still draws one row per entry for a single call", () => {
+  const entries = typedHistory([
+    { content: "Just one.", role: "assistant", toolCalls: [{ arguments: { path: "~/a" }, id: "c1", name: "file_read" }] },
+    { content: "ok: 1", role: "tool", toolCallId: "c1" }
+  ]);
+
+  const groups = view.buildMessageDisplayGroups(project(entries), {});
+
   assert.deepEqual(layout(groups), ["text:Just one.", "chip:tool-call-c1", "chip:tool-result-c1"]);
+  assert.equal(
+    groups.filter((group) => group.type === "standalone-output").length,
+    2,
+    "flag OFF is byte-identical to the pre-fold surface"
+  );
+});
+
+// THREE CALLS still collapse to the one collapsible summary: the fold is scoped to EXACTLY
+// one call and must not creep into the multi-call card.
+test("three calls still become ONE collapsible tool-run card", () => {
+  const entries = typedHistory([
+    {
+      content: "Reading three.",
+      role: "assistant",
+      toolCalls: [
+        { arguments: {}, id: "c1", name: "file_read" },
+        { arguments: {}, id: "c2", name: "file_read" },
+        { arguments: {}, id: "c3", name: "file_read" }
+      ]
+    },
+    { content: "ok: 1", role: "tool", toolCallId: "c1" },
+    { content: "ok: 2", role: "tool", toolCallId: "c2" },
+    { content: "ok: 3", role: "tool", toolCallId: "c3" }
+  ]);
+
+  const groups = view.buildMessageDisplayGroups(project(entries), { groupToolRuns: true });
+
+  assert.deepEqual(layout(groups), ["text:Reading three.", "run:3"]);
+  assert.equal(
+    groups.filter((group) => group.type === "standalone-output").length,
+    0,
+    "no chip leaks out of a multi-call run"
+  );
+});
+
+// SIGNATURE REPAINT: the folded chip's payload lives in the DESCRIPTOR, not in
+// `outputResults`, so the row signature must carry it. Without that term a row built before
+// the result landed is REUSED afterwards and the chip reads `No output yet.` forever.
+test("the folded chip's render signature changes when its result lands", () => {
+  const callOnly = project(
+    typedHistory([
+      { content: "One.", role: "assistant", toolCalls: [{ arguments: { path: "~/a" }, id: "s1", name: "file_read" }] }
+    ])
+  );
+  const withResult = project(
+    typedHistory([
+      { content: "One.", role: "assistant", toolCalls: [{ arguments: { path: "~/a" }, id: "s1", name: "file_read" }] },
+      { content: "ok: 1", role: "tool", toolCallId: "s1" }
+    ])
+  );
+  const pendingGroup = view.buildMessageDisplayGroups(callOnly, { groupToolRuns: true })[1];
+  const settledGroup = view.buildMessageDisplayGroups(withResult, { groupToolRuns: true })[1];
+
+  assert.equal(pendingGroup.type, "standalone-output");
+  assert.equal(settledGroup.type, "standalone-output");
+  assert.equal(pendingGroup.messageId, settledGroup.messageId, "the row id is shared, so only the signature can save it");
+  assert.equal(pendingGroup.typedTool.outputText, "");
+  assert.equal(settledGroup.typedTool.outputText, "1");
+
+  const pendingSignature = view.getGroupRenderSignature(pendingGroup, {});
+  const settledSignature = view.getGroupRenderSignature(settledGroup, {});
+
+  assert.notEqual(
+    pendingSignature,
+    settledSignature,
+    "the row must be rebuilt when the result lands, or the chip keeps `No output yet.`"
+  );
+  assert.ok(
+    settledSignature.includes("1"),
+    "and the payload itself is what travelled into the signature"
+  );
+});
+
+// THE OUTPUT TERM IS LOAD-BEARING ON ITS OWN.
+//
+// The repaint case above would ALSO pass if the signature ignored the descriptor's output,
+// because the outcome changes at the same moment (running -> success) and that already
+// changes the signature. A seeded mutation proved exactly that: removing the outputText
+// term left every case green. This case removes the outcome as a variable — same id, same
+// name, same arguments, same outcome, same (null) outputResults — so the signature can only
+// differ if it actually carries the folded payload.
+test("the signature carries the folded output even when the outcome is identical", () => {
+  const base = {
+    messageId: "tool-call-s1",
+    outputResults: null,
+    provisional: false,
+    typedTool: {
+      argumentsText: '{"path":"~/a"}',
+      name: "file_read",
+      outcome: "success",
+      outputText: ""
+    },
+    type: "standalone-output"
+  };
+  const landed = { ...base, typedTool: { ...base.typedTool, outputText: "1" } };
+
+  assert.notEqual(
+    view.getGroupRenderSignature(base, {}),
+    view.getGroupRenderSignature(landed, {}),
+    "a chip whose payload arrived must not reuse the row built with `No output yet.`"
+  );
 });
 
 // THE consent rule: a held call must never be swallowed into a summary row.
