@@ -418,6 +418,53 @@ test("a call with incomplete streamed arguments is refused with coaching and nev
   assert.match(coaching.content, /Nothing was executed/u);
 });
 
+// A destructive call in the MIDDLE of a parallel turn: it is held, so it never
+// executes, and the calls after it must still be answered (as deferred) rather than
+// left unannounced-but-unanswered. This is the shape that would poison every later
+// turn if the loop simply broke out of the batch.
+test("a held call mid-batch still answers every sibling exactly once", async () => {
+  const api = createFakeApi({ fileRead: { content: "hello" } });
+  const { session } = createSession({
+    api,
+    script: [
+      {
+        toolCalls: [
+          { arguments: '{"path":"~/a"}', id: "c1", name: "file_read" },
+          { arguments: '{"path":"~/doomed.txt"}', id: "c2", name: "file_delete" },
+          { arguments: '{"path":"~/b"}', id: "c3", name: "file_read" }
+        ]
+      }
+    ]
+  });
+  const result = await session.run();
+
+  assert.equal(result.status, TIER1_TURN_STATUS.HELD);
+  assert.equal(result.hold?.tool, "file_delete");
+  // Only the read BEFORE the hold executed; the delete is held and the read after it
+  // is deferred, never executed.
+  assert.deepEqual(api.calls.map((call) => call.name), ["fileRead"], "nothing after the hold runs");
+
+  const toolMessages = result.messages.filter((message) => message.role === "tool");
+
+  assert.equal(toolMessages.length, 3, "every announced call is answered");
+  assert.deepEqual(toolMessages.map((message) => message.toolCallId), ["c1", "c2", "c3"]);
+  assert.match(toolMessages[1].content, /^held:/u, "the destructive call says held, not failed");
+  assert.match(toolMessages[2].content, /^deferred:/u, "the later call is deferred, not silently dropped");
+
+  assertValidToolCallAdjacency(result.messages);
+
+  // The siblings' results persist and replay validly too: a hold must not leave a
+  // dangling id in stored history.
+  const tailEntries = canonicalMessagesToTypedEntries(result.messages, { fromIndex: 2 });
+
+  assertValidToolCallAdjacency(historyEntriesToCanonicalMessages(tailEntries));
+  assert.equal(
+    tailEntries.filter((entry) => entry.kind === "tool_result").length,
+    3,
+    "three results persisted for three announced calls"
+  );
+});
+
 // Audit-2 note N2: the repeat count must ESCALATE, and the escalation now covers
 // the coaching paths too (P2 computed the count but only surfaced the note on the
 // dispatch-error branch, so a model repeating the same mistake saw byte-identical
