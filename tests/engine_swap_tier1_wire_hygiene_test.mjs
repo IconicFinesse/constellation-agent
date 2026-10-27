@@ -512,6 +512,81 @@ test("a turn that calls a tool is never corrected", async (t) => {
   );
 });
 
+test("the store seam sends the sanitized wire, not just the sanitizer output", async (t) => {
+  // The sanitizer being correct proves nothing if nothing calls it. This drives the
+  // REAL store turn with a prepared conversation that carries the owner's live shape
+  // and asserts on the request body that actually reached the transport.
+  const previous = {
+    history: store.history,
+    persistHistory: store.persistHistory,
+    render: store.render,
+    status: store.status
+  };
+  const previousFetch = globalThis.fetch;
+  const previousSettings = store.settings;
+  const bodies = [];
+
+  store.persistHistory = async () => {};
+  store.render = () => {};
+  store.settings = {
+    ...(previousSettings && typeof previousSettings === "object" ? previousSettings : {}),
+    apiEndpoint: "https://example.invalid/v1/chat/completions",
+    apiKey: "test-key-not-real",
+    model: "test-model",
+    paramsText: ""
+  };
+
+  t.after(() => {
+    globalThis.fetch = previousFetch;
+    store.history = previous.history;
+    store.persistHistory = previous.persistHistory;
+    store.render = previous.render;
+    store.settings = previousSettings;
+    store.status = previous.status;
+    store.stopRequested = false;
+    store.activeRequestController = null;
+  });
+
+  globalThis.fetch = async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body || "{}")));
+
+    const payload = { choices: [{ finish_reason: "stop", message: { content: "done" } }] };
+
+    return {
+      json: async () => payload,
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(payload)
+    };
+  };
+
+  const preparedRequest = {
+    messages: LIVE_WIRE.map((message) => ({ ...message }))
+  };
+
+  const turn = await store.runTier1ConversationTurn(
+    [{ content: "Read the file notes.txt", id: "u1", role: "user" }],
+    preparedRequest,
+    { tier: "tier1" }
+  );
+
+  assert.equal(bodies.length >= 1, true, "the turn must actually reach the transport");
+  const sent = bodies[0].messages.map((message) => ({ content: message.content, role: message.role }));
+
+  assert.equal(countEnvelopeMarkers(sent), 0, "the store seam must send an envelope-free wire");
+  assert.equal(
+    countSeparatorAssistant(sent),
+    0,
+    "the store seam must send no separator-form assistant turn"
+  );
+  assert.equal(turn.wireHygiene.changed, true, "the turn reports what it sanitized");
+  assert.equal(
+    turn.wireMessageCount,
+    sent.length + (turn.wireHygiene.dropped > 0 ? turn.wireHygiene.dropped : 0),
+    "the reported wire length must describe the messages actually sent"
+  );
+});
+
 // --- (d) TIER 3 UNTOUCHED ------------------------------------------------
 
 test("the Tier 3 prompt keeps every envelope block and separator example", () => {
