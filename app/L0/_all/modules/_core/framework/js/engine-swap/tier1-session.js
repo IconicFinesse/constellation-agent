@@ -59,6 +59,10 @@ export function extractToolCallsFromCompletion(payload) {
             arguments: typeof call?.arguments === "string" ? call.arguments : "",
             argumentsComplete: call?.argumentsComplete !== false,
             id: String(call?.id || `call_${index}`),
+            // The assembler's call index travels with the call (P3 audit N2):
+            // ordering currently survives on array order alone, which is fragile for
+            // any later consumer that sorts or regroups calls.
+            index: Number.isFinite(call?.index) ? Number(call.index) : index,
             name: String(call?.name || "")
           })
         )

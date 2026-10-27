@@ -166,14 +166,24 @@ export function createStreamingToolCallAssembler() {
     // Truncation is decided from POSITIVE evidence only, never from a missing end
     // marker: providers differ on whether they emit `finish_reason` or `[DONE]`,
     // and a normally-finished body is not a cut stream. The two signals that do
-    // prove a cut are an abort the transport reports and `finish_reason: "length"`
-    // (the provider itself saying it stopped mid-output). Everything else is
-    // judged by the argument text itself, which is the actual dispatch criterion.
+    // prove a cut are an abort the transport reports as a thrown error (so
+    // `truncated` stays a caller/test parameter rather than a production path) and
+    // `finish_reason: "length"`, which the provider states itself and which this
+    // function reads here. Everything else is judged by the argument text, which is
+    // the actual dispatch criterion.
+    //
+    // `sawAnyPayload` is REPORTED, not decorative (P3 audit N1): a stream that
+    // delivered no payload at all is a transport anomaly, and the surface turns it
+    // into a legible error instead of letting it pose as a blank answer. `sawFinish`
+    // records whether the provider named an end reason, which is diagnostic context
+    // for that decision.
     finish({ truncated = false } = {}) {
       const cutShort = truncated === true || finishReason === "length";
 
       return Object.freeze({
         finishReason,
+        sawAnyPayload,
+        sawFinish,
         text,
         truncated: cutShort,
         toolCalls: Object.freeze(

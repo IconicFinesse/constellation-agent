@@ -243,7 +243,10 @@ async function readStreamingResponse(response, onDelta, onPayload = null) {
       const eventBlock = buffer.slice(0, boundary).trim();
       buffer = buffer.slice(boundary + 2);
 
-      if (eventBlock && parseEventBlock(eventBlock, onDelta, meta)) {
+      // `onPayload` is forwarded on BOTH callsites. Dropping it here was the P3
+      // audit blocker B1: the assembler then never saw a `tool_calls` fragment on a
+      // real streaming provider, so the turn ended as a blank answer.
+      if (eventBlock && parseEventBlock(eventBlock, onDelta, meta, onPayload)) {
         return finalizeCompletionResponseMeta(meta);
       }
 
@@ -254,7 +257,7 @@ async function readStreamingResponse(response, onDelta, onPayload = null) {
       const remaining = buffer.trim();
 
       if (remaining) {
-        parseEventBlock(remaining, onDelta, meta);
+        parseEventBlock(remaining, onDelta, meta, onPayload);
       }
 
       return finalizeCompletionResponseMeta(meta);
@@ -670,11 +673,22 @@ export const streamOnscreenAgentToolTurn = globalThis.space.extend(
       await readBufferedResponse(response, deliver, onPayload);
     }
 
-    // `truncated` is not passed here: an abort surfaces as a thrown fetch error and
+    // `truncated` is not passed here: an abort surfaces as a thrown fetch error, and
     // a provider that stopped mid-output says so in `finish_reason`, which the
     // assembler reads itself. Inventing a truncation signal from a missing
     // end-marker would refuse healthy turns from providers that never send one.
-    return assembler.finish();
+    const assembled = assembler.finish();
+
+    // A stream that delivered NO payload is a transport anomaly, and it must be a
+    // legible error rather than an empty assistant turn (P3 audit N1): without this,
+    // a silently-empty stream is indistinguishable from "the model answered nothing".
+    if (assembled.sawAnyPayload === false) {
+      throw new Error(
+        "The streaming tool turn produced no completion payload. Check the provider's streaming support, then retry."
+      );
+    }
+
+    return assembled;
   }
 );
 
