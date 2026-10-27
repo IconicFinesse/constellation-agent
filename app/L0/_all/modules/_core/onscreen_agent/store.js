@@ -1,6 +1,6 @@
 import * as config from "/modules/_core/onscreen_agent/config.js";
 import * as agentApi from "/modules/_core/onscreen_agent/api.js";
-import { buildChatRenderProjection } from "/modules/_core/onscreen_agent/chat-projection.js";
+import { buildChatRenderProjection, resolvePreviewTailContent } from "/modules/_core/onscreen_agent/chat-projection.js";
 import { createToolRunOpenState } from "/modules/_core/visual/conversation/tool-run.js";
 import {
   installPromptItemAccess,
@@ -4129,7 +4129,19 @@ const model = {
         return;
       }
 
+      // THE TAIL SLICE COMES FROM THE PROJECTION, not from a second derivation of the
+      // split (chat-polish-2 re-audit blocker 1). The row the patch finds by the plain
+      // preview id holds only the tail slice once a chip has split the preview, so it must be
+      // painted with that slice; painting the whole accumulated text duplicated every frozen
+      // segment above it and the duplication grew with each delta.
+      const previewTailContent = resolvePreviewTailContent({
+        history: this.getRenderHistory(),
+        preview: this.engineSwapStreamingPreview,
+        provisionalCalls: this.engineSwapProvisionalCalls
+      });
+
       const didPatchStreamingRow = agentView.updateStreamingAssistantMessage(this.refs.thread, pendingMessage, {
+        previewTailContent,
         scroller: this.refs.scroller
       });
 
@@ -5480,7 +5492,18 @@ const model = {
       return false;
     }
 
-    this.engineSwapProvisionalCalls = [...this.engineSwapProvisionalCalls, { callId, name }];
+    this.engineSwapProvisionalCalls = [
+      ...this.engineSwapProvisionalCalls,
+      {
+        // INTERLEAVE OFFSET (chat-polish-2 item C). The chip belongs WHERE IT APPEARED, so
+        // the preview's length at this instant is recorded with it and the projection
+        // splits the accumulated text there. Reading the length at paint time instead
+        // would move every chip to the bottom of the prose.
+        atChars: String(this.engineSwapStreamingPreview?.content || "").length,
+        callId,
+        name
+      }
+    ];
     // Same frame discipline as streamed text: one coalesced repaint, never a render
     // per delta. Full mode only, because that is the surface that draws the thread.
     if (this.isFullMode && !this.streamingRenderFrame) {

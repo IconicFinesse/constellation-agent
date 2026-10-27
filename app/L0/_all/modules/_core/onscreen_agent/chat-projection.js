@@ -27,6 +27,8 @@
 
 export const PROVISIONAL_CHIP_PREFIX = "provisional-call-";
 
+export const PREVIEW_SEGMENT_SUFFIX = "-seg-";
+
 function collectIds(entries) {
   const ids = new Set();
 
@@ -139,6 +141,9 @@ export function buildChatRenderProjection({ history = [], preview = null, provis
   const seenIds = collectIds(committed);
   const committedCallIds = collectCommittedCallIds(committed);
 
+  // Admitted chips, in the order they were announced.
+  const chips = [];
+
   (Array.isArray(provisionalCalls) ? provisionalCalls : []).forEach((call) => {
     const entry = createProvisionalChipEntry(call);
 
@@ -147,32 +152,140 @@ export function buildChatRenderProjection({ history = [], preview = null, provis
     }
 
     seenIds.add(entry.id);
-    projection.push(entry);
+    chips.push({ atChars: normalizeChipOffset(call?.atChars), entry });
   });
 
-  if (preview && String(preview.content || "").trim()) {
-    // RACE GUARD (item 4). Two shapes of the SAME stale preview are excluded:
-    //   - identity: the committed turn already owns this id. In production the preview
-    //     id is the reserved constant `engine-swap-streaming-preview` and committed ids
-    //     are `${role}-${Date.now()}-${random}`, so this half is a structural guard
-    //     against a future caller handing the preview a real message id — it is not the
-    //     half that fixes today's doubled row.
-    //   - content: THIS TURN already committed an assistant message carrying exactly
-    //     this text. That is the shape the owner saw: the preview had accumulated the
-    //     whole reply and the commit wrote the same words into history, so one render
-    //     pass drew them twice — once raw, once formatted.
-    //
-    // The text match is scoped to the current turn (`collectTurnCommittedAssistantTexts`).
-    // An unscoped match silently killed live output on any chat that had ever used the
-    // phrase, which is a worse defect than the double row it guards: the user saw
-    // nothing until commit.
-    const committedAssistantTexts = collectTurnCommittedAssistantTexts(committed);
-    const previewText = String(preview.content || "").trim();
+  const previewText = preview && String(preview.content || "").trim() ? String(preview.content) : "";
 
-    if (!seenIds.has(String(preview.id || "")) && !committedAssistantTexts.includes(previewText)) {
-      projection.push(preview);
-    }
+  if (!preview || !previewText.trim()) {
+    chips.forEach((chip) => projection.push(chip.entry));
+    return projection;
   }
 
+  // RACE GUARD (item 4). Two shapes of the SAME stale preview are excluded:
+  //   - identity: the committed turn already owns this id. In production the preview
+  //     id is the reserved constant `engine-swap-streaming-preview` and committed ids
+  //     are `${role}-${Date.now()}-${random}`, so this half is a structural guard
+  //     against a future caller handing the preview a real message id — it is not the
+  //     half that fixes today's doubled row.
+  //   - content: THIS TURN already committed an assistant message carrying exactly
+  //     this text. That is the shape the owner saw: the preview had accumulated the
+  //     whole reply and the commit wrote the same words into history, so one render
+  //     pass drew them twice — once raw, once formatted.
+  //
+  // The text match is scoped to the current turn (`collectTurnCommittedAssistantTexts`).
+  // An unscoped match silently killed live output on any chat that had ever used the
+  // phrase, which is a worse defect than the double row it guards: the user saw
+  // nothing until commit.
+  //
+  // THE GUARD IS APPLIED TO THE WHOLE PREVIEW, BEFORE ANY SPLITTING (chat-polish-2
+  // item C). Splitting first would leave every segment unmatched, so the content half
+  // would quietly stop guarding the exact case it was written for — a guard that still
+  // exists but no longer covers the shape it was built for is worse than none.
+  const committedAssistantTexts = collectTurnCommittedAssistantTexts(committed);
+  const wholePreviewText = previewText.trim();
+
+  if (seenIds.has(String(preview.id || "")) || committedAssistantTexts.includes(wholePreviewText)) {
+    chips.forEach((chip) => projection.push(chip.entry));
+    return projection;
+  }
+
+  if (!chips.length) {
+    // Byte-identical to the pre-item-C projection: no chips, so no boundaries to draw.
+    projection.push(preview);
+    return projection;
+  }
+
+  // CHRONOLOGICAL INTERLEAVE (item C(i)).
+  //
+  // A chip belongs where it first appeared, so the store records the preview's character
+  // length at the moment the call's arguments completed (`atChars`). This splits the
+  // accumulated preview at those offsets and yields [text, chip, text, chip, text], which
+  // is what the user actually watched. Chips used to be appended ahead of the preview, so
+  // they stacked above prose that had been written before them.
+  //
+  // Offsets are clamped into the text and are monotonic, so a stale or out-of-range
+  // offset degrades to "draw the chip at the cursor" instead of reordering rows or
+  // throwing. Total preview text is preserved exactly: the segments concatenate back to
+  // `previewText`.
+  const ordered = chips.slice().sort((left, right) => left.atChars - right.atChars);
+  let cursor = 0;
+  let segmentIndex = 0;
+
+  ordered.forEach((chip) => {
+    const at = Math.max(cursor, Math.min(chip.atChars, previewText.length));
+
+    if (at > cursor) {
+      projection.push(createPreviewSegment(preview, segmentIndex, previewText.slice(cursor, at)));
+      segmentIndex += 1;
+      cursor = at;
+    }
+
+    projection.push(chip.entry);
+  });
+
+  // THE TAIL IS ALWAYS EMITTED, even when it is empty (chat-polish-2 re-audit non-blocker 3).
+  // It is the ONLY row that carries the plain preview id, and the live patch finds its row by
+  // that id; skipping it when the last chip sits at the end of the text (or when the tail is
+  // just an inter-iteration blank boundary) left the patch with no row to find, so every
+  // frame fell back to a full thread re-render — precisely the regression this item exists to
+  // stop. An empty tail paints an empty preview block, which is honest: nothing follows yet.
+  projection.push(createPreviewSegment(preview, segmentIndex, previewText.slice(cursor), true));
+
   return projection;
+}
+
+// The text the LIVE TAIL ROW holds, derived from the projection itself (chat-polish-2
+// re-audit blocker 1).
+//
+// The patch path used to paint the store's whole accumulated preview into the row carrying
+// the plain preview id. Once a chip splits that preview, the row with the plain id is only the
+// TAIL slice, so repainting it with the full text duplicated every frozen segment above it and
+// the duplication grew with each delta.
+//
+// The fix keeps ONE source of truth: this asks the projection what the tail holds instead of
+// re-deriving the split (or letting the caller guess). `null` means "no chips, no split" — the
+// caller then paints the whole preview, which is what that shape genuinely holds.
+export function resolvePreviewTailContent({ history = [], preview = null, provisionalCalls = [] } = {}) {
+  if (!preview) {
+    return null;
+  }
+
+  const projection = buildChatRenderProjection({ history, preview, provisionalCalls });
+  const tail = projection.find(
+    (entry) => entry?.previewSegment === true && entry.previewSegmentFrozen !== true
+  );
+
+  if (!tail) {
+    return null;
+  }
+
+  return String(tail.content || "");
+}
+
+function normalizeChipOffset(value) {
+  const offset = Number(value);
+
+  return Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0;
+}
+
+// ONE painted slice of the live preview, wearing the same streaming identity as the whole
+// preview so it takes the same preview painter. The id is derived from the reserved
+// preview id plus its index, so it can never collide with a committed message id (those
+// are `${role}-${epoch}-${random}`) and it never reaches history.
+function createPreviewSegment(preview, index, text, isTail = false) {
+  return {
+    ...preview,
+    content: text,
+    id: isTail
+      ? String(preview?.id || "preview")
+      : `${String(preview?.id || "preview")}${PREVIEW_SEGMENT_SUFFIX}${index}`,
+    previewSegment: true,
+    // A frozen segment is preview TEXT that has already been scrolled past a chip. It is
+    // not a message the user can copy or inspect yet, so it must not mount its own action
+    // row: several segments would otherwise stack several copy buttons mid-stream. The tail
+    // keeps the row, which is exactly today's streaming behaviour.
+    previewSegmentFrozen: isTail !== true,
+    streaming: true
+  };
 }

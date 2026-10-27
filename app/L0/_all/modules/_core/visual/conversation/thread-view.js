@@ -1,6 +1,7 @@
 import { renderMarkdown } from "/modules/_core/framework/js/markdown-frontmatter.js";
 import {
   collectToolRun,
+  collectToolRunCalls,
   collectWithheldCallIds,
   formatToolRunLabel,
   summarizeToolRun,
@@ -733,6 +734,68 @@ export function createAgentThreadView(config = {}) {
     return `Executed ${lineLabel}`;
   }
 
+  // HONEST LABELS FOR TYPED CHIPS (chat-polish-2 item D).
+  //
+  // A typed chip is not "N lines of code": it is a named tool call and its outcome.
+  // The Tier 3 vocabulary above measures CODE LINES, which a typed chip does not have,
+  // so a typed chip inherited the degenerate `Executed code of code - Success` wording
+  // (lineCount 0 renders the literal word "code"). This is the Tier 3 vocabulary
+  // leaking onto a different kind of row.
+  //
+  // The vocabulary here is deliberately flat and closed: the tool name, a middot, and
+  // the outcome word. It reuses the outcome words the surface already shows elsewhere
+  // (Success / Error / Running) so no new visual language is introduced, and it is
+  // short enough to sit in the same summary slot. Tier 3 chips keep
+  // `formatExecutionSummaryLabel` byte-identical.
+  const TYPED_TOOL_OUTCOME_LABELS = Object.freeze({
+    deferred: "Deferred",
+    error: "Error",
+    held: "Held",
+    // `pending` is the call-side outcome (a call whose result has not landed yet). The card
+    // renders it running, so the label says the same word: one vocabulary, one meaning.
+    pending: "Running",
+    running: "Running",
+    success: "Success"
+  });
+
+  function formatTypedToolLabel(name, outcome) {
+    const toolName = String(name || "").trim() || "tool";
+    const outcomeWord = TYPED_TOOL_OUTCOME_LABELS[String(outcome || "").trim()] || "Success";
+
+    return `${toolName} · ${outcomeWord}`;
+  }
+
+  // The card state for a TYPED chip, resolved from the outcome the history reader already
+  // classified (`typedToolOutcome`) instead of from the entry's prose.
+  //
+  // This is the second half of item D and the honest half of item A. A typed chip's text
+  // is a projection (`execution <name> result\n<payload>`), and re-parsing it as an
+  // execution transcript reports the STATUS LINE as the outcome — which is how a FAILED
+  // typed call could draw a green check_circle: `execution file_read result` parses as a
+  // result whose status is the string "file_read result", never "error". The outcome word
+  // is already known, so the state is taken from it and nothing is re-derived by string
+  // matching. `pending` is the call-side outcome (a call whose result has not landed yet);
+  // it means the same thing as `running` here.
+  const TYPED_TOOL_CARD_STATES = Object.freeze({
+    deferred: Object.freeze({ iconName: "schedule", tone: "is-pending" }),
+    error: Object.freeze({ iconName: "error", tone: "is-error" }),
+    held: Object.freeze({ iconName: "visibility", tone: "is-pending" }),
+    pending: Object.freeze({ iconName: "sync", tone: "is-running" }),
+    running: Object.freeze({ iconName: "sync", tone: "is-running" }),
+    success: Object.freeze({ iconName: "check_circle", tone: "is-success" })
+  });
+
+  function resolveTypedToolCardState(name, outcome) {
+    const key = String(outcome || "").trim();
+    const state = TYPED_TOOL_CARD_STATES[key] || TYPED_TOOL_CARD_STATES.success;
+
+    return {
+      iconName: state.iconName,
+      label: formatTypedToolLabel(name, key || "success"),
+      tone: state.tone
+    };
+  }
+
   function getExecutionSummaryState(results, pendingState = "") {
     return resolveExecutionCardState({
       hasError: executionResultsHaveError(results),
@@ -827,21 +890,39 @@ export function createAgentThreadView(config = {}) {
     displayOnly = false,
     executeDisplay,
     isConversationBusy,
+    isProvisional = false,
     isStreaming,
     messageId,
     outputResults,
-    rerunningMessageId
+    rerunningMessageId,
+    typedTool = null
   }) {
     const lineCount = getExecuteDisplayLineCount(executeDisplay);
     const displayOutputResults = rerunningMessageId === messageId ? null : outputResults;
-    const summaryState = resolveExecutionCardState({
-      displayOnly,
-      hasError: executionResultsHaveError(displayOutputResults),
-      hasResults: Array.isArray(displayOutputResults) && displayOutputResults.length > 0,
-      isConversationBusy,
-      isRerunning: rerunningMessageId === messageId,
-      isStreaming
-    });
+    // TYPED chips resolve their state from the outcome the history reader classified
+    // (item D), so a failed typed call can never draw a success icon because its
+    // projected prose happens to parse as a status line. Tier 3 chips keep the
+    // pre-existing resolver untouched.
+    const typedState = typedTool ? resolveTypedToolCardState(typedTool.name, typedTool.outcome) : null;
+    const summaryState = typedState
+      ? {
+          iconName: typedState.iconName,
+          pendingState:
+            typedTool.outcome === "pending" || typedTool.outcome === "running" ? "running" : "",
+          tone: typedState.tone
+        }
+      : resolveExecutionCardState({
+          displayOnly,
+          hasError: executionResultsHaveError(displayOutputResults),
+          hasResults: Array.isArray(displayOutputResults) && displayOutputResults.length > 0,
+          isConversationBusy,
+          // NON-BLOCKER 4 (chat-polish-2 re-audit): this parameter was threaded in and
+          // destructured but never forwarded, so a provisional chip could not resolve
+          // `running` through the card at all — the flag existed and did nothing.
+          isProvisional,
+          isRerunning: rerunningMessageId === messageId,
+          isStreaming
+        });
     const pendingState = summaryState.pendingState;
     const terminal = document.createElement("details");
     terminal.className = "execution-card";
@@ -872,7 +953,9 @@ export function createAgentThreadView(config = {}) {
     const summaryTitle = document.createElement("span");
     summaryTitle.className = "execution-summary-title";
     summaryTitle.dataset.executionSummaryTitle = "true";
-    summaryTitle.textContent = formatExecutionSummaryLabel(lineCount, pendingState, displayOutputResults);
+    summaryTitle.textContent = typedState
+      ? typedState.label
+      : formatExecutionSummaryLabel(lineCount, pendingState, displayOutputResults);
 
     summaryText.append(summaryTitle);
     summaryMain.append(status, summaryText);
@@ -909,10 +992,44 @@ export function createAgentThreadView(config = {}) {
       );
     }
 
+    if (typedTool && (typedTool.argumentsText || typedTool.outputText || typedTool.resultText)) {
+      // A typed chip has no execution blocks: its "input" is the call's ARGUMENTS and its
+      // "output" is the payload or error the tool returned. Showing them under the honest
+      // labels means expanding a typed chip in a group still explains the call (item D),
+      // instead of leaving the same projected sentence the summary already stated.
+      const inputBody = document.createElement("div");
+      inputBody.className = "execution-code-list";
+      inputBody.dataset.executionInputList = "true";
+
+      const inputBlock = document.createElement("pre");
+      inputBlock.className = "terminal-code";
+      inputBlock.textContent = String(typedTool.argumentsText || "{}");
+      inputBody.append(inputBlock);
+
+      details.append(
+        createExecutionPane({
+          body: inputBody,
+          label: "Arguments",
+          scrollKey: messageId ? `${messageId}:input` : "",
+          type: "input"
+        })
+      );
+    }
+
     const outputBody = document.createElement("div");
     outputBody.className = "execution-output-list";
     outputBody.dataset.executionOutputList = "true";
-    appendTerminalOutput(outputBody, displayOutputResults || [], pendingState);
+
+    if (typedState) {
+      // Typed output is not a terminal transcript, so it is not line-modifier parsed.
+      // One block, verbatim, which is what the tool actually returned.
+      const typedOutput = document.createElement("div");
+      typedOutput.className = "terminal-line";
+      typedOutput.textContent = String(typedTool.outputText || typedTool.resultText || "No output yet.");
+      outputBody.append(typedOutput);
+    } else {
+      appendTerminalOutput(outputBody, displayOutputResults || [], pendingState);
+    }
 
     details.append(
       createExecutionPane({
@@ -998,9 +1115,28 @@ export function createAgentThreadView(config = {}) {
         // PROGRESSIVE FORMATTING (item 3). This node exists only while the message
         // is streaming, so it is the preview by construction; the committed block
         // below still goes through `createFormattedMessageBlock` unchanged.
-        renderPreviewMarkdown(streamingBlock, message.content || "Streaming...");
+        // A preview SEGMENT may legitimately be EMPTY: when a chip lands at the end of
+        // the text the projection still emits a tail row (so the live patch always has
+        // a row to find), and that row has nothing to say yet. Falling back to a
+        // "Streaming..." placeholder there flashed a fake line under the chip until the
+        // next delta arrived (chat-polish-2 re-audit non-blocker 2). A NON-segment
+        // preview keeps the placeholder: that shape really is "no content yet".
+        const previewText = message.previewSegment === true
+          ? String(message.content || "")
+          : String(message.content || "Streaming...");
+
+        renderPreviewMarkdown(streamingBlock, previewText);
         bubble.append(streamingBlock);
-        bubble.append(createAssistantMessageActionRow(message));
+
+        // ONE action row for the live preview, on its TAIL segment only (chat-polish-2 item
+        // C). The projection splits the preview at each chip, so a chip-bearing turn is
+        // several preview rows; giving each one its own copy/raw row would stack buttons
+        // mid-stream. A frozen segment is text the user has already scrolled past a chip —
+        // it is not a message they can copy yet.
+        if (message.previewSegmentFrozen !== true) {
+          bubble.append(createAssistantMessageActionRow(message));
+        }
+
         return bubble;
       }
 
@@ -1098,6 +1234,10 @@ export function createAgentThreadView(config = {}) {
 
           if (narrationBlock) {
             narrationBlock.dataset.executionNarration = "true";
+            // The text the block was painted from, so a live tick that adds nothing does
+            // not repaint it (chat-polish-2 item C). Kept for committed rows too: it is how
+            // the streaming patch knows whether the prose actually moved.
+            narrationBlock.dataset.executionNarrationText = section.executeDisplay.narration.trim();
             sectionElement.append(narrationBlock);
           }
         }
@@ -1186,6 +1326,20 @@ export function createAgentThreadView(config = {}) {
     }
 
     if (existingNarration) {
+      // NARRATION GROWS WHILE THE CARD STREAMS (chat-polish-2 item C). Returning early here
+      // froze the prose at the FIRST fragment that had a narration block: the card kept
+      // updating while the sentence above it never did, which is the owner-visible "plain
+      // unformatted text on tool turns". It is repainted through the SAME preview painter
+      // the text turns use, so it formats progressively and partial syntax degrades to
+      // plain text for a tick. The key check keeps a repaint-free tick from touching the
+      // DOM, and the committed narration path (`createExecutionNarrationBlock` from
+      // `createAssistantSequenceBubble`) is untouched, so settled output is byte-identical.
+      if (existingNarration.dataset.executionNarrationText === narrationText) {
+        return true;
+      }
+
+      existingNarration.dataset.executionNarrationText = narrationText;
+      renderPreviewMarkdown(existingNarration, narrationText);
       return true;
     }
 
@@ -1197,6 +1351,7 @@ export function createAgentThreadView(config = {}) {
     }
 
     nextNarration.dataset.executionNarration = "true";
+    nextNarration.dataset.executionNarrationText = narrationText;
 
     const executionCard = sectionElement.querySelector("[data-execution-card]");
 
@@ -1287,7 +1442,8 @@ export function createAgentThreadView(config = {}) {
         isStreaming: false,
         messageId,
         outputResults,
-        rerunningMessageId: ""
+        rerunningMessageId: "",
+        typedTool: options.typedTool || null
       })
     );
 
@@ -1298,10 +1454,115 @@ export function createAgentThreadView(config = {}) {
     return bubble;
   }
 
-  // One collapsible summary row for a run of tool calls, expandable to the SAME
-  // per-call chips used today (item 1: "the existing per-call row rendering stays
-  // available when expanded"). Nothing is invented here: each entry keeps its own
-  // execution card, in stored order.
+  // A TYPED chip describes a tool call, so its honest contents are the call's ARGUMENTS
+  // and the tool's own payload/error — not a terminal transcript. The display projection
+  // encodes both as `execution <name> call|result` followed by the JSON body, so the body
+  // is read from the projected text rather than by re-reading the stored typed shape (the
+  // second-reader anti-pattern the shared history reader exists to prevent).
+  function getTypedEntryBodyText(entry) {
+    const content = String(entry?.content || "");
+    const newlineIndex = content.indexOf("\n");
+
+    return newlineIndex === -1 ? "" : content.slice(newlineIndex + 1).trim();
+  }
+
+  // One descriptor per CALL (item A): the call entry supplies the arguments and the name,
+  // its own result entry supplies the outcome and the payload. A call whose result has not
+  // landed keeps `running` and an empty output, so nothing is invented.
+  function createTypedToolDescriptorForCall(record) {
+    const callEntry = record?.entry || null;
+    const resultEntry = record?.result || null;
+
+    return {
+      argumentsText: getTypedEntryBodyText(callEntry) || "{}",
+      name: String(record?.name || callEntry?.typedToolName || "tool"),
+      outcome: String(record?.outcome || "running"),
+      outputText: resultEntry ? getTypedEntryBodyText(resultEntry) : ""
+    };
+  }
+
+  // A RESULT entry's projected name is EMPTY by construction: the canonical writer stores a
+  // tool message as `{role, content, toolCallId}` with no name, and the display projection
+  // can only echo what the stored entry carries. A standalone result chip therefore read
+  // `tool · Success` instead of the tool that actually ran (chat-polish-2 item D). The name
+  // is recoverable from the CALL of the same id, which is in the same history, so it is
+  // resolved here rather than by re-reading or rewriting stored shapes.
+  //
+  // THE SAME SCAN CARRIES THE SETTLED OUTCOME (chat-polish-2 re-audit blocker 2). A
+  // standalone CALL has no result of its own to consult, so it used to hardcode `running` —
+  // which meant the commonest shape of all, a single-call turn, rendered `file_read · Running`
+  // FOREVER beside its own settled result row, and survived reload because it is derived from
+  // stored entries. A `running` claim about finished work is the same class of lie the item D
+  // labels exist to remove.
+  function collectTypedToolCallFacts(history) {
+    const facts = { names: new Map(), outcomes: new Map() };
+
+    (Array.isArray(history) ? history : []).forEach((entry) => {
+      const callId = String(entry?.typedToolCallId || "");
+
+      if (!callId) {
+        return;
+      }
+
+      if (entry?.typedTool === "call") {
+        const name = String(entry?.typedToolName || "");
+
+        if (name && !facts.names.has(callId)) {
+          facts.names.set(callId, name);
+        }
+
+        return;
+      }
+
+      // First result wins: exactly one result exists per call id by contract, so a second
+      // one is a duplicate rather than a newer truth.
+      if (entry?.typedTool === "result" && !facts.outcomes.has(callId)) {
+        facts.outcomes.set(callId, String(entry?.typedToolOutcome || "success"));
+      }
+    });
+
+    return facts;
+  }
+
+  // A STANDALONE typed chip (ungrouped) keeps its pre-existing one-entry shape; this only
+  // supplies the honest label for it (item D).
+  function createTypedToolDescriptor(entry, callFacts = null) {
+    if (!entry?.typedTool) {
+      return null;
+    }
+
+    const callId = String(entry.typedToolCallId || "");
+    const resolvedName =
+      String(entry.typedToolName || "") || (callFacts?.names?.get?.(callId) ?? "") || "";
+
+    if (entry.typedTool === "call") {
+      // The CLASSIFIED outcome of this call's own result when one exists; `running` only
+      // when nothing has answered this call yet, which is the one case where it is true.
+      const settledOutcome = callFacts?.outcomes?.get?.(callId) ?? "";
+
+      return {
+        argumentsText: getTypedEntryBodyText(entry) || "{}",
+        name: resolvedName || "tool",
+        outcome: settledOutcome || "running",
+        outputText: ""
+      };
+    }
+
+    return {
+      argumentsText: "",
+      name: resolvedName || "tool",
+      outcome: String(entry.typedToolOutcome || "success"),
+      outputText: getTypedEntryBodyText(entry)
+    };
+  }
+
+  // One collapsible summary row for a run of tool calls, expandable to ONE row per CALL.
+  //
+  // THE ROW COUNT IS THE HEADER COUNT, by construction: both read `summary.calls`, which
+  // `summarizeToolRun` derives from the one per-call fold in `tool-run.js`. Drawing a row
+  // per ENTRY instead is what produced the owner-visible "2 tool calls · 2 succeeded" with
+  // four chips underneath — a call entry and its result entry are two entries describing
+  // ONE call (chat-polish-2 item A).
   function createToolRunCard(group, options = {}) {
     const key = String(group.key || toolRunKey(group.entries));
     const openState = options.toolRunOpenState || null;
@@ -1335,18 +1596,27 @@ export function createAgentThreadView(config = {}) {
 
     const body = document.createElement("div");
     body.className = "tool-run-body";
+    body.dataset.toolRunBody = "true";
 
-    group.entries.forEach((entry) => {
-      body.append(
-        createExecutionCard({
-          executeDisplay: null,
-          isConversationBusy: false,
-          isStreaming: false,
-          messageId: entry.id,
-          outputResults: getExecutionOutputResults(entry),
-          rerunningMessageId: options.rerunningMessageId
-        })
-      );
+    const calls = Array.isArray(group.summary?.calls)
+      ? group.summary.calls
+      : collectToolRunCalls(group.entries);
+
+    calls.forEach((record) => {
+      const row = createExecutionCard({
+        executeDisplay: null,
+        isConversationBusy: false,
+        isStreaming: false,
+        messageId: record.id,
+        outputResults: null,
+        rerunningMessageId: options.rerunningMessageId,
+        typedTool: createTypedToolDescriptorForCall(record)
+      });
+
+      // The row's identity is the CALL's, so an expanded run can be asserted row-by-row
+      // against the same call ids the header counts.
+      row.dataset.toolRunRowCallId = String(record.callId || "");
+      body.append(row);
     });
 
     card.append(body);
@@ -1482,6 +1752,11 @@ export function createAgentThreadView(config = {}) {
     // history, not of an index, and recomputing it inside `collectToolRun` made this
     // O(n²) on every streamed frame (chat-polish audit non-blocker b, 2026-10-27).
     const withheldCallIds = groupToolRuns ? collectWithheldCallIds(history) : null;
+    // Same reasoning, and the same one-scan discipline: a typed RESULT entry carries no tool
+    // name of its own, and a typed CALL carries no outcome of its own, so both are resolved
+    // once per render from the sibling entry of the same call id (chat-polish-2 re-audit
+    // blockers 1/2). Doing it per row would be O(n²) on the frame path.
+    const typedToolCallFacts = collectTypedToolCallFacts(history);
 
     for (let index = 0; index < history.length; index += 1) {
       const message = history[index];
@@ -1557,6 +1832,10 @@ export function createAgentThreadView(config = {}) {
           // the row signature can see it: a running chip must never be reused as a
           // settled one, nor the reverse.
           provisional: message.provisional === true,
+          // A typed chip gets an honest label and honest panes (item D) whether or not it
+          // is grouped: the wording must not depend on how many siblings it happened to
+          // have.
+          typedTool: createTypedToolDescriptor(message, typedToolCallFacts),
           type: "standalone-output"
         });
         continue;
@@ -1724,6 +2003,19 @@ export function createAgentThreadView(config = {}) {
       row = createMessageRow("assistant", createAssistantSequenceBubble(group, options), "terminal-row", {
         showAvatar: group.showAvatar !== false
       });
+
+      // A STREAMING sequence row must still be findable by id (chat-polish-2 item C). A
+      // message carrying an execution separator renders as an assistant-sequence, and
+      // without this mark `updateStreamingAssistantMessage` could never locate the row: every
+      // delta fell through to a full thread re-render, which is why the prose above a tool
+      // card sat frozen and unformatted while the card itself updated. The id is the
+      // streaming message's own, so the existing in-place patch (and its narration repaint)
+      // reaches the row exactly as it does for a text turn.
+      const streamingSection = group.sections.find((section) => Boolean(section?.message?.streaming));
+
+      if (streamingSection) {
+        row.dataset.streamingMessageId = streamingSection.message.id;
+      }
     } else if (group.type === "tool-run") {
       row = createMessageRow("assistant", createToolRunCard(group, options), "terminal-row tool-run-row", {
         showAvatar: group.showAvatar !== false
@@ -1732,7 +2024,8 @@ export function createAgentThreadView(config = {}) {
       row = createMessageRow(
         "assistant",
         createStandaloneExecutionOutputBubble(group.outputResults, group.messageId, {
-          provisional: group.provisional === true
+          provisional: group.provisional === true,
+          typedTool: group.typedTool || null
         }),
         "terminal-row execution-output-row",
         {
@@ -1918,8 +2211,23 @@ export function createAgentThreadView(config = {}) {
         return false;
       }
 
+      // PAINT THE TAIL SLICE, NOT THE WHOLE PREVIEW (chat-polish-2 re-audit blocker 1).
+      //
+      // Once a chip has split the preview, the row carrying the plain preview id is only the
+      // TAIL segment: the frozen segments above it hold their own slices. Repainting this row
+      // with the full accumulated text therefore duplicated every segment above it, and the
+      // duplication grew with each delta (the patch returns true, so no full re-render
+      // repaired it until the next chip or commit).
+      //
+      // `options.previewTailContent` comes from `resolvePreviewTailContent`, i.e. from the
+      // projection itself, so there is still ONE derivation of what the tail holds. `null`
+      // means "the preview was not split" and the whole content is what this row holds.
+      const tailContent =
+        typeof options.previewTailContent === "string" ? options.previewTailContent : null;
+      const previewSource = tailContent === null ? message.content || "Streaming..." : tailContent;
+
       // Same preview path as the row build: this node exists only while streaming.
-      renderPreviewMarkdown(textBlock, message.content || "Streaming...");
+      renderPreviewMarkdown(textBlock, previewSource);
       setRowRenderState(
         row,
         buildStreamingRenderGroup(message, {
@@ -2065,6 +2373,11 @@ export function createAgentThreadView(config = {}) {
     buildMessageDisplayGroups,
     copyTextToClipboard,
     findExecuteSection,
+    // Exposed so the LABEL VOCABULARIES are assertable directly: the Tier 3 wording
+    // (code lines) and the typed wording (tool name · outcome) are different languages
+    // and neither may drift into the other (chat-polish-2 item D).
+    formatExecutionSummaryLabel,
+    formatTypedToolLabel,
     // Exposed so the render-reuse contract is testable at the real code path: the
     // execute-section signature must CHANGE when a chip settles, or the row built
     // mid-turn is reused and its spinner never stops.

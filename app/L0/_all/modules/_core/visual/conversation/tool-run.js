@@ -69,14 +69,26 @@ function isWithheldEntry(entry, withheldCallIds) {
 // Returns `null` when the entry at `startIndex` cannot start a run: not typed, a
 // provisional chip, a consent-episode entry, or an orphan result with no call.
 //
-// WITHHELD BLOCKS ARE NOT GROUPED AT ALL, and that is deliberate. A run's calls and
-// their results are contiguous, but a held call sits in the CALLS half while its own
-// result sits in the RESULTS half. Grouping only the calls before it would leave the
-// collected calls without their results, so they would summarize as `running` forever —
-// a claim about work that already finished. Splitting the block around the held call
-// would instead reorder rows the user watched. So the whole block stays individual and
-// in stored order: the consent affordance is visible, and no call is described wrongly.
-// Held turns are rare and the honesty rule wins over collapsing them.
+// THE RUN IS A CONTIGUOUS TYPED STRETCH, and that is the whole rule. In particular a
+// result row does NOT end a run: a batch whose results interleave with its calls
+// (`call, result, call, result`) is still ONE announcement, and it must group exactly
+// like the same batch stored as `call, call, result, result`. The previous rule ended
+// the run at the first call that followed a result, which made the same two-call batch
+// group or not group depending on row order — the owner-visible "two calls sometimes do
+// not group at all" (chat-polish-2 item B). One derivation, one answer.
+//
+// What DOES end a run is any entry that is not a typed call/result — narration, a real
+// user turn, or any other message — so prose still splits runs, and a withheld or
+// provisional entry (below) keeps its whole block individual.
+//
+// WITHHELD BLOCKS ARE NOT GROUPED AT ALL, and that is deliberate. A held call sits in
+// the CALLS half while its own result sits in the RESULTS half. Grouping only the calls
+// before it would leave the collected calls without their results, so they would
+// summarize as `running` forever — a claim about work that already finished. Splitting
+// the block around the held call would instead reorder rows the user watched. So the
+// whole block stays individual and in stored order: the consent affordance is visible,
+// and no call is described wrongly. Held turns are rare and the honesty rule wins over
+// collapsing them.
 export function collectToolRun(history, startIndex = 0, options = {}) {
   const list = Array.isArray(history) ? history : [];
   const withheldCallIds =
@@ -87,25 +99,17 @@ export function collectToolRun(history, startIndex = 0, options = {}) {
     return null;
   }
 
-  const entries = [first];
-  let sawResult = false;
-  let index = startIndex + 1;
+  const entries = [];
+  let index = startIndex;
 
   while (index < list.length) {
     const entry = list[index];
 
+    // Typed stretch only. A non-typed entry (narration, a real turn) or an excluded one
+    // (provisional chip, consent episode) ends the run HERE, so nothing is inferred
+    // across prose and the next run starts at whatever follows.
     if (!isToolRunEntry(entry) || isToolRunExcludedEntry(entry)) {
       break;
-    }
-
-    // A call AFTER a result is the next announcement, not a continuation of this
-    // one. This is what keeps two narrationless iterations as two rows.
-    if (entry.typedTool === "call" && sawResult) {
-      break;
-    }
-
-    if (entry.typedTool === "result") {
-      sawResult = true;
     }
 
     entries.push(entry);
@@ -122,11 +126,18 @@ export function collectToolRun(history, startIndex = 0, options = {}) {
   return { endIndex: index - 1, entries };
 }
 
-// Counts per CALL, not per entry: a call plus its result is one call, not two.
-// A call with no result yet is `running`; that is the only honest word for it, and
-// while the turn is live it is usually true. A settled run has no `running` calls,
-// because its calls all carry results by then.
-export function summarizeToolRun(entries) {
+// ONE ROW PER CALL, derived from the same entries the summary counts.
+//
+// A call entry and its result entry are two ENTRIES describing one CALL, so a renderer
+// that draws a row per entry draws every call twice — which is exactly the owner-visible
+// "header says 2, expanding shows 4" (chat-polish-2 item A). This is the single place
+// that folds an entry sequence into per-call records, so the row count and the header
+// count cannot disagree by construction.
+//
+// The result is attached to the record carrying the same call id and may sit anywhere in
+// the run (item B). A call with no result yet keeps `outcome: "running"`, which is the
+// only honest word for it, and `result: null` so the renderer has nothing to invent.
+export function collectToolRunCalls(entries) {
   const calls = [];
   const byCallId = new Map();
 
@@ -134,9 +145,11 @@ export function summarizeToolRun(entries) {
     if (entry?.typedTool === "call") {
       const record = {
         callId: String(entry?.typedToolCallId || ""),
+        entry,
         id: String(entry?.id || ""),
         name: String(entry?.typedToolName || ""),
-        outcome: "running"
+        outcome: "running",
+        result: null
       };
 
       calls.push(record);
@@ -153,9 +166,25 @@ export function summarizeToolRun(entries) {
 
       if (record) {
         record.outcome = String(entry?.typedToolOutcome || "success");
+        record.result = entry;
       }
     }
   });
+
+  return calls;
+}
+
+// Counts per CALL, not per entry: a call plus its result is one call, not two.
+// A call with no result yet is `running`; that is the only honest word for it, and
+// while the turn is live it is usually true. A settled run has no `running` calls,
+// because its calls all carry results by then.
+//
+// THE ROWS COME FROM HERE TOO (item A). `collectToolRunCalls` is the one fold from
+// entries to per-call records, and both the header totals and the expanded rows read
+// its output, so "2 tool calls · 2 succeeded" with four rows underneath is not a bug
+// that can come back: the number of rows IS `calls.length`.
+export function summarizeToolRun(entries) {
+  const calls = collectToolRunCalls(entries);
 
   return {
     calls,
