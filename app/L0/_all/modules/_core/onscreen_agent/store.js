@@ -5426,8 +5426,11 @@ const model = {
         model: String(this.settings.model || ""),
         params: llmParams.parseOnscreenAgentParamsText(this.settings.paramsText || ""),
         providerKey: "",
+        // P3: tool turns STREAM. The transport assembles `tool_calls` fragments per
+        // call index and reports each call complete only when its arguments are
+        // complete JSON, so the loop can dispatch without ever seeing half a call.
         sendCompletion: async ({ request }) =>
-          agentApi.completeOnscreenAgentToolTurn({
+          agentApi.streamOnscreenAgentToolTurn({
             requestBody: request.body,
             settings: this.settings,
             signal: controller.signal
@@ -5453,6 +5456,12 @@ const model = {
           ...(Array.isArray(turn?.result?.messages) ? turn.result.messages : messages),
           { content: TIER1_CORRECTIVE_PROMPT, role: "user" }
         ];
+        // INVARIANT: the coaching element sits EXACTLY at this index — it is the last
+        // entry of the list the retry starts from, so every earlier entry keeps its
+        // position and the retry's baseline is `correctiveIndex`. The removal below is
+        // POSITIONAL for that reason: matching on text alone would also delete a
+        // message the model happened to echo back.
+        const correctiveIndex = continuedMessages.length - 1;
 
         try {
           const second = await runOnscreenTier1Turn({
@@ -5465,7 +5474,7 @@ const model = {
             params: llmParams.parseOnscreenAgentParamsText(this.settings.paramsText || ""),
             providerKey: "",
             sendCompletion: async ({ request }) =>
-              agentApi.completeOnscreenAgentToolTurn({
+              agentApi.streamOnscreenAgentToolTurn({
                 requestBody: request.body,
                 settings: this.settings,
                 signal: controller.signal
@@ -5475,12 +5484,11 @@ const model = {
           // The coaching turn is scaffolding, not conversation. Dropping it from
           // the persisted message list keeps the transcript honest: the user never
           // said it, so it must not become a user bubble they later scroll past.
+          // Positional, per the invariant above: the coaching turn is scaffolding the
+          // user never wrote, and it is removed by WHERE it sits, not by what it says.
           const persistedMessages = (
             Array.isArray(second?.result?.messages) ? second.result.messages : []
-          ).filter(
-            (message) =>
-              !(message?.role === "user" && message?.content === TIER1_CORRECTIVE_PROMPT)
-          );
+          ).filter((_message, index) => index !== correctiveIndex);
 
           finalTurn = {
             result: {

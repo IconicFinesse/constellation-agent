@@ -428,6 +428,25 @@ test("a separator-only Tier 1 turn is re-prompted exactly once and then stops", 
     !JSON.stringify(turn.result.messages).includes(wireHygiene.TIER1_CORRECTIVE_PROMPT),
     "the coaching turn must not be persisted as a user message the human never wrote"
   );
+
+  // INDEX INVARIANT (hotfix-2 audit gap b). The coaching element sits EXACTLY at the
+  // baseline the retry starts from — the last message of the request that carries it
+  // — and removing it must therefore leave every earlier message in its original
+  // position. A text-matching removal happens to work here, but it would also delete
+  // a message the model echoed; the positional removal is what the invariant allows,
+  // so the invariant is asserted rather than assumed.
+  const retryWire = bodies[1].messages;
+  const coachingIndex = retryWire.findIndex(
+    (message) => message?.role === "user" && message?.content === wireHygiene.TIER1_CORRECTIVE_PROMPT
+  );
+
+  assert.equal(coachingIndex, retryWire.length - 1, "the coaching turn is the LAST message of the retry request");
+  assert.ok(coachingIndex > 0, "the retry request still carries the conversation before the coaching turn");
+  assert.deepEqual(
+    turn.result.messages.slice(0, coachingIndex),
+    retryWire.slice(0, coachingIndex),
+    "every message before the coaching index keeps its exact position after removal"
+  );
 });
 
 test("a turn that calls a tool is never corrected", async (t) => {
@@ -590,11 +609,142 @@ test("the store seam sends the sanitized wire, not just the sanitizer output", a
     "the store seam must send no separator-form assistant turn"
   );
   assert.equal(turn.wireHygiene.changed, true, "the turn reports what it sanitized");
+  // The invariant is measured POST-drop: `wireMessageCount` is the length of the
+  // sanitized list the loop actually starts from, so it must equal what reached the
+  // transport. The previous form added `dropped` back on, which is only correct when
+  // nothing was dropped — exactly the case it claimed to cover.
   assert.equal(
     turn.wireMessageCount,
-    sent.length + (turn.wireHygiene.dropped > 0 ? turn.wireHygiene.dropped : 0),
-    "the reported wire length must describe the messages actually sent"
+    sent.length,
+    "the reported wire length is the SANITIZED length, equal to what was sent"
   );
+});
+
+// Audit gap (hotfix-2 audit): the drop path — a separator-only assistant turn whose
+// narration is empty, so the sanitizer DROPS it rather than projecting it — was
+// correct in the arithmetic but UNTESTED end to end. Driving it through the real
+// store turn is the only place the baseline-slice bug can appear: the loop starts
+// from the SHORTER wire while `preparedRequest.messages` still holds the longer
+// prepared list, so a tail sliced at the prepared length silently discards the
+// assistant reply and its tool results.
+test("a dropped separator-only turn still persists the assistant reply and its tool results", async (t) => {
+  const previous = {
+    history: store.history,
+    persistHistory: store.persistHistory,
+    render: store.render,
+    settings: store.settings,
+    showCompactAssistantReplyBubble: store.showCompactAssistantReplyBubble,
+    status: store.status
+  };
+  const previousFetch = globalThis.fetch;
+  const bodies = [];
+
+  store.persistHistory = async () => {};
+  store.render = () => {};
+  // The reply bubble is a RENDER seam that needs a browser timer this suite does
+  // not provide. Stubbing it keeps the assertion on state and persistence, which is
+  // what the drop-path baseline actually governs.
+  store.showCompactAssistantReplyBubble = () => {};
+  store.settings = {
+    ...(previous.settings && typeof previous.settings === "object" ? previous.settings : {}),
+    apiEndpoint: "https://example.invalid/v1/chat/completions",
+    apiKey: "test-key-not-real",
+    model: "test-model",
+    paramsText: ""
+  };
+
+  t.after(() => {
+    globalThis.fetch = previousFetch;
+    store.history = previous.history;
+    store.persistHistory = previous.persistHistory;
+    store.render = previous.render;
+    store.settings = previous.settings;
+    store.showCompactAssistantReplyBubble = previous.showCompactAssistantReplyBubble;
+    store.status = previous.status;
+    store.stopRequested = false;
+    store.activeRequestController = null;
+  });
+
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body || "{}"));
+
+    bodies.push(body);
+
+    const hasToolResult = Array.isArray(body.messages) && body.messages.some((message) => message?.role === "tool");
+    const payload = hasToolResult
+      ? { choices: [{ finish_reason: "stop", message: { content: "The file says: buy milk." } }] }
+      : {
+          choices: [
+            {
+              finish_reason: "tool_calls",
+              message: {
+                content: "",
+                tool_calls: [
+                  {
+                    function: { arguments: JSON.stringify({ path: "~/notes.txt" }), name: "file_read" },
+                    id: "call-drop-1",
+                    type: "function"
+                  }
+                ]
+              }
+            }
+          ]
+        };
+
+    return {
+      json: async () => payload,
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(payload)
+    };
+  };
+
+  // The prior assistant turn is a SEPARATOR-ONLY message: an executable separator
+  // with no narration, which the sanitizer DROPS (it cannot be projected honestly).
+  const separatorOnly = `\n_____javascript\nreturn await space.api.fileRead({ path: "~/old.txt" });`;
+  const preparedRequest = {
+    messages: [
+      { content: "you are a runtime operator", role: "system" },
+      { content: separatorOnly, role: "assistant" },
+      { content: "Read the file notes.txt", role: "user" }
+    ]
+  };
+
+  const outcome = await store.runTier1TurnAndCommit(
+    [{ content: "Read the file notes.txt", id: "u1", role: "user" }],
+    preparedRequest,
+    { tier: "tier1" }
+  );
+
+  assert.equal(outcome, "complete", "the turn completed");
+  assert.equal(bodies.length, 2, "turn one dispatches the call, turn two reports");
+
+  // The sanitized wire is SHORTER than the prepared list: the separator-only
+  // assistant turn is gone. Slicing the tail at the PREPARED length would then skip
+  // the assistant reply and its tool results entirely.
+  const sentFirst = bodies[0].messages;
+
+  assert.equal(
+    sentFirst.length,
+    preparedRequest.messages.length - 1,
+    "exactly one message was dropped from the wire"
+  );
+  assert.equal(
+    sentFirst.some((message) => message.role === "assistant" && String(message.content || "").includes("_____javascript")),
+    false,
+    "the dropped turn never reached the transport"
+  );
+
+  const persisted = store.history;
+  const hasToolCall = persisted.some((entry) => entry?.kind === "tool_call");
+  const hasToolResult = persisted.some((entry) => entry?.kind === "tool_result");
+  const hasAnswer = persisted.some(
+    (entry) => entry?.role === "assistant" && String(entry?.content || "").includes("buy milk")
+  );
+
+  assert.equal(hasToolCall, true, "the tool call survives the drop-path slice");
+  assert.equal(hasToolResult, true, "the tool result survives the drop-path slice");
+  assert.equal(hasAnswer, true, "the assistant's final reply survives the drop-path slice");
 });
 
 // --- (d) TIER 3 UNTOUCHED ------------------------------------------------
