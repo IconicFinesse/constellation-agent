@@ -1349,9 +1349,19 @@ export function createAgentThreadView(config = {}) {
 
       if (executeDisplay) {
         const nextMessage = history[index + 1];
+        // TIER 3 PEEK-AHEAD, and it is deliberately narrow. The text protocol writes
+        // an execution follow-up DIRECTLY under the message that produced it, so this
+        // branch consumes that entry as the card's own output pane. A TYPED chip is a
+        // different thing wearing the same shape (see `projectHistoryEntryForDisplay`),
+        // and it is its own row, never a pane belonging to the message above it. A
+        // marked entry is therefore never consumed: absorbing it made a
+        // separator-bearing narration swallow the tool-call chip that followed it and
+        // then report the swallowed output as a real execution (transcript-fidelity
+        // audit, 2026-10-27).
+        const nextIsTypedTool = Boolean(nextMessage?.typedTool);
         const outputResults = Array.isArray(outputOverrides[message.id])
           ? outputOverrides[message.id]
-          : nextMessage
+          : nextMessage && !nextIsTypedTool
             ? getExecutionOutputResults(nextMessage)
             : null;
 
@@ -1856,6 +1866,10 @@ export function createAgentThreadView(config = {}) {
 
   return {
     autoResizeTextarea,
+    // Exposed so the typed-transcript ORDER contract is testable at the real code
+    // path: typed `tool_call` / `tool_result` entries must draw in stored order, so a
+    // chip sits between the prose that introduced it and the prose that follows.
+    buildMessageDisplayGroups,
     copyTextToClipboard,
     findExecuteSection,
     // Exposed so the render-reuse contract is testable at the real code path: the

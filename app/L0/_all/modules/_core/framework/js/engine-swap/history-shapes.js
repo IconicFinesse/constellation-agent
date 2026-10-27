@@ -187,10 +187,24 @@ export function historyEntriesToCanonicalMessages(entries) {
 //
 // A Tier 1 session works in canonical messages (system / user / assistant-with-
 // toolCalls / tool). The surface stores history entries. This is the one mapping
-// between them: an assistant message with calls becomes one `tool_call` entry per
-// call, a `tool` message becomes a `tool_result`, and assistant text stays a plain
-// message. Legacy entries already in history are never touched — only the tail the
-// turn produced is mapped.
+// between them: an assistant message with calls becomes its NARRATION as a plain
+// message entry followed by one `tool_call` entry per call, a `tool` message
+// becomes a `tool_result`, and assistant text alone stays a plain message. Legacy
+// entries already in history are never touched — only the tail the turn produced is
+// mapped.
+//
+// NARRATION IS NOT OPTIONAL (owner-reported transcript defect, 2026-10-27): the loop
+// announces ONE assistant message carrying both `content` and `toolCalls`
+// (`tool-turn-loop.js`), and an earlier version of this function dropped the
+// content, so a narrated tool turn persisted as calls only. The prose the user
+// watched stream then vanished at commit, and because the thread renderer draws
+// stored order faithfully, the calls of every iteration stacked at the top of the
+// turn with no assistant anchor between them. Emitting the narration entry first
+// restores the per-iteration order assistant text -> tool_call(s) -> tool_result(s).
+//
+// The reader needs no new branch for this: a narration entry IS the plain assistant
+// message shape it already reads (`readHistoryEntry`, `historyEntriesToCanonicalMessages`),
+// so this adds a writer path only. Stored histories are never rewritten.
 export function canonicalMessagesToTypedEntries(messages, { fromIndex = 0 } = {}) {
   const list = Array.isArray(messages) ? messages : [];
   const start = Number.isFinite(fromIndex) ? Math.max(0, Math.floor(fromIndex)) : 0;
@@ -200,6 +214,21 @@ export function canonicalMessagesToTypedEntries(messages, { fromIndex = 0 } = {}
     const index = start + offset;
 
     if (message?.role === "assistant" && Array.isArray(message.toolCalls) && message.toolCalls.length) {
+      // The narration FIRST, so stored order is the order the user watched:
+      // assistant text -> tool_call(s) -> tool_result(s) -> next assistant text. The
+      // id keeps the `assistant-<index>` convention the plain-assistant branch below
+      // uses, so one id scheme covers both paths and nothing new has to be learned.
+      if (normalizeText(message.content).trim()) {
+        entries.push(
+          Object.freeze({
+            content: normalizeText(message.content),
+            id: `assistant-${index}`,
+            kind: "",
+            role: "assistant"
+          })
+        );
+      }
+
       message.toolCalls.forEach((call) => {
         entries.push(
           createToolCallEntry({
@@ -356,6 +385,14 @@ export function normalizeTypedHistoryFields(stored) {
 export function projectHistoryEntryForDisplay(entry) {
   const read = readHistoryEntry(entry);
 
+  // `typedTool` marks a projection as a TYPED entry wearing the chip shape. It exists
+  // for ONE reason: the chip shape is also what the text protocol's execution follow-up
+  // wears, and the thread renderer's execute-section branch is allowed to CONSUME such a
+  // follow-up as its own output pane. A typed chip is a row of its own, never a pane
+  // belonging to the message above it, so the renderer must be able to tell the two
+  // apart. Without this mark a narration containing an execution separator swallowed the
+  // tool-call chip that followed it and then claimed the swallowed output as a real
+  // execution result (P3 transcript-fidelity audit, 2026-10-27).
   if (read.kind === HISTORY_ENTRY_KIND.TOOL_CALL) {
     const args = JSON.stringify(read.arguments || {});
 
@@ -363,7 +400,8 @@ export function projectHistoryEntryForDisplay(entry) {
       content: `execution ${read.name || "tool"} call\n${args}`,
       id: read.id || `tool-call-${read.callId}`,
       kind: "execution-output",
-      role: "user"
+      role: "user",
+      typedTool: "call"
     });
   }
 
@@ -376,7 +414,8 @@ export function projectHistoryEntryForDisplay(entry) {
       content: `execution ${read.name || "tool"} result\n${detail}`,
       id: read.id || `tool-result-${read.callId}`,
       kind: "execution-output",
-      role: "user"
+      role: "user",
+      typedTool: "result"
     });
   }
 
