@@ -246,6 +246,49 @@
   line-height: 1.72;
 }
 
+/* Engine-swap confirm bar (P4a-3a). Scoped under `.admin-agent-root` like every other
+   admin customization, so the danger tint cannot leak into another admin surface that
+   mounts its own buttons in the same tab group.
+
+   The two controls are deliberately NOT styled with a fixed width: the shared inline
+   button class pins a narrow width that clipped text labels on the onscreen surface,
+   and the same contract applies here — text-labelled consent controls size to their
+   content. Neither control is ever disabled: a consent affordance must not depend on a
+   busy flag. */
+.admin-agent-root .admin-agent-confirm-bar {
+  align-items: center;
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
+  border-radius: var(--radius-md, 10px);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  justify-content: space-between;
+  margin: 0 12px 0.5em;
+  padding: 0.55em 0.7em;
+}
+
+.admin-agent-root .admin-agent-confirm-text {
+  flex: 1 1 16rem;
+  line-height: 1.45;
+  min-width: 0;
+}
+
+.admin-agent-root .admin-agent-confirm-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 0.4em;
+}
+
+.admin-agent-root .admin-agent-confirm-deny,
+.admin-agent-root .admin-agent-confirm-accept {
+  min-width: 4.5rem;
+  padding: 0.4em 0.8em;
+  white-space: nowrap;
+  width: auto;
+}
+
 .admin-agent-composer-wrap {
   display: grid;
   gap: 10px;
