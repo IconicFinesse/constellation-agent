@@ -1115,7 +1115,17 @@ export function createAgentThreadView(config = {}) {
         // PROGRESSIVE FORMATTING (item 3). This node exists only while the message
         // is streaming, so it is the preview by construction; the committed block
         // below still goes through `createFormattedMessageBlock` unchanged.
-        renderPreviewMarkdown(streamingBlock, message.content || "Streaming...");
+        // A preview SEGMENT may legitimately be EMPTY: when a chip lands at the end of
+        // the text the projection still emits a tail row (so the live patch always has
+        // a row to find), and that row has nothing to say yet. Falling back to a
+        // "Streaming..." placeholder there flashed a fake line under the chip until the
+        // next delta arrived (chat-polish-2 re-audit non-blocker 2). A NON-segment
+        // preview keeps the placeholder: that shape really is "no content yet".
+        const previewText = message.previewSegment === true
+          ? String(message.content || "")
+          : String(message.content || "Streaming...");
+
+        renderPreviewMarkdown(streamingBlock, previewText);
         bubble.append(streamingBlock);
 
         // ONE action row for the live preview, on its TAIL segment only (chat-polish-2 item
