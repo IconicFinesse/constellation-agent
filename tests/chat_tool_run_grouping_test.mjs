@@ -159,9 +159,14 @@ test("narration between runs splits groups, and each iteration is its own run", 
   ]);
 });
 
-// A narration-less second announcement still starts a new run: a call AFTER a result is
-// the next announcement, not a continuation.
-test("a call after a result starts a new run", () => {
+// A result row landing between two calls must NOT split the announcement (chat-polish-2
+// item B). This case used to pin the opposite rule — "a call after a result starts a new
+// run" — which made the SAME two-call batch group or not group depending on whether its
+// results happened to interleave with its calls. That is the owner-visible "two calls
+// sometimes do not group at all": an inference drawn from row order rather than from the
+// batch. Two narrationless iterations are genuinely indistinguishable from one batch whose
+// results interleaved, so this now groups as ONE run — the honest answer for both shapes.
+test("a result between two calls does not split the run", () => {
   const entries = typedHistory([
     {
       content: "one",
@@ -172,21 +177,52 @@ test("a call after a result starts a new run", () => {
       ]
     },
     { content: "ok: 1", role: "tool", toolCallId: "a1" },
-    { content: "ok: 2", role: "tool", toolCallId: "a2" },
-    {
-      role: "assistant",
-      toolCalls: [
-        { arguments: {}, id: "b1", name: "file_write" },
-        { arguments: {}, id: "b2", name: "file_write" }
-      ]
-    },
-    { content: "ok: 3", role: "tool", toolCallId: "b1" },
-    { content: "ok: 4", role: "tool", toolCallId: "b2" }
+    { content: "ok: 2", role: "tool", toolCallId: "a2" }
   ]);
 
   const groups = view.buildMessageDisplayGroups(project(entries), { groupToolRuns: true });
 
-  assert.deepEqual(layout(groups), ["text:one", "run:2", "run:2"]);
+  assert.deepEqual(layout(groups), ["text:one", "run:2"]);
+});
+
+// The same batch stored result-by-result is ONE run too, which is the parity item B is
+// actually about: the grouping may depend on the batch, never on the storage order.
+test("interleaved call/result order groups exactly like call-then-result order", () => {
+  const ordered = project(
+    typedHistory([
+      {
+        content: "two reads",
+        role: "assistant",
+        toolCalls: [
+          { arguments: {}, id: "i1", name: "file_read" },
+          { arguments: {}, id: "i2", name: "file_read" }
+        ]
+      },
+      { content: "ok: 1", role: "tool", toolCallId: "i1" },
+      { content: "ok: 2", role: "tool", toolCallId: "i2" }
+    ])
+  );
+  const callA = ordered.find((entry) => entry.typedToolCallId === "i1" && entry.typedTool === "call");
+  const callB = ordered.find((entry) => entry.typedToolCallId === "i2" && entry.typedTool === "call");
+  const resultA = ordered.find((entry) => entry.typedToolCallId === "i1" && entry.typedTool === "result");
+  const resultB = ordered.find((entry) => entry.typedToolCallId === "i2" && entry.typedTool === "result");
+  const interleaved = [ordered[0], callA, resultA, callB, resultB];
+
+  const orderedGroups = view.buildMessageDisplayGroups(ordered, { groupToolRuns: true });
+  const interleavedGroups = view.buildMessageDisplayGroups(interleaved, { groupToolRuns: true });
+
+  assert.deepEqual(layout(orderedGroups), ["text:two reads", "run:2"]);
+  assert.deepEqual(
+    layout(interleavedGroups),
+    ["text:two reads", "run:2"],
+    "the same batch must group the same way whatever order its results landed in"
+  );
+  assert.equal(collectToolRun(interleaved, 1).entries.length, 4, "one row per entry, four entries");
+  assert.equal(
+    summarizeToolRun(collectToolRun(interleaved, 1).entries).total,
+    2,
+    "but TWO calls, which is what the header and the rows both count"
+  );
 });
 
 // A single call is already one row: grouping it would only add a click.

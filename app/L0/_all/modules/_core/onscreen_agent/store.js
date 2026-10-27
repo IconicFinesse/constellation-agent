@@ -5480,7 +5480,18 @@ const model = {
       return false;
     }
 
-    this.engineSwapProvisionalCalls = [...this.engineSwapProvisionalCalls, { callId, name }];
+    this.engineSwapProvisionalCalls = [
+      ...this.engineSwapProvisionalCalls,
+      {
+        // INTERLEAVE OFFSET (chat-polish-2 item C). The chip belongs WHERE IT APPEARED, so
+        // the preview's length at this instant is recorded with it and the projection
+        // splits the accumulated text there. Reading the length at paint time instead
+        // would move every chip to the bottom of the prose.
+        atChars: String(this.engineSwapStreamingPreview?.content || "").length,
+        callId,
+        name
+      }
+    ];
     // Same frame discipline as streamed text: one coalesced repaint, never a render
     // per delta. Full mode only, because that is the surface that draws the thread.
     if (this.isFullMode && !this.streamingRenderFrame) {
