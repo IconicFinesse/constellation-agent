@@ -5888,6 +5888,14 @@ const model = {
         // turn, and the submitted user turn reaches disk before the request so a
         // page teardown cannot lose it.
         this.applyPromptInput(preparedRequest.promptInput);
+        // The user's turn enters HISTORY before the render, not at commit. `render`
+        // draws `getRenderHistory()`, which reads `this.history`, so without this
+        // assignment the pre-request render paints the PREVIOUS turn: the user's own
+        // message stayed invisible until the reply landed and both appeared together,
+        // and on a fresh chat the empty-state early return drew nothing at all. The
+        // commit still rewrites history as `[...requestMessages, ...tailEntries]`, so
+        // this is a preview of the same prefix, never a second source of truth.
+        this.history = [...requestMessages];
         this.activeTurnRequestMessages = requestMessages;
         this.status = "Thinking...";
         this.render();
