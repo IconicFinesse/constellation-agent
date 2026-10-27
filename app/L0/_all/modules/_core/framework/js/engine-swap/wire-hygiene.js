@@ -230,8 +230,50 @@ export const TIER1_DISPLAY_FORM_SHAPE = Object.freeze({
 // A fence body that is unmistakably a CALL rather than incidental code.
 const FENCED_CALL_BODY_PATTERN = /(?:\bspace\s*\.\s*api\s*\.\s*[a-z_$][\w$]*\s*\(|\{\s*"(?:tool|name|tool_name)"\s*:\s*"[^"]+"[\s\S]{0,240}?"arguments"\s*:)/iu;
 
-// `tool call:` and friends, unfenced, introducing a JSON body on this or the next lines.
-const PROSE_TOOL_CALL_PATTERN = /^[ \t]*(?:tool[ \t]*call|tool_call|call)[ \t]*[:\-][\s\S]{0,240}?\{/iu;
+// `tool call:` and friends, unfenced, introducing a JSON body. TWO patterns, because the
+// realistic shape is a call written MID-REPLY (p35 audit non-blocker 2).
+//
+// The original pattern was `^`-anchored with no `m` flag and tested against the whole
+// message, so it matched only at offset 0: `Sure.\ntool call: {...}` was NOT detected, and
+// that is how a model actually drifts. The line pattern is multiline so a call introduced
+// on any line is seen; the inline pattern covers the same reply on one line, where the JSON
+// body must begin immediately after the label (that tightness is what keeps ordinary prose
+// that merely MENTIONS a tool call from firing).
+const PROSE_TOOL_CALL_LINE_PATTERN = /^[ \t]*(?:tool[ \t]*call|tool_call|call)[ \t]*[:\-][\s\S]{0,240}?\{/imu;
+const PROSE_TOOL_CALL_INLINE_PATTERN = /\b(?:tool[ \t]*call|tool_call)[ \t]*[:\-][ \t]*(?:\n[ \t]*)?\{/iu;
+
+// SHOW-ME phrasing in the USER's own turn: they asked to see code, not for an action. This
+// is BUG-007's legitimate display case, so a fenced call body on such a turn must not burn
+// the single retry (p35 audit non-blocker 3).
+const SHOW_ME_PATTERN = /\b(?:show|display|example|sample|snippet|illustrate|demonstrate|explain|teach|walk me through|for reference|how (?:do|would|could|can) i|what would)\b/iu;
+
+// The user asked for something to BE DONE in their own turn.
+const ACTION_REQUEST_PATTERN = /\b(?:read|write|create|delete|remove|rename|move|copy|run|execute|fetch|open|save|update|list|find|search|install|uninstall|check|get|send|post|edit|append|replace|fix|build|start|stop|restart)\b/iu;
+
+// The model's own narration claims the work happened. Such a turn was trying to ACT, so a
+// fenced call body beside that claim is the drift worth one correction.
+const COMPLETION_CLAIM_PATTERN = /\b(?:i(?:'ve| have)\s+(?:read|run|executed|created|deleted|removed|written|wrote|saved|updated|moved|copied|checked|fetched)|(?:done|executed|completed)\b)/iu;
+
+// The typed-call WIRE shape pasted as text: a JSON object naming a tool and carrying its
+// arguments. Alone in a fence, this is unambiguous — nothing else looks like it.
+const CALL_SHAPED_JSON_PATTERN = /^\s*\{[\s\S]{0,400}?"(?:tool|name|tool_name)"\s*:\s*"[^"]+"[\s\S]{0,400}?"arguments"\s*:/iu;
+
+// A fence region's BODY: the region minus its opening and closing delimiter lines, so a
+// `^`-anchored pattern can ask what the fence actually contains (the region text itself
+// starts with ``` and would never match a leading `{`).
+function fenceRegionBody(regionText) {
+  const lines = String(regionText || "").split("\n");
+
+  if (lines.length && /^ {0,3}(`{3,}|~{3,})/u.test(lines[0])) {
+    lines.shift();
+  }
+
+  if (lines.length && /^ {0,3}(`{3,}|~{3,})\s*$/u.test(lines[lines.length - 1])) {
+    lines.pop();
+  }
+
+  return lines.join("\n");
+}
 
 function fenceRegionTexts(content, fenceRegions) {
   const regions = Array.isArray(fenceRegions) ? fenceRegions : [];
@@ -288,11 +330,47 @@ function unfolderedText(content, fenceRegions) {
 // `separator` is optional and only used for the FENCE test: a fence is examined for the
 // literal token, because "is this separator inside a fence" is exactly the question the
 // shared executable-index finder answers the other way round.
+// A fenced body with a call in it is only a MISTAKE when the turn was trying to ACT.
+//
+// This is the false-positive half of item 3 (p35 audit non-blocker 3), and it is a
+// BUG-007 matter: when the user asked to SEE code — "show me how you'd call it", "example
+// please" — a fence containing `space.api.fileRead(...)` is the correct answer, not drift.
+// Counting it burned the ONE retry on a legitimate display turn and nudged the model
+// toward an action nobody asked for.
+//
+// Positive evidence of intent, cheapest first:
+//   1. the fence body is the typed-call WIRE SHAPE alone (nobody writes that to teach);
+//   2. the model's own narration claims it DID something ("I've read…", "done");
+//   3. the user's turn asked for an action AND did not ask to be shown code.
+// Absent all three, the fence is display and is not counted.
+function fencedCallBodyIsActionAttempt({ fenceRegionTexts: regionTexts = [], narration = "", userTurn = "" } = {}) {
+  if (regionTexts.some((regionText) => CALL_SHAPED_JSON_PATTERN.test(fenceRegionBody(regionText)))) {
+    return true;
+  }
+
+  if (COMPLETION_CLAIM_PATTERN.test(narration)) {
+    return true;
+  }
+
+  const request = typeof userTurn === "string" ? userTurn : "";
+
+  if (!request.trim()) {
+    return false;
+  }
+
+  if (SHOW_ME_PATTERN.test(request)) {
+    return false;
+  }
+
+  return ACTION_REQUEST_PATTERN.test(request);
+}
+
 export function detectTier1DisplayFormToolCall({
   answer = "",
   fenceRegions = null,
   findSeparatorIndex = null,
-  separator = ""
+  separator = "",
+  userTurn = ""
 } = {}) {
   const text = typeof answer === "string" ? answer : "";
 
@@ -303,8 +381,12 @@ export function detectTier1DisplayFormToolCall({
   const regions = Array.isArray(fenceRegions) ? fenceRegions : [];
   const regionTexts = fenceRegionTexts(text, regions);
   const separatorToken = typeof separator === "string" ? separator : "";
+  const prose = unfolderedText(text, regions);
 
-  if (regionTexts.some((regionText) => FENCED_CALL_BODY_PATTERN.test(regionText))) {
+  if (
+    regionTexts.some((regionText) => FENCED_CALL_BODY_PATTERN.test(regionText)) &&
+    fencedCallBodyIsActionAttempt({ fenceRegionTexts: regionTexts, narration: prose, userTurn })
+  ) {
     return TIER1_DISPLAY_FORM_SHAPE.FENCED_CALL_BODY;
   }
 
@@ -312,7 +394,7 @@ export function detectTier1DisplayFormToolCall({
     return TIER1_DISPLAY_FORM_SHAPE.FENCED_SEPARATOR;
   }
 
-  if (PROSE_TOOL_CALL_PATTERN.test(unfolderedText(text, regions))) {
+  if (PROSE_TOOL_CALL_LINE_PATTERN.test(prose) || PROSE_TOOL_CALL_INLINE_PATTERN.test(prose)) {
     return TIER1_DISPLAY_FORM_SHAPE.PROSE_TOOL_CALL;
   }
 
@@ -354,7 +436,8 @@ export function resolveTier1CorrectiveRetry({
   findSeparatorIndex = null,
   fenceRegions = null,
   separator = "",
-  turns = []
+  turns = [],
+  userTurn = ""
 } = {}) {
   if (Number(attempts) >= TIER1_CORRECTIVE_RETRY_LIMIT) {
     return Object.freeze({ retry: false, shape: "" });
@@ -372,7 +455,7 @@ export function resolveTier1CorrectiveRetry({
     return Object.freeze({ retry: false, shape: "" });
   }
 
-  const shape = detectTier1DisplayFormToolCall({ answer, fenceRegions, findSeparatorIndex, separator });
+  const shape = detectTier1DisplayFormToolCall({ answer, fenceRegions, findSeparatorIndex, separator, userTurn });
 
   return Object.freeze({ retry: Boolean(shape), shape });
 }

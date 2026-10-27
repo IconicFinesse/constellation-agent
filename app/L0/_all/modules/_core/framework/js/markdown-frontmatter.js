@@ -41,6 +41,29 @@ function escapeProseAngleBrackets(text) {
 // code here: `marked` would render those backticks literally and pass a raw `<` in
 // between straight through, so that text must keep the angle-bracket escape.
 const INLINE_BACKTICK_RUN_PATTERN = /`+/gu;
+const BACKSLASH = String.fromCharCode(92);
+
+// FAIL-CLOSED DELIMITER RULE (p35 audit blocker).
+//
+// A backslash-escaped backtick is a LITERAL backtick to `marked`, not a code-span
+// delimiter: `\`x <img onerror=…> y\`` renders as literal backticks around RAW HTML.
+// Treating an escaped run as a span, and therefore skipping the angle-bracket escape,
+// put that raw tag straight into `innerHTML` — a fail-OPEN regression. A run preceded by
+// an ODD number of backslashes is therefore never an opener, and never a closer.
+//
+// This can only ever ADD escaping, never remove it: a shape we refuse to call a span is
+// prose, and prose is always escaped.
+function isBackslashEscapedAt(text, index) {
+  let slashCount = 0;
+  let cursor = index - 1;
+
+  while (cursor >= 0 && text[cursor] === BACKSLASH) {
+    slashCount += 1;
+    cursor -= 1;
+  }
+
+  return slashCount % 2 === 1;
+}
 
 function collectInlineCodeRegions(text, from, to) {
   const regions = [];
@@ -70,6 +93,15 @@ function collectInlineCodeRegions(text, from, to) {
     let searchIndex = openEnd;
     let closed = null;
 
+    // An ESCAPED run cannot OPEN a span: to the parser it is a literal backtick, so the
+    // text that follows is prose and must be escaped. Skipping it here is what closes the
+    // raw-HTML hole (p35 audit blocker).
+    if (isBackslashEscapedAt(slice, openStart)) {
+      INLINE_BACKTICK_RUN_PATTERN.lastIndex = openEnd;
+      match = INLINE_BACKTICK_RUN_PATTERN.exec(slice);
+      continue;
+    }
+
     while (searchIndex < lineEnd) {
       const closeIndex = slice.indexOf(opener, searchIndex);
 
@@ -82,6 +114,14 @@ function collectInlineCodeRegions(text, from, to) {
       const afterClose = slice[closeIndex + opener.length] || "";
 
       if (afterClose === "`") {
+        searchIndex = closeIndex + opener.length;
+        continue;
+      }
+
+      // An ESCAPED run cannot CLOSE a span either. If we accepted it, the "span" would
+      // end at a literal backtick and the raw text between would be skipped by the
+      // escape — the same fail-open in the other direction.
+      if (isBackslashEscapedAt(slice, closeIndex)) {
         searchIndex = closeIndex + opener.length;
         continue;
       }

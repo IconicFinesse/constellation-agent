@@ -5697,7 +5697,23 @@ const model = {
         fenceRegions: execution.findExecutionFenceRegions(turn?.result?.answer),
         findSeparatorIndex: execution.findExecutableSeparatorIndex,
         separator: execution.EXECUTION_SEPARATOR,
-        turns: turn?.result?.turns
+        turns: turn?.result?.turns,
+        // The user's OWN request, so a "show me how you'd call it" turn cannot burn the
+        // single retry on code the human asked to see (p35 audit non-blocker 3). Display
+        // requests and actions need opposite handling, and only this turn says which it is.
+        userTurn: (() => {
+          const list = Array.isArray(requestMessages) ? requestMessages : [];
+
+          for (let index = list.length - 1; index >= 0; index -= 1) {
+            const entry = list[index];
+
+            if (entry?.role === "user" && !entry?.typedTool && !entry?.kind) {
+              return String(entry?.content || "");
+            }
+          }
+
+          return "";
+        })()
       });
       const retry = corrective.retry;
       // Names the SPECIFIC mistake. More prompt steering is not the lever — the steering leg

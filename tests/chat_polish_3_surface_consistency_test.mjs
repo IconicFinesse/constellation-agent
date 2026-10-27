@@ -356,6 +356,52 @@ test("the hostile cases still cannot inject raw HTML (item 2)", () => {
   assert.ok(!unclosed.includes("<script"), "an unclosed backtick run cannot smuggle a tag");
 });
 
+// THE AUDIT BLOCKER (p35 re-audit, fail-open). `\`` is a LITERAL backtick to `marked`, so
+// text between two escaped backticks is PROSE and must be escaped. The first cut treated
+// an escaped run as a code-span delimiter and skipped the escape, putting a raw tag into
+// `innerHTML`: a security regression this commit introduced.
+test("a backslash-escaped backtick never opens a code span (audit blocker)", () => {
+  const BACKSLASH = String.fromCharCode(92);
+  const TICK = String.fromCharCode(96);
+  const E = `${BACKSLASH}${TICK}`;
+  const cases = [
+    [`${E}<img src=x onerror=alert(1)>${E}`, /<img\b/iu],
+    [`${E}<script>alert(1)</script>${E}`, /<script\b/iu],
+    [`${E}<svg onload=alert(1)>${E}`, /<svg\b/iu],
+    [`${E}<img src=x onerror=alert(1)>${E} and ${E}more${E}`, /<img\b/iu],
+    [`- item ${E}<img src=x onerror=alert(1)>${E} end`, /<img\b/iu]
+  ];
+
+  cases.forEach(([raw, forbidden]) => {
+    const rendered = renderHtml(`a ${raw} b`);
+
+    assert.ok(!forbidden.test(rendered), `escaped backticks must not expose raw HTML: ${rendered}`);
+    assert.ok(rendered.includes("&lt;"), `the tag is escaped text instead: ${rendered}`);
+    // The literal backticks still reach the reader as characters.
+    assert.ok(rendered.includes(TICK), `the escaped backtick renders literally: ${rendered}`);
+  });
+
+  // An escaped backtick OUTSIDE any span is ordinary prose and is escaped the same way.
+  const outside = renderHtml(`a ${E} b <img src=x onerror=alert(1)>`);
+
+  assert.ok(!outside.includes("<img"), "an escaped backtick does not disable escaping for the line");
+
+  // ...and the legitimate shapes still behave: a REAL span keeps its content escaped by
+  // the parser, a triple fence still makes a code block, and a double-backtick span works.
+  const realSpan = renderHtml("tag `<div>` here");
+
+  assert.ok(realSpan.includes("<code>") && realSpan.includes("&lt;div&gt;"), `a real span still renders as code: ${realSpan}`);
+  assert.ok(!realSpan.includes("&amp;lt;"), "a real span is not double-escaped");
+
+  const fence = renderHtml("```\n<script>alert(1)</script>\n```");
+
+  assert.ok(!fence.includes("<script"), "a fence still escapes its body");
+
+  const doubleSpan = renderHtml("``a ` b`` and <b>x</b>");
+
+  assert.ok(!doubleSpan.includes("<b>x</b>"), "prose outside a double-backtick span is still escaped");
+});
+
 // ---------------------------------------------------------------- item 1 ----
 
 function tier1View() {
@@ -481,12 +527,13 @@ test("tier 3 rendering is byte-identical to before (item 1)", () => {
 
 // ---------------------------------------------------------------- item 3 ----
 
-function detect(answer) {
+function detect(answer, extra = {}) {
   return wireHygiene.detectTier1DisplayFormToolCall({
     answer,
     fenceRegions: onscreenExecution.findExecutionFenceRegions(answer),
     findSeparatorIndex: onscreenExecution.findExecutableSeparatorIndex,
-    separator: SEPARATOR
+    separator: SEPARATOR,
+    ...extra
   });
 }
 
@@ -499,9 +546,69 @@ const SHAPE_CASES = Object.freeze({
 
 test("each display-form shape is recognised (item 3)", () => {
   assert.equal(detect(SHAPE_CASES.bare), wireHygiene.TIER1_DISPLAY_FORM_SHAPE.BARE_SEPARATOR);
-  assert.equal(detect(SHAPE_CASES.fencedCall), wireHygiene.TIER1_DISPLAY_FORM_SHAPE.FENCED_CALL_BODY);
+  // A fenced call body is drift only when the turn was trying to ACT, so this case
+  // carries the user request that makes the intent unambiguous (audit non-blocker 3).
+  assert.equal(
+    detect(SHAPE_CASES.fencedCall, { userTurn: "read my notes" }),
+    wireHygiene.TIER1_DISPLAY_FORM_SHAPE.FENCED_CALL_BODY
+  );
   assert.equal(detect(SHAPE_CASES.fencedSeparator), wireHygiene.TIER1_DISPLAY_FORM_SHAPE.FENCED_SEPARATOR);
   assert.equal(detect(SHAPE_CASES.prose), wireHygiene.TIER1_DISPLAY_FORM_SHAPE.PROSE_TOOL_CALL);
+});
+
+test("a prose tool call written MID-REPLY is detected (audit non-blocker 2)", () => {
+  // The realistic drift shape: the call is not at offset 0 but after the model's own
+  // sentence. The first cut was `^`-anchored with no `m` flag, so all three were missed.
+  const midReply = [
+    'Sure.\ntool call: {"name":"file_read","arguments":{"path":"~/n"}}',
+    'Sure, let me do this. tool call: {"code":"1+1"}',
+    'I will read it.\n\ntool call: {"name":"file_read","arguments":{"path":"~/n"}}'
+  ];
+
+  midReply.forEach((answer) => {
+    assert.equal(
+      detect(answer),
+      wireHygiene.TIER1_DISPLAY_FORM_SHAPE.PROSE_TOOL_CALL,
+      `a mid-reply tool call must be caught: ${JSON.stringify(answer)}`
+    );
+  });
+});
+
+// DISPLAY vs ACTION (audit non-blocker 3). A fence containing a call is a MISTAKE only
+// when the turn was trying to act. When the user asked to SEE code, it is the correct
+// answer (BUG-007), and burning the single retry there nags about an unrequested action.
+test("a show-me-code answer is never corrected (audit non-blocker 3)", () => {
+  const showMe = 'Sure, here is how you call it:\n```javascript\nconst out = await space.api.fileRead("~/notes.md");\n```\nThat logs contents.';
+
+  const decision = decide(showMe, { userTurn: "Show me how you'd call file_read" });
+
+  assert.equal(decision.retry, false, "a display request must not consume the single retry");
+  assert.equal(decision.shape, "");
+
+  // A bare call-shaped JSON fence is unambiguous even on a show-me turn: nothing else
+  // looks like the typed wire shape, so it is still counted.
+  const wireShape = '```json\n{"name":"run_code","arguments":{"code":"1+1"}}\n```';
+
+  assert.equal(
+    detect(wireShape, { userTurn: "show me the shape" }),
+    wireHygiene.TIER1_DISPLAY_FORM_SHAPE.FENCED_CALL_BODY,
+    "the typed wire shape alone is positive evidence of an action attempt"
+  );
+});
+
+test("an action request whose call arrived fenced still gets the retry (audit non-blocker 3)", () => {
+  const fencedCall = '```javascript\nreturn await space.api.fileRead({"path":"~/n"})\n```';
+
+  assert.equal(
+    decide(fencedCall, { userTurn: "read my notes file" }).shape,
+    wireHygiene.TIER1_DISPLAY_FORM_SHAPE.FENCED_CALL_BODY,
+    "the user asked for an action: the fenced call is drift and earns the correction"
+  );
+
+  // And the model's own completion claim is positive evidence too, whatever the request.
+  const claim = 'I have read your notes.\n```javascript\nreturn await space.api.fileRead({"path":"~/n"})\n```';
+
+  assert.equal(detect(claim), wireHygiene.TIER1_DISPLAY_FORM_SHAPE.FENCED_CALL_BODY);
 });
 
 test("ordinary prose and ordinary fenced code are never caught (item 3)", () => {
@@ -547,12 +654,12 @@ test("the correction is bounded and cannot loop (item 3)", () => {
   // Every shape routes through the same capped decision, so no shape can escape the cap.
   for (const answer of Object.values(SHAPE_CASES)) {
     assert.equal(
-      decide(answer).retry,
+      decide(answer, { userTurn: "read my notes" }).retry,
       true,
       "each shape is caught at attempt 0"
     );
     assert.equal(
-      decide(answer, { attempts: 1 }).retry,
+      decide(answer, { attempts: 1, userTurn: "read my notes" }).retry,
       false,
       "a second correction is never issued"
     );
