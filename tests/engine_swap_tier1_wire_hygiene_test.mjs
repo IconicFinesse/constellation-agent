@@ -280,10 +280,20 @@ test("the Tier 1 prompt retires the old-idiom corpus and keeps the fence contrac
 });
 
 test("a prompt that would lose a retained section is not cut at all", () => {
-  const mutilated = ["intro", "", promptShape.API_CONTRACT_SECTION_HEADING, "- rule", "", SEPARATOR].join("\n");
+  // The fixture must trip the RETAINED check specifically. Putting the separator
+  // inside the section being removed would trip the FENCE fail-safe first and leave
+  // the retained guard unexercised — a test that passes for the wrong reason. Here
+  // the fence marker survives the cut (it sits above it) and the retained sections
+  // are absent, so the retained guard is the only thing that can refuse.
+  const mutilated = ["intro", SEPARATOR, "", promptShape.API_CONTRACT_SECTION_HEADING, "- rule"].join("\n");
   const shaped = promptShape.shapeSystemPromptForTier({ promptText: mutilated, tier: "tier1" });
 
   assert.equal(shaped, mutilated, "refusing to cut is safer than shipping a half prompt");
+  assert.equal(
+    promptShape.describeTier1PromptShape({ promptText: mutilated, tier: "tier1" }).cutApplied,
+    false,
+    "a refused cut reports itself as not applied instead of pretending"
+  );
 });
 
 test("tier3 and no-dispatch prompts stay byte-identical", () => {
