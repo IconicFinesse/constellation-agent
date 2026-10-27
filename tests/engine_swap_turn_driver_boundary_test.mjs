@@ -389,6 +389,119 @@ test("the real store drives the same hook sequence through its delegation", asyn
 });
 
 // -----------------------------------------------------------------------------------------
+// LATE BINDING, asserted where it can actually fail.
+//
+// This case exists because of a measured hole. Every other case here patches the store
+// BEFORE a turn runs, and the driver is built LAZILY on first use — so a driver holding
+// captured function references instead of late-bound thunks still picks the patch up by
+// accident of ordering, and those cases stay green. Seeding captured references proved it:
+// 4/4 green on this suite while four named suites went red.
+//
+// So the driver is constructed FIRST here, and only then is a hook replaced. A captured
+// reference cannot see that replacement; a thunk must.
+// -----------------------------------------------------------------------------------------
+test("a hook replaced AFTER the driver is constructed still fires (late binding)", async (t) => {
+  // FORCE CONSTRUCTION. A pure delegation boots the driver harmlessly and proves the point
+  // of this case: the driver now exists, and everything below happens afterwards.
+  store.clearEngineSwapStreamingPreview();
+
+  const fired = [];
+  const previous = {
+    persistHistory: store.persistHistory,
+    render: store.render,
+    scheduleEngineSwapChipRender: store.scheduleEngineSwapChipRender,
+    scheduleStreamingMessageRender: store.scheduleStreamingMessageRender,
+    setStreamingAssistantStatus: store.setStreamingAssistantStatus,
+    settings: store.settings,
+    showCompactAssistantReplyBubble: store.showCompactAssistantReplyBubble,
+    stopRequested: store.stopRequested
+  };
+
+  store.displayMode = "full";
+  store.settings = {
+    apiEndpoint: "https://example.test/v1",
+    apiKey: "test-key-not-real",
+    model: "test-model",
+    paramsText: ""
+  };
+  store.stopRequested = false;
+  // THE REPLACEMENTS, applied to an ALREADY-CONSTRUCTED driver.
+  store.setStreamingAssistantStatus = (content) => fired.push({ content, name: "setStreamingAssistantStatus" });
+  store.scheduleStreamingMessageRender = () => fired.push({ name: "scheduleStreamingMessageRender" });
+  store.maybeShowCompactStreamingAssistantBubble = () => fired.push({ name: "maybeShowCompactStreamingAssistantBubble" });
+  store.scheduleEngineSwapChipRender = () => fired.push({ name: "scheduleEngineSwapChipRender" });
+  store.persistHistory = async () => fired.push({ name: "persistHistory" });
+  store.showCompactAssistantReplyBubble = () => fired.push({ name: "showCompactAssistantReplyBubble" });
+  store.render = () => fired.push({ name: "render" });
+
+  t.after(() => {
+    store.persistHistory = previous.persistHistory;
+    store.render = previous.render;
+    store.scheduleEngineSwapChipRender = previous.scheduleEngineSwapChipRender;
+    store.scheduleStreamingMessageRender = previous.scheduleStreamingMessageRender;
+    store.setStreamingAssistantStatus = previous.setStreamingAssistantStatus;
+    store.settings = previous.settings;
+    store.showCompactAssistantReplyBubble = previous.showCompactAssistantReplyBubble;
+    store.stopRequested = previous.stopRequested;
+  });
+
+  const body = `data: ${JSON.stringify({ choices: [{ delta: { content: "Late" } }] })}\n\n` +
+    `data: ${JSON.stringify({ choices: [{ delta: { content: " bound" } }] })}\n\n` +
+    `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n` +
+    "data: [DONE]\n\n";
+  const previousFetch = globalThis.fetch;
+
+  globalThis.fetch = async () => ({
+    body: {
+      getReader: () => {
+        let done = false;
+
+        return {
+          read: async () => {
+            if (done) {
+              return { done: true, value: undefined };
+            }
+
+            done = true;
+
+            return { done: false, value: new TextEncoder().encode(body) };
+          }
+        };
+      }
+    },
+    headers: { get: (name) => (String(name).toLowerCase() === "content-type" ? "text/event-stream" : null) },
+    ok: true,
+    status: 200
+  });
+
+  t.after(() => {
+    globalThis.fetch = previousFetch;
+  });
+
+  const outcome = await store.runTier1TurnAndCommit(REQUEST_MESSAGES, PREPARED, PLAN);
+
+  assert.equal(outcome, "complete");
+
+  // The replacements ran. A captured reference would have called the ORIGINAL methods, so
+  // this array would be empty and every name below would be missing.
+  assert.ok(fired.length > 0, "the post-construction replacement must be the one that runs");
+
+  const names = fired.map((call) => call.name);
+
+  assert.ok(names.includes("setStreamingAssistantStatus"), "the replaced status hook fired");
+  assert.ok(names.includes("scheduleStreamingMessageRender"), "the replaced render hook fired");
+
+  // And it received the live text, so this is the real paint path and not a placeholder.
+  const statusCalls = fired.filter((call) => call.name === "setStreamingAssistantStatus");
+
+  assert.deepEqual(
+    statusCalls.map((call) => call.content),
+    ["Late", "Late bound"],
+    "the replacement receives the accumulated preview text"
+  );
+});
+
+// -----------------------------------------------------------------------------------------
 // The split itself: engine-shaped state is single-copy, and the hold field stayed put.
 // -----------------------------------------------------------------------------------------
 test("engine-shaped state is single-copy through the store, and the hold stayed surface-owned", () => {
