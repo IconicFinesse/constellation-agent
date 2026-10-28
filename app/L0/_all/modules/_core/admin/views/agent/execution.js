@@ -4,8 +4,10 @@ import {
   formatExecutionTranscriptValue
 } from "/modules/_core/framework/js/execution-format.js";
 import {
+  collectExecutionFenceRegions as sharedCollectExecutionFenceRegions,
   countExecutionSeparators as sharedCountExecutionSeparators,
   extractExecuteBlocks as sharedExtractExecuteBlocks,
+  findExecutableSeparatorIndex as sharedFindExecutableSeparatorIndex,
   hasInlineExecutionSeparator as sharedHasInlineExecutionSeparator
 } from "/modules/_core/framework/js/execution-blocks.js";
 
@@ -35,6 +37,21 @@ function formatLoadedSkillResultText(skill) {
 // an execution; see framework/js/execution-blocks.js.
 export function extractExecuteBlocks(content) {
   return sharedExtractExecuteBlocks(content, EXECUTION_SEPARATOR);
+}
+
+// Display helpers split a reply at the separator before rendering it. They use the
+// shared fence-aware index so a fenced display that merely SHOWS the separator is never
+// cut in half.
+//
+// These two delegations exist because the Tier 1 turn driver takes both as INJECTED
+// seams (BUG-007 preventers): the driver never keeps its own copy of fence logic, and
+// admin must hand it the same shared classifier onscreen hands it.
+export function findExecutableSeparatorIndex(content) {
+  return sharedFindExecutableSeparatorIndex(content, EXECUTION_SEPARATOR);
+}
+
+export function findExecutionFenceRegions(content) {
+  return sharedCollectExecutionFenceRegions(content);
 }
 
 function createAsyncRunner(code) {
