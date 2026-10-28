@@ -145,20 +145,21 @@ the same contract upstream gave its users, now given by this fork.
 
 <!-- WHATS-NEW:START -->
 
-**`v1.2.0`**
-
-- Ship the reliability line
-- Canonicalize own-user write paths and doctor tool-call boundaries
-- Retry fenced code dumps and surface repeat compile loops
-- Render label-wrapped form controls as readable refs
-- Keep the archive title on imported spaces
-- Cap derived space ids and map filesystem errors
-- Make directory copies work on Node 24 and gate the first-login marker
-
 **`v1.2.1`**
 
 - Ship the fence contract
 - Fence-aware extraction so fenced displays never execute (BUG-007)
+
+**`v1.5.0`**
+
+- Record the engine-swap beta in the roadmap and plan
+- Bump manifests to 1.5.0 for the engine-swap beta
+- Make the fallback notice say only what is true
+- Default the typed tool loop on and make the fallback visible
+- Record a content-free per-turn engine log
+- Carry API CORS headers on the unknown-endpoint 404
+- Reject unterminated flow values and name unknown API endpoints
+- Gate usage-on-stream behind a measured capability, make caching truthful
 
 _Newest releases only. The full per-release record lives in [`ROADMAP.md`](./ROADMAP.md). Generated from `baseline-2026-06-08..HEAD` by `packaging/scripts/whats-new.js`._
 <!-- WHATS-NEW:END -->
