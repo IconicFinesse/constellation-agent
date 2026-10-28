@@ -29,6 +29,7 @@
 // real DOM (the renderer is recorded through the harness loader).
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import test from "node:test";
 
@@ -92,8 +93,11 @@ function createRuntime() {
     console,
     location: { href: "http://localhost/" },
     matchMedia: () => ({ addEventListener() {}, matches: false }),
-    // SYNCHRONOUS: a frame callback runs before the next statement, so a recorded paint
-    // is unambiguously the paint this turn caused, not a later stray frame.
+    // SYNCHRONOUS FOR DETERMINISM, NOT FOR CORRECTNESS. A recorded paint is unambiguously
+    // the paint this turn caused, not a later stray frame. THE PROOF DOES NOT REST ON THIS:
+    // it was independently reproduced under a production-like async `requestAnimationFrame`
+    // (callback on a later tick, real handle returned) with the same committed-only →
+    // partial → full → committed sequence. See the note on `createSseResponse`.
     requestAnimationFrame(callback) {
       callback(0);
       // 0, NOT a handle: the callback already ran synchronously, and returning a truthy
@@ -131,11 +135,19 @@ function sseBody(frames) {
   return frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join("") + "data: [DONE]\n\n";
 }
 
-// ONE CHUNK PER FRAME, AWAITED BETWEEN READS — this is what makes the streaming case a
-// streaming case. Handing the reader the whole body in a single chunk (the shape earlier
-// suites used) applies every delta before the first paint can run, so the turn would look
-// correct while proving nothing about text arriving over time: a live preview and a
-// reply that appears all at once are indistinguishable from a single-chunk fixture.
+// ONE CHUNK PER FRAME, AWAITED BETWEEN READS. That is the ONLY thing this fixture depends
+// on, and it is what real networks do.
+//
+// The single-chunk shape earlier suites used applies every delta before the first paint can
+// run, so a live preview and a reply that appears all at once are indistinguishable through
+// it: such a fixture would look correct while proving nothing about text arriving over time.
+//
+// WHAT DOES *NOT* DEPEND ON THE HARNESS: an independent audit re-ran this proof under a
+// PRODUCTION-LIKE ASYNC `requestAnimationFrame` (callback on a later tick, a real handle
+// returned) and reproduced the same four-step sequence — committed-only, then partial
+// "Your notes ", then the full sentence, then committed. The synchronous rAF below is a
+// convenience for determinism, not the load-bearing part; had the async shape been the
+// only thing making the preview visible, the audit's run would have collapsed it.
 function createSseResponse(bodyText) {
   const chunks = bodyText
     .split("\n\n")
@@ -524,4 +536,81 @@ test("the old onscreen import path re-exports the SAME functions, not a second c
   assert.equal(legacy.resolvePreviewTailContent, shared.resolvePreviewTailContent);
   assert.equal(legacy.PROVISIONAL_CHIP_PREFIX, shared.PROVISIONAL_CHIP_PREFIX);
   assert.equal(legacy.PREVIEW_SEGMENT_SUFFIX, shared.PREVIEW_SEGMENT_SUFFIX);
+});
+
+// --- the shim's contract is STRUCTURAL, not documentary -----------------------
+
+const LEGACY_SHIM_PATH = new URL(
+  "../app/L0/_all/modules/_core/onscreen_agent/chat-projection.js",
+  import.meta.url
+);
+const SHARED_PROJECTION_PATH = new URL(
+  "../app/L0/_all/modules/_core/framework/js/engine-swap/chat-projection.js",
+  import.meta.url
+);
+
+// Comments are stripped BEFORE the scan, and that is load-bearing rather than tidy: this
+// shim DOCUMENTS the rule it obeys ("do not add a definition here"), so a scan over raw
+// source would read its own prohibition as a violation — or, worse, a future edit could
+// hide a definition in prose and have the scan agree.
+function stripComments(source) {
+  return String(source)
+    .replace(/\/\*[\s\S]*?\*\//gu, " ")
+    .split("\n")
+    .map((line) => line.replace(/(^|[^:\\])\/\/.*$/u, "$1"))
+    .join("\n");
+}
+
+// Local DECLARATIONS in a module: `function`, `const`, `let`, `var`, `class`. Deliberately
+// a count of declaration forms rather than a parser — it exists to answer one question,
+// "does this file define anything of its own", and a floor of zero is exactly right for a
+// re-export.
+//
+// `export { a, b } from "..."` is NOT a declaration and is not counted: it has no binding
+// of its own, which is precisely why the shim can re-export under the same names.
+function localDeclarations(source) {
+  const code = stripComments(source);
+  const patterns = [
+    /(^|[^\w.$])function\s+[A-Za-z_$][\w$]*/gu,
+    /(^|[^\w.$])(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=/gu,
+    /(^|[^\w.$])class\s+[A-Za-z_$][\w$]*/gu
+  ];
+
+  return patterns.flatMap((pattern) => [...code.matchAll(pattern)].map((match) => match[0].trim()));
+}
+
+test("the compatibility shim declares ZERO local definitions, so it cannot become a copy", () => {
+  const shimSource = readFileSync(LEGACY_SHIM_PATH, "utf8");
+  const shimDeclarations = localDeclarations(shimSource);
+
+  assert.deepEqual(
+    shimDeclarations,
+    [],
+    `the shim must define nothing of its own (found ${JSON.stringify(shimDeclarations)})`
+  );
+
+  // A duplicate EXPORT is a hard load failure and a stale-copy swap is caught by the
+  // identity case above, but a NON-EXPORTED helper added here would be noticed by neither:
+  // it would simply sit on the path old imports still take, drifting from the shared
+  // implementation while every output happened to match. This case is what makes the
+  // shim's contract enforceable instead of merely stated.
+
+  // THE SCANNER MUST BE ABLE TO SEE A DEFINITION, or "zero" proves nothing. The shared
+  // module is the honest positive control: it implements the projection, so the same
+  // scanner over it must find declarations. Without this, a broken regex would report a
+  // clean shim forever and this case would pass while guarding nothing.
+  const sharedDeclarations = localDeclarations(readFileSync(SHARED_PROJECTION_PATH, "utf8"));
+
+  assert.ok(
+    sharedDeclarations.length >= 5,
+    `the scanner must detect declarations in the shared module (found ${sharedDeclarations.length})`
+  );
+  // The positive control must also be able to SEE a violation, since that is the shape the
+  // shim assertion forbids: one synthetic definition appended to the shim's real source is
+  // reported.
+  assert.equal(
+    localDeclarations(`${shimSource}\nfunction smuggledHelper() { return 1; }\n`).length,
+    1,
+    "the scanner must report a definition added to the shim"
+  );
 });
