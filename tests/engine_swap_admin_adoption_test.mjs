@@ -462,3 +462,215 @@ test("the shared LOOP is used, never re-implemented on admin's side", () => {
   assert.match(bridge, /createTier1TurnDriver/u);
   assert.doesNotMatch(source, /engine-swap\/turn-driver\.js/u);
 });
+
+// --- N1: a second confirm inside the gate window -----------------------------
+
+test("a SECOND confirm arriving inside the gate window neither re-executes nor blanks the settled row (N1)", async (t) => {
+  stubSurface(t);
+  runtime.configValues.set("ENGINE_SWAP_DISPATCH", true);
+
+  const target = makeTmpTarget();
+  t.after(() => rmSync(dirname(target), { force: true, recursive: true }));
+
+  const deletesBefore = deletes.length;
+
+  queueTransport([TOOL_TURN_BODY.replace("__TARGET__", target), ANSWER_BODY]);
+
+  await store.runConversationLoop(userMessage());
+
+  const realSession = store.engineSwapTier1Session;
+
+  assert.ok(realSession, "the held turn must keep its session");
+
+  // A REAL GATE WINDOW. The real gate still settles on the first call; only the
+  // RESUMPTION is delayed by a promise we hold open. That is exactly the interval a
+  // double click occupies in a browser: the handler has started, the gate has run, and
+  // the transcript has not been settled yet.
+  let openWindow;
+  const windowGate = new Promise((resolve) => {
+    openWindow = resolve;
+  });
+  let gateCalls = 0;
+
+  store.engineSwapTier1Session = {
+    cancelHeld: () => realSession.cancelHeld?.(),
+    confirmHeld: async () => {
+      gateCalls += 1;
+
+      const settled = await realSession.confirmHeld();
+
+      await windowGate;
+      return settled;
+    },
+    denyHeld: () => realSession.denyHeld?.(),
+    formatOutcome: (outcome) => realSession.formatOutcome(outcome),
+    runContinuation: (options) => realSession.runContinuation(options)
+  };
+
+  // Both clicks are fired before either can resume; neither is awaited in between, or a
+  // regressed handler would deadlock the test instead of failing it.
+  const firstClick = store.confirmEngineSwapHold();
+  const secondClick = store.confirmEngineSwapHold();
+
+  openWindow();
+  await Promise.all([firstClick, secondClick]);
+
+  // EXACTLY ONCE, on both counts that matter: the deletion and the gate settlement.
+  assert.deepEqual(deletes.slice(deletesBefore), [target], "the held deletion must run exactly once");
+  assert.equal(existsSync(target), false, "the confirmed deletion must still have happened");
+  assert.equal(gateCalls, 1, "a second confirm must not re-enter the gate");
+
+  // THE SETTLED ROW IS ACCURATE. A regressed handler blanks it with 'the held call could
+  // not be executed' while claiming the call failed — a direct lie about a deletion that
+  // did happen. Exactly one result row, carrying the real outcome.
+  const resultRows = store.history.filter(
+    (entry) => entry?.kind === "tool_result" && entry?.toolResult?.callId === "call_1"
+  );
+
+  assert.equal(resultRows.length, 1, "one result per call id, never a second row");
+  assert.equal(
+    Boolean(resultRows[0]?.toolResult?.error),
+    false,
+    "a confirmed deletion must not settle as a failed row"
+  );
+  assert.equal(store.status, "Confirmed and executed.", "the status must describe what actually happened");
+  assert.equal(store.engineSwapPendingHold, null);
+  assert.equal(store.engineSwapTier1Session, null);
+});
+
+// --- N2: parity that can see INSIDE the shared function ----------------------
+
+test("the shared held-result replacement matches the base implementation case by case (N2)", async () => {
+  // WHY THIS EXISTS. The delegation-parity case above compares onscreen's method with the
+  // function it delegates to, so it is green by construction and blind to a change INSIDE
+  // that function: removing the last-position guard left the whole battery green while its
+  // own differential probe reported 25/154 differences.
+  //
+  // So this compares the shared function against a LITERAL TRANSCRIPTION of the base
+  // implementation, over a table that exercises every branch of the guard. The
+  // transcription keeps `position === last`, which is the whole point: an unguarded shared
+  // function then diverges on the non-last-match case and this goes red.
+  //
+  // The transcription uses the shared shape helpers (`canonicalMessagesToTypedEntries`,
+  // `isToolResultEntry`) for entry construction, exactly as base did — the property under
+  // test is the GUARD AND REPLACE logic, not the shape mapping.
+  const {
+    canonicalMessagesToTypedEntries,
+    isToolResultEntry,
+    replaceHeldToolResult
+  } = await import("/modules/_core/framework/js/engine-swap/history-shapes.js");
+
+  function baseReplaceHeldResult(history, { content = "", isError = false, toolCallId = "" } = {}) {
+    const entries = canonicalMessagesToTypedEntries([
+      {
+        content,
+        isError: isError === true,
+        role: "tool",
+        toolCallId: String(toolCallId || "")
+      }
+    ]);
+    const next = Array.isArray(history) ? [...history] : [];
+    const index = next.findIndex(
+      (entry, position) =>
+        isToolResultEntry(entry) &&
+        String(entry?.toolResult?.callId || "") === String(toolCallId || "") &&
+        position === next.length - 1
+    );
+
+    if (index === -1 || !entries.length) {
+      return next;
+    }
+
+    next[index] = entries[entries.length - 1];
+    return next;
+  }
+
+  const callEntry = (callId) => ({
+    content: "delete it",
+    id: `call-${callId}`,
+    kind: "tool_call",
+    role: "assistant",
+    toolCall: { arguments: { path: "~/notes.txt" }, callId, name: "file_delete" }
+  });
+
+  const heldEntry = (callId, id) => ({
+    content: `held: the file ${callId} is waiting for the user's confirmation in the chat.`,
+    id,
+    kind: "tool_result",
+    role: "user",
+    toolResult: { callId, name: "file_delete", payload: null }
+  });
+
+  const settleOk = (callId) => ({ content: `ok: {"deleted":"${callId}"}`, isError: false, toolCallId: callId });
+  const settleDenied = (callId) => ({ content: "policy: the user denied the file ~/notes.txt.", isError: true, toolCallId: callId });
+
+  const cases = [
+    {
+      args: settleOk("c1"),
+      history: [callEntry("c1"), heldEntry("c1", "r1")],
+      name: "match on the LAST entry"
+    },
+    {
+      // THE GUARD CASE. A held result further back must never be rewritten: an older row
+      // is history the user already watched.
+      args: settleOk("c1"),
+      history: [heldEntry("c1", "r1"), callEntry("c2"), { content: "later turn", id: "u9", kind: "", role: "user" }],
+      name: "match on a NON-LAST entry"
+    },
+    {
+      args: settleOk("c1"),
+      history: [callEntry("c12"), heldEntry("c12", "r12")],
+      name: "call-id prefix must not match"
+    },
+    {
+      args: settleOk("missing"),
+      history: [callEntry("c1"), heldEntry("c1", "r1")],
+      name: "no match at all"
+    },
+    {
+      // Two results for one call id cannot exist on the wire, but a history can hold one
+      // if an older row leaked: only the last-position duplicate may be replaced.
+      args: settleOk("c1"),
+      history: [heldEntry("c1", "r1"), callEntry("c1"), heldEntry("c1", "r2")],
+      name: "duplicate ids: only the last-position duplicate"
+    },
+    {
+      args: settleDenied("c1"),
+      history: [callEntry("c1"), heldEntry("c1", "r1")],
+      name: "denied settle"
+    },
+    { args: settleOk("c1"), history: [], name: "empty history" },
+    { args: settleOk("c1"), history: null, name: "non-array history" },
+    {
+      args: settleOk("c1"),
+      history: Object.freeze([Object.freeze(callEntry("c1")), Object.freeze(heldEntry("c1", "r1"))]),
+      name: "frozen input array and entries"
+    }
+  ];
+
+  for (const testCase of cases) {
+    const snapshot = JSON.stringify(testCase.history ?? null);
+    const shared = replaceHeldToolResult(testCase.history, testCase.args);
+    const base = baseReplaceHeldResult(testCase.history, testCase.args);
+
+    assert.deepEqual(shared, base, `shared and base must agree: ${testCase.name}`);
+    assert.equal(
+      JSON.stringify(testCase.history ?? null),
+      snapshot,
+      `the input history must not be mutated: ${testCase.name}`
+    );
+
+    if (Array.isArray(testCase.history)) {
+      assert.notEqual(shared, testCase.history, `a new array is returned: ${testCase.name}`);
+    }
+  }
+
+  // OMITTED ARGUMENTS: both must behave identically rather than throw.
+  const heldHistory = [callEntry("c1"), heldEntry("c1", "r1")];
+
+  assert.deepEqual(
+    replaceHeldToolResult(heldHistory),
+    baseReplaceHeldResult(heldHistory),
+    "an omitted argument object must behave identically"
+  );
+});
