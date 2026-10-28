@@ -188,6 +188,45 @@ test("the cache log line spells out unknown rather than printing 0", () => {
 
 // ------------------------------------------- report-only, never control -----
 
+// ------------------------------------------ every turn of the session --------
+
+test("the post-hold continuation logs cache accounting through the same sendTurn", async () => {
+  // A second inline `sendTurn` in `runContinuation` would build the same request and
+  // return the same result while emitting NO cache line -- a turn with no
+  // observability, and a parallel path for one behaviour. This drives the real
+  // continuation so reverting that wiring reddens instead of passing quietly.
+  const { createTier1Session } = await import(
+    "../app/L0/_all/modules/_core/framework/js/engine-swap/tier1-session.js"
+  );
+  const lines = [];
+  const session = createTier1Session({
+    apiEndpoint: "https://api.synthetic.new/v1/chat/completions",
+    logger: { info: (line) => lines.push(String(line)) },
+    model: "DeepSeek-V4.1-Flash-1017",
+    providerKey: "synthetic",
+    sendCompletion: async () => ({
+      choices: [{ finish_reason: "stop", message: { content: "done", tool_calls: [] } }],
+      usage: USAGE_FIXTURES.neuralwattWarm
+    }),
+    systemPrompt: "SYS",
+    userContent: "hi"
+  });
+
+  const result = await session.runContinuation({
+    messages: [
+      { content: "", role: "assistant" },
+      { content: "held", role: "tool", toolCallId: "call_1" }
+    ],
+    toolResultText: "the real outcome"
+  });
+
+  assert.equal(result.status, "answered");
+  assert.equal(lines.filter((line) => line.includes("cache cached=")).length, 1);
+  assert.equal(lines.filter((line) => line.includes("prefix digest=")).length, 1);
+  // The numbers are the same ones the primary path reports: one accounting rule.
+  assert.match(lines.join("\n"), /cache cached=7424 prompt=7538/u);
+});
+
 test("a cache hit does not change stream assembly or truncation verdicts", () => {
   const warm = createStreamingToolCallAssembler();
   const cold = createStreamingToolCallAssembler();

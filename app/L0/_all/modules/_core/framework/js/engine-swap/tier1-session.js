@@ -397,12 +397,11 @@ export function createTier1Session({
         // anything after it), which is exactly the class of hole this seam exists to
         // close: the surface cannot settle a chip from an event it never receives.
         onEvent,
-        sendTurn: async ({ messages: turnMessages }) => {
-          const request = buildTurnRequest(turnMessages);
-          const payload = await sendCompletion({ request });
-
-          return extractToolCallsFromCompletion(payload);
-        },
+        // The post-hold continuation is a turn of the SAME session, so it sends
+        // through the SAME `sendTurn`: a second inline closure here would bypass the
+        // per-turn cache accounting and quietly produce a turn with no observability
+        // (the parallel-path defect, one layer down from a dropped hook).
+        sendTurn,
         tools: assembled.tools
       });
 
