@@ -16,7 +16,8 @@ import { readProjectedChipBody } from "/modules/_core/framework/js/engine-swap/h
 import {
   formatTypedToolArguments,
   formatTypedToolResult,
-  getExecutionOutputLineModifier
+  getExecutionOutputLineModifier,
+  hasExecutionHiddenMarker
 } from "/modules/_core/framework/js/engine-swap/typed-result-format.js";
 import {
   collectToolRun,
@@ -1103,28 +1104,73 @@ export function createAgentThreadView(config = {}) {
     outputBody.dataset.executionOutputList = "true";
 
     if (typedState) {
-      // THE TYPED RESULT, STRUCTURED AND CLASSIFIED (P4b-1).
+      // THE TYPED RESULT, STRUCTURED, CLASSIFIED AND BOUNDED (P4b-1 + P4b-2a).
       //
-      // This used to be ONE `terminal-line` holding the whole payload as text — the wall the
-      // owner reported, and the reason the `result↓` arrow was missing: nothing here ever
-      // reached the classifier. The shared formatter renders the payload object it was
-      // given (a `run_code` result becomes its `logs`, `result` and `error` blocks; every
-      // other tool becomes pretty-printed JSON) and returns `{text, modifier}` lines, which
-      // `appendTerminalLine` draws with the CSS that already exists.
+      // P4b-1 made this structured: before it, the pane was ONE `terminal-line` holding the
+      // whole payload as text, so nothing ever reached the classifier and the `result↓` arrow
+      // was missing. P4b-2a makes it BOUNDED, because a structured wall is still a wall. The
+      // shared formatter paints a bounded transcript by default (line count for transcript
+      // text, admin's console caps for structured values, errors never cut) and paints the
+      // complete content when asked for `unbounded`. Both forms come through that ONE
+      // formatter, so the collapsed and expanded panes cannot disagree.
       //
       // A pending typed call has no payload at all, so it keeps the honest placeholder it
       // always had rather than an invented empty result.
-      const typedResultLines = formatTypedToolResult({
+      const typedResultOptions = {
         error: typedTool.error ?? null,
         name: typedTool.name,
         outputText: String(typedTool.outputText || typedTool.resultText || ""),
         payload: typedTool.payload
-      });
+      };
 
-      if (typedResultLines.length) {
+      // Repaints the pane and answers whether the BOUNDED form hid anything. Asking the
+      // painted lines (rather than recomputing the arithmetic here) is what keeps the
+      // affordance honest: it appears exactly when a marker is actually on screen.
+      const paintTypedResult = ({ unbounded = false } = {}) => {
+        const typedResultLines = formatTypedToolResult({ ...typedResultOptions, unbounded });
+
+        outputBody.replaceChildren();
+
+        if (!typedResultLines.length) {
+          appendTerminalLine(outputBody, "No output yet.", "is-muted");
+
+          return false;
+        }
+
         typedResultLines.forEach((entry) => appendTerminalLine(outputBody, entry.text, entry.modifier));
-      } else {
-        appendTerminalLine(outputBody, "No output yet.", "is-muted");
+
+        return typedResultLines.some((entry) => hasExecutionHiddenMarker(entry.text));
+      };
+
+      if (paintTypedResult()) {
+        // THE EXPANSION AFFORDANCE, in the `{ } Raw` shape P4b-1 established. LOCAL DOM
+        // STATE ONLY: it repaints this one pane and nothing else — no store field, no
+        // persistence, and deliberately absent from `getGroupRenderSignature`, so every
+        // repaint starts on the bounded form. It wears neither `data-message-action` nor
+        // `data-terminal-action`, so a store's delegated handler cannot claim it.
+        const expandButton = document.createElement("button");
+        expandButton.type = "button";
+        expandButton.className = "execution-detail-button";
+        expandButton.dataset.typedOutputToggle = "expand";
+        const expandIcon = document.createElement("x-icon");
+        expandIcon.textContent = "expand_more";
+        const expandLabel = document.createElement("span");
+        expandLabel.textContent = "Show all";
+        expandButton.append(expandIcon, expandLabel);
+        expandButton.addEventListener("click", () => {
+          const showingAll = expandButton.dataset.typedOutputShown === "all";
+
+          paintTypedResult({ unbounded: !showingAll });
+
+          expandButton.dataset.typedOutputShown = showingAll ? "bounded" : "all";
+          expandButton.classList.toggle("is-active", !showingAll);
+          expandIcon.textContent = showingAll ? "expand_more" : "expand_less";
+          expandLabel.textContent = showingAll ? "Show all" : "Show less";
+          // The repaint clears the pane, so the control that triggered it is re-appended.
+          outputBody.append(expandButton);
+        });
+
+        outputBody.append(expandButton);
       }
     } else {
       appendTerminalOutput(outputBody, displayOutputResults || [], pendingState);
