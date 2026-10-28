@@ -292,6 +292,9 @@ globalThis.localStorage = { getItem: () => null, removeItem() {}, setItem() {} }
 globalThis.sessionStorage = { getItem: () => null, removeItem() {}, setItem() {} };
 
 const { createAgentThreadView } = await import("/modules/_core/visual/conversation/thread-view.js");
+const { buildChatRenderProjection, resolvePreviewTailContent } = await import(
+  "/modules/_core/framework/js/engine-swap/chat-projection.js"
+);
 const onscreenExecution = await import("/modules/_core/onscreen_agent/execution.js");
 const adminExecution = await import("/modules/_core/admin/views/agent/execution.js");
 const turnProgress = await import("/modules/_core/visual/conversation/turn-progress.js");
@@ -490,6 +493,141 @@ test("per-delta: the in-place streaming patch re-syncs the phase label", () => {
       indicatorLabel(thread),
       turnProgress.TURN_PROGRESS_WRITING_RESPONSE,
       `${surface.name}: the phase label must follow the delta, not wait for a full re-render`
+    );
+  }
+});
+
+// --- 4c. AUDIT FOLLOW-UP 1: ONE LABEL DERIVATION (no flicker) ---------------
+
+test("audit-1: full render and delta patch agree on the phase, through a chip split", () => {
+  // THE AUDITOR'S REPRODUCTION, FROZEN. Painting one turn in PRODUCTION ORDER used to
+  // alternate, because the full render read the FIRST streaming entry (a frozen prose
+  // segment once a chip split the preview) while the patch painted the TAIL:
+  //
+  //   sequence: ["Writing response...", "Writing 2 lines of code...",
+  //              "Writing response...", "Writing 2 lines of code..."]   AGREE? false
+  //
+  // Both painters now derive the label from the projection's TAIL slice, so every step
+  // must agree. The frozen prose + chip + code-body shape below is what produced the flip;
+  // if a future change reintroduces a second derivation, this goes red on the SEQUENCE.
+  const preview = {
+    content: "Let me write that.\n\n_____javascript\nconst a = 1;\nconst b = 2;",
+    id: "engine-swap-streaming-preview",
+    role: "assistant",
+    streaming: true
+  };
+  const provisionalCalls = [
+    { arguments: "{\"code\":\"x\"}", atChars: 18, callId: "c1", name: "run_code" }
+  ];
+  const options = { groupToolRuns: true, isConversationBusy: true, scroller: null };
+
+  for (const surface of SURFACES) {
+    const thread = new StubNode("div");
+
+    const fullRender = () => {
+      // The REAL projection decides the split and the tail; the renderer only paints it.
+      const history = buildChatRenderProjection({
+        history: [USER_TURN],
+        preview,
+        provisionalCalls
+      });
+      surface.view.renderMessages(thread, history, options);
+      return indicatorLabel(thread);
+    };
+
+    const deltaPatch = () => {
+      const previewTailContent = resolvePreviewTailContent({
+        history: [USER_TURN],
+        preview,
+        provisionalCalls
+      });
+      surface.view.updateStreamingAssistantMessage(thread, preview, {
+        previewTailContent,
+        scroller: null
+      });
+      return indicatorLabel(thread);
+    };
+
+    const sequence = [fullRender(), deltaPatch(), fullRender(), deltaPatch()];
+
+    assert.equal(
+      new Set(sequence).size,
+      1,
+      `${surface.name}: the label must be IDENTICAL after every paint step, or it flickers on every chip repaint (saw ${JSON.stringify(sequence)})`
+    );
+    // And it is the honest phase for what the tail holds, not a stale prose reading.
+    assert.equal(
+      sequence[0],
+      "Writing 2 lines of code...",
+      `${surface.name}: the tail carries the code body, so that is the phase`
+    );
+  }
+});
+
+// --- 4d. AUDIT FOLLOW-UP 2: ONE LINE-COUNT FORMATTER -----------------------
+
+test("audit-2: formatLineCount is declared exactly once tree-wide", () => {
+  const files = [
+    "../app/L0/_all/modules/_core/visual/conversation/turn-progress.js",
+    "../app/L0/_all/modules/_core/visual/conversation/thread-view.js",
+    "../app/L0/_all/modules/_core/onscreen_agent/store.js",
+    "../app/L0/_all/modules/_core/admin/views/agent/store.js"
+  ];
+  const definitions = [];
+
+  for (const relativePath of files) {
+    const source = stripComments(readFileSync(new URL(relativePath, import.meta.url), "utf8"));
+
+    if (/function\s+formatLineCount\s*\(/u.test(source)) {
+      definitions.push(relativePath);
+    }
+  }
+
+  assert.deepEqual(
+    definitions.map((path) => path.split("/").pop()),
+    ["turn-progress.js"],
+    `exactly ONE definition, in the shared module (saw ${JSON.stringify(definitions)})`
+  );
+
+  // The behavioural half: the shared formatter is the one with the thousands separator,
+  // which is the visible change this lane disclosed. Pinned so nobody "fixes" it back to
+  // an unformatted lookalike.
+  // LOCALE-INDEPENDENT ON PURPOSE. The property that matters is that the shared formatter
+  // GROUPS digits; which separator a particular LANG chooses is not this lane's contract, and
+  // pinning "1,000" would make the suite fail on a CI box with a different locale for a
+  // reason unrelated to unification. An unformatted lookalike ("1000 lines") still fails.
+  const grouped = turnProgress.formatLineCount(1000);
+
+  assert.notEqual(
+    grouped,
+    "1000 lines",
+    "the shared formatter must GROUP digits — the deleted local lookalike did not"
+  );
+  assert.match(grouped, /^1\D?000 lines$/u, `grouped count (saw ${JSON.stringify(grouped)})`);
+  assert.equal(turnProgress.formatLineCount(1), "1 line");
+
+  // And the consumer really uses it: the pane label of a large block is formatted.
+  for (const surface of SURFACES) {
+    const bigBody = Array.from({ length: 1200 }, (_unused, index) => `const v${index} = ${index};`).join(
+      "\n"
+    );
+    const thread = renderThread(
+      surface.view,
+      [USER_TURN, LIVE_ASSISTANT(`Here:\n\n_____javascript\n${bigBody}`)],
+      { isConversationBusy: true }
+    );
+
+    const painted = indicatorLabel(thread);
+
+    assert.equal(
+      painted,
+      `Writing ${turnProgress.formatLineCount(1200)} of code...`,
+      `${surface.name}: the live phase label uses the SHARED formatter`
+    );
+    assert.notEqual(
+      painted,
+      "Writing 1200 lines of code...",
+      `${surface.name}: the consumer must not paint an unformatted count`
     );
   }
 });

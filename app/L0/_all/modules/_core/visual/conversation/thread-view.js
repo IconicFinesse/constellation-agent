@@ -37,7 +37,10 @@ import {
 // surfaces' status lines all read their words from here, so a phase can never be spelled
 // two ways. The fence-aware block extractor stays injected through this factory's
 // `execution` config, exactly as every other separator question in this file does.
-import { getTurnProgressLabel } from "/modules/_core/visual/conversation/turn-progress.js";
+import {
+  formatLineCount,
+  getTurnProgressLabel
+} from "/modules/_core/visual/conversation/turn-progress.js";
 
 const EXECUTION_STATUS_LINE_PATTERN = /^execution\s+(.+)$/iu;
 // `EXECUTION_PRINT_LINE_PATTERN` MOVED with the classifier it belongs to (P4b-1).
@@ -377,9 +380,14 @@ export function createAgentThreadView(config = {}) {
     return executeDisplay.blocks.reduce((total, block) => total + countCodeLines(block), 0);
   }
 
-  function formatLineCount(lineCount) {
-    return `${lineCount} ${lineCount === 1 ? "line" : "lines"}`;
-  }
+  // `formatLineCount` IS NOT DECLARED HERE (P4b-2b follow-up, audit finding 2).
+  //
+  // The promotion covered the phase phrases and left this helper behind, on the consumer
+  // file, with a divergent body: the shared copy uses `toLocaleString()` ("1,000 lines")
+  // and this one did not ("1000 lines"). Exactly two definitions tree-wide of a formatter
+  // that names a count — the defect class this campaign exists to remove. It is imported
+  // from `conversation/turn-progress.js` instead. Behaviour change, disclosed: a pane label
+  // past 999 lines gains a thousands separator.
 
   function createTerminalOutputEntries(results, options = {}) {
     const pendingState = options.pendingState || "";
@@ -757,14 +765,41 @@ export function createAgentThreadView(config = {}) {
   // THE LABEL is the ONE shared vocabulary (`turn-progress.js`), fed the content this
   // render was handed. That content is the live assistant entry the projection already
   // appends while a turn streams, so the label tracks the phase with no second reader.
+  // THE TAIL SLICE, NOT THE FIRST STREAMING ENTRY (P4b-2b follow-up, audit finding 1).
+  //
+  // Once a chip splits the live preview at the offset where it appeared, the projection
+  // emits [frozen prose segment, chip, frozen prose segment, ... , TAIL]. Every one of
+  // those segments carries `streaming: true`, so `history.find(...)` returned the FIRST
+  // one — prose the user had already scrolled past — while the per-delta patch paints the
+  // TAIL (`resolvePreviewTailContent`, the projection's own answer). Two painters, two
+  // derivations, and the label visibly flipped on every chip repaint:
+  //
+  //   full render -> "Writing response..."
+  //   delta patch -> "Writing 2 lines of code..."
+  //   full render -> "Writing response..."
+  //
+  // The fix is the same rule the projection uses for its tail: the LAST assistant entry
+  // still streaming that is not a FROZEN segment. When nothing is split there is exactly
+  // one such entry, so an unsplit preview reads the whole accumulated text — unchanged.
+  // Both painters therefore read one derivation (the projection's split), never two.
   function getLiveTurnContent(history) {
     if (!Array.isArray(history)) {
       return "";
     }
 
-    const liveEntry = history.find(
-      (entry) => entry && entry.role === "assistant" && entry.streaming === true
-    );
+    let liveEntry = null;
+
+    for (const entry of history) {
+      if (!entry || entry.role !== "assistant" || entry.streaming !== true) {
+        continue;
+      }
+
+      if (entry.previewSegmentFrozen === true) {
+        continue;
+      }
+
+      liveEntry = entry;
+    }
 
     return liveEntry && typeof liveEntry.content === "string" ? liveEntry.content : "";
   }
@@ -2617,6 +2652,13 @@ export function createAgentThreadView(config = {}) {
     const row = thread.querySelector(`[data-streaming-message-id="${message.id}"]`);
     const executeDisplay = parseExecuteDisplayContent(message.content);
     const showAvatar = row?.__spaceThreadShowAvatar !== false;
+    // THE ONE LABEL SOURCE ON THIS PATH (P4b-2b follow-up, audit finding 1). The label is
+    // derived from the SAME slice the preview painter writes: the projection's tail when a
+    // chip has split the preview, the whole accumulated content when it has not. Passing
+    // `message.content` here while the full render read a different segment is what made
+    // the label flip on every chip repaint.
+    const progressLabelSource =
+      typeof options.previewTailContent === "string" ? options.previewTailContent : message.content;
 
     if (!row) {
       return false;
@@ -2649,7 +2691,7 @@ export function createAgentThreadView(config = {}) {
       // The PHASE is part of what the user reads while this row streams ("Thinking..." →
       // "Writing 12 lines of code..." → "Writing response..."), and this patch is the only
       // painter running per delta. Same classifier, same live content.
-      syncTurnProgressLabel(thread, message.content);
+      syncTurnProgressLabel(thread, progressLabelSource);
       setRowRenderState(
         row,
         buildStreamingRenderGroup(message, {
@@ -2702,7 +2744,7 @@ export function createAgentThreadView(config = {}) {
     // Same phase sync as the text branch: a turn that streams a tool card also changes
     // phase (`Preparing code...` → `Writing N lines of code...` → `Writing response...`)
     // and this patch is the only painter running while it does.
-    syncTurnProgressLabel(thread, message.content);
+    syncTurnProgressLabel(thread, progressLabelSource);
 
     if (stickyBottom && scroller) {
       scroller.scrollTop = getMaxScrollTop(scroller);
