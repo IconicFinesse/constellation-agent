@@ -46,6 +46,17 @@ import {
 // Admin imports the BRIDGE, not the engine modules themselves, so `store.js` carries no
 // engine import of its own and the engine stays reachable for any future surface.
 import * as engineSwapBridge from "/modules/_core/admin/views/agent/engine-swap-bridge.js";
+// THE RENDER PROJECTION IS SHARED, NOT ADMIN'S (P4a-3d). This is the SAME module
+// `onscreen_agent/store.js` imports: ONE function decides what a live turn looks like,
+// on both surfaces. Admin does not carry a projection of its own, and a local copy that
+// happened to match today would be the defect this promotion exists to remove.
+import {
+  buildChatRenderProjection,
+  resolvePreviewTailContent
+} from "/modules/_core/framework/js/engine-swap/chat-projection.js";
+// Grouping open/closed state is a shared conversation-view concern (the renderer asks it
+// by run key), so admin holds the same small state object onscreen does.
+import { createToolRunOpenState } from "/modules/_core/visual/conversation/tool-run.js";
 
 const huggingfaceManager = getHuggingFaceManager();
 
@@ -395,6 +406,10 @@ const model = {
   engineSwapHeldMessages: null,
   // One rAF handle coalescing chip repaints (`scheduleEngineSwapChipRender`).
   engineSwapChipFrame: 0,
+  // Which tool-run cards the reader has expanded, keyed by run. The renderer asks this
+  // object (never a reinvented set) so a card's open/closed state survives a repaint;
+  // the SAME shared factory onscreen uses, so the key vocabulary cannot drift.
+  toolRunOpenState: createToolRunOpenState(),
   executionContext: null,
   executionOutputOverrides: Object.create(null),
   history: [],
@@ -1296,15 +1311,40 @@ const model = {
     );
   },
 
-  // RENDER projection. Typed entries draw through the existing execution chip; legacy
-  // entries come back untouched, so today's thread renders exactly as before.
-  //
-  // Scope note (P4a-3a): this is projection ONLY. Admin does not pass `groupToolRuns`
-  // or derive display-only ids, so a typed turn draws one chip per stored entry — call
-  // chip plus result chip — where onscreen folds a single call into one chip. That
-  // folding needs the turn driver's run state and belongs to adoption, not here.
+  // COMMITTED-ONLY display projection: typed entries draw through the existing execution
+  // chip, legacy entries come back untouched. This is the input to `buildRenderHistory`,
+  // never the thing a paint consumes — a paint that reads only committed history cannot
+  // show a turn that is still streaming (the owner's live defect on v1.2.1+97).
   getRenderHistory(history = this.history) {
     return (Array.isArray(history) ? history : []).map((entry) => projectHistoryEntryForDisplay(entry));
+  },
+
+  // THE RENDER HISTORY A PAINT CONSUMES (P4a-3d): committed display projection PLUS the
+  // two projection-only classes of live turn state — the streaming preview and the
+  // provisional chips.
+  //
+  // THE FUNCTION IS SHARED, NOT MIRRORED. `buildChatRenderProjection` is the SAME module
+  // function `onscreen_agent/store.js` calls (promoted to
+  // `framework/js/engine-swap/chat-projection.js` in this lane). Admin owns no projection
+  // of its own; a lookalike here that agreed today would drift tomorrow, and that is the
+  // defect class this promotion removes rather than papers over.
+  //
+  // ORDER IS THE SAME CONTRACT ONSCREEN LEARNED THE HARD WAY: project first, then append
+  // projection-only state, because the stranding guard matches `typedTool` /
+  // `typedToolCallId` — marks only `projectHistoryEntryForDisplay` adds. Handing raw
+  // stored entries here would make the guard silently inert.
+  //
+  // THE LIVE STATE IS READ FROM THE DRIVER, NOT COPIED. `engineSwapStreamingPreview` and
+  // `engineSwapProvisionalCalls` are accessors onto the turn driver's own state (see the
+  // accessor block below), so there is exactly ONE copy of a live turn and it lives where
+  // the driver writes it. A mirrored store field would be a second derivation of what the
+  // turn is doing, which is the same failure shape as a second projection.
+  buildRenderHistory(history = this.history) {
+    return buildChatRenderProjection({
+      history: this.getRenderHistory(history),
+      preview: this.engineSwapStreamingPreview,
+      provisionalCalls: this.engineSwapProvisionalCalls
+    });
   },
 
   // --- Tier 1 turn delegation (P4a-3c) --------------------------------------
@@ -1347,6 +1387,40 @@ const model = {
     this.engineSwapHeldMessages = driver.state.engineSwapHeldMessages;
 
     return driver.state;
+  },
+
+  // --- Live turn state, READ through the driver (P4a-3d) ---------------------
+  //
+  // The streaming preview and the provisional chips belong to the turn DRIVER: it creates
+  // them, appends every delta into them and clears them on commit, hold, error, stop and
+  // iteration cap. Admin must therefore READ them where they live rather than keep a
+  // mirror — a copied field would be a second derivation of what the turn is doing, and
+  // the copy is exactly what would drift (a preview appended by the driver that the
+  // surface's copy never heard about paints nothing).
+  //
+  // ACCESSORS, NOT DATA PROPERTIES, and that is deliberate in the opposite direction from
+  // `engineSwapTier1Session` above: the session is a template-visible reactive binding the
+  // surface WRITES, so it must stay real data for the store proxy's set trap to fire. These
+  // two are read-only projections of driver state that no template binds to, so a getter is
+  // both sufficient and stricter — nothing on this surface can silently fork a copy.
+  //
+  // THEY PEEK, THEY DO NOT CONSTRUCT. `getTier1TurnDriver()` builds the driver on first
+  // call, and these getters run on EVERY render — so a render would allocate the engine
+  // machinery with both flags OFF, which is exactly the inertness the flags promise. With
+  // no driver there is no live turn by definition, so the honest answer is the empty one.
+  get engineSwapStreamingPreview() {
+    return peekTier1TurnDriver()?.state.engineSwapStreamingPreview || null;
+  },
+
+  get engineSwapProvisionalCalls() {
+    return peekTier1TurnDriver()?.state.engineSwapProvisionalCalls || [];
+  },
+
+  // The ids of entries that are DISPLAY-ONLY (derived from a typed turn, never persisted).
+  // Read through the driver for the same reason, and passed to the renderer so a Tier 1
+  // display row is drawn with the typed vocabulary on THIS surface too.
+  get engineSwapDisplayOnlyMessageIds() {
+    return peekTier1TurnDriver()?.state.engineSwapDisplayOnlyMessageIds || new Set();
   },
 
   // --- Consent affordance handlers (P4a-3c) ---------------------------------
@@ -1538,23 +1612,62 @@ const model = {
         return;
       }
 
-      agentView.updateStreamingAssistantMessage(this.refs.thread, pendingMessage, {
+      // THE TAIL SLICE COMES FROM THE PROJECTION (P4a-3d), exactly as onscreen resolves
+      // it: once a provisional chip has split the preview, the row carrying the plain
+      // preview id holds only the TAIL slice, so painting the whole accumulated text
+      // there would duplicate every frozen segment above it on every delta.
+      const previewTailContent = resolvePreviewTailContent({
+        history: this.getRenderHistory(),
+        preview: this.engineSwapStreamingPreview,
+        provisionalCalls: this.engineSwapProvisionalCalls
+      });
+
+      const didPatchStreamingRow = agentView.updateStreamingAssistantMessage(this.refs.thread, pendingMessage, {
+        previewTailContent,
         scroller: this.refs.scroller
       });
+
+      // THE ROW DOES NOT EXIST YET ON THE FIRST DELTA, SO PAINT ONE.
+      // `updateStreamingAssistantMessage` only finds a row a previous paint already
+      // mounted (it looks the row up by `[data-streaming-message-id]`). Admin used to
+      // ignore that answer entirely — it patched nothing AND rendered nothing, so the
+      // preview stayed invisible until commit. Onscreen has always re-rendered on a miss;
+      // this is the other half of the owner's "nothing visible until the whole reply
+      // appears". The re-render goes through `buildRenderHistory()`, which is what puts
+      // the preview row into the thread in the first place.
+      if (!didPatchStreamingRow) {
+        this.render({
+          preserveScroll: true
+        });
+      }
     });
   },
 
   render(options = {}) {
-    // PROJECTED, not raw: a typed tool entry is stored in its typed shape and drawn
-    // through the existing execution chip. Legacy entries pass through untouched, so
-    // today's thread renders byte-identically.
-    agentView.renderMessages(this.refs.thread, this.getRenderHistory(), {
+    // THE LIVE PROJECTION, NOT COMMITTED HISTORY (P4a-3d). `getRenderHistory()` is the
+    // committed-only display projection, so a paint that consumed it repainted the same
+    // finished rows on every render while the turn was still streaming — the owner's
+    // "nothing visible until the whole reply appears" on v1.2.1+97.
+    //
+    // `buildRenderHistory()` appends the two projection-only classes of live turn state
+    // (the streaming preview and the provisional chips) through the SAME shared
+    // projection function onscreen paints with. Legacy history is untouched by it, so a
+    // thread with no typed entries and no live turn draws exactly as before.
+    agentView.renderMessages(this.refs.thread, this.buildRenderHistory(), {
+      // The driver's derived display-only ids: a Tier 1 display row is drawn with the
+      // typed vocabulary on this surface too, read through the driver rather than mirrored.
+      displayOnlyMessageIds: this.engineSwapDisplayOnlyMessageIds,
+      // ONE CALL IS ONE CHIP (owner-reported live defect, 2026-10-27). Without this the
+      // shared renderer draws one row per ENTRY — the call chip and then its result chip —
+      // and never folds a single call. Onscreen has always passed it; admin never did.
+      groupToolRuns: true,
       isConversationBusy: this.isSending,
       outputOverrides: this.executionOutputOverrides,
       preserveScroll: options.preserveScroll === true,
       queuedMessages: this.getQueuedPreviewMessages(),
       rerunningMessageId: this.rerunningMessageId,
-      scroller: this.refs.scroller
+      scroller: this.refs.scroller,
+      toolRunOpenState: this.toolRunOpenState
     });
   },
 
@@ -2891,6 +3004,16 @@ const model = {
 // data property rather than an accessor onto driver state (P4a-3a pins the descriptor):
 // the driver's own slot is projected onto it after each turn instead.
 let tier1TurnDriver = null;
+
+// The driver IF one exists, without building one.
+//
+// `render()` runs on every paint, including with both flags OFF, so reading live turn
+// state must never be the thing that allocates the engine machinery: OFF has to stay
+// genuinely inert, not merely behaviourally identical. No driver means no Tier 1 turn has
+// ever run on this surface, which is exactly the empty answer the render path wants.
+function peekTier1TurnDriver() {
+  return tier1TurnDriver;
+}
 
 function getTier1TurnDriver() {
   if (!tier1TurnDriver) {

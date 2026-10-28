@@ -1,6 +1,9 @@
 import * as config from "/modules/_core/onscreen_agent/config.js";
 import * as agentApi from "/modules/_core/onscreen_agent/api.js";
-import { buildChatRenderProjection, resolvePreviewTailContent } from "/modules/_core/onscreen_agent/chat-projection.js";
+// The render projection is SHARED (P4a-3d): it was promoted out of this surface into
+// the framework because admin paints through the same function. This import is the
+// evidence — one module, two surfaces, and no surface-owned copy to drift.
+import { buildChatRenderProjection, resolvePreviewTailContent } from "/modules/_core/framework/js/engine-swap/chat-projection.js";
 import { createToolRunOpenState } from "/modules/_core/visual/conversation/tool-run.js";
 import {
   installPromptItemAccess,

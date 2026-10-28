@@ -42,13 +42,16 @@ History is TWO shapes, and admin reads and writes both through the shared layer:
 - write: `serializeHistoryMessages()` adds `...serializeTypedHistoryFields(message)`; `serializeHistory()` delegates to it
 - read: `normalizeStoredMessage()` (exported for the reload round-trip test) adds `...normalizeTypedHistoryFields(message)`
 - prompt: `projectHistoryForPrompt()` feeds `rebuildPromptInput`, `refreshPromptInputFromHistory` and `preparePromptRequest`, so a Tier 3 prompt still SEES a Tier 1 history
-- render: `getRenderHistory()` feeds `render()`, projecting typed entries onto the existing execution chip
+- render: `buildRenderHistory()` feeds `render()`. It composes the committed display projection with the two projection-only classes of live turn state through the SHARED `framework/js/engine-swap/chat-projection.js`, the same function onscreen paints with
 
 Rules that follow from that:
 
 - never write a second history mapping in this surface; a local copy is the drift defect the shared layer exists to prevent
 - a legacy message must serialize and normalize byte-identically — the typed fields are additive and answer `{}` for a legacy entry, so no stored format changes and no migration exists
-- the render projection is projection ONLY (P4a-3a): admin passes no `groupToolRuns` and derives no display-only ids, so a typed turn draws one chip per stored entry (call chip plus result chip) instead of onscreen's folded single-call chip. That folding needs the turn driver's run state and belongs to adoption. Do not "fix" the two-row shape here by inventing a second render path.
+- THE RENDER PROJECTION IS SHARED (P4a-3d). `render()` consumes `buildRenderHistory()` — committed display projection PLUS the driver's live streaming preview and provisional chips — and never `getRenderHistory()` alone, which is committed-only and repaints finished rows while a turn streams (the owner's "nothing visible until the whole reply appears"). Admin owns no projection: the function is the framework module onscreen also imports, and a lookalike here is the drift defect this lane removed.
+- LIVE TURN STATE IS READ, NEVER MIRRORED. `engineSwapStreamingPreview`, `engineSwapProvisionalCalls` and `engineSwapDisplayOnlyMessageIds` are getters onto the driver's own state that PEEK without constructing (`peekTier1TurnDriver`). `render()` runs on every paint, so constructing the driver there would allocate engine machinery with both flags OFF and break OFF inertness; with no driver there is no live turn, which is the honest empty answer. Do not add a store field mirroring any of them — a second copy of live turn state is the same failure shape as a second projection.
+- GROUPING IS ON. `render()` passes `groupToolRuns: true` plus a shared `toolRunOpenState`, so the shared renderer folds a single call into ONE chip (call and result are two ENTRIES for one call) and a batch into one run card. Without that option every typed entry keeps its own row, which is exactly the two-row defect the owner reported.
+- THE STREAMING PATCH RE-RENDERS ON A MISS. `updateStreamingAssistantMessage` only finds a row an earlier paint mounted, so it reports false on the first delta; admin's scheduled paint resolves its tail slice from `resolvePreviewTailContent` and falls back to a full `render()` on a miss. Patching without that fallback paints nothing.
 - admin imports NO adoption machinery: no turn driver, no tool-turn transport, no dispatch pipeline, no tier1 session. Adding one of those is starting P4a-3 steps 3-5, not extending this surface.
 
 Current stored config fields are written in YAML as:
