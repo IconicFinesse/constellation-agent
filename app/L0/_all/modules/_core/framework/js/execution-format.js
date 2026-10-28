@@ -267,37 +267,6 @@ export function boundExecutionTranscriptChunks(chunks, options = {}) {
   };
 }
 
-function isNodeLike(targetWindow, value) {
-  return Boolean(targetWindow?.Node && value instanceof targetWindow.Node);
-}
-
-function isElementLike(targetWindow, value) {
-  return Boolean(targetWindow?.Element && value instanceof targetWindow.Element);
-}
-
-function summarizeElement(element) {
-  const tagName = element.tagName ? element.tagName.toLowerCase() : "element";
-  const id = element.id ? `#${element.id}` : "";
-  const classNames =
-    typeof element.className === "string" && element.className.trim()
-      ? `.${element.className.trim().split(/\s+/u).join(".")}`
-      : "";
-
-  return `<${tagName}${id}${classNames}>`;
-}
-
-function summarizeNode(targetWindow, value) {
-  if (isElementLike(targetWindow, value)) {
-    return summarizeElement(value);
-  }
-
-  if (value.nodeType === targetWindow?.Node?.TEXT_NODE) {
-    return `#text(${JSON.stringify((value.textContent || "").trim())})`;
-  }
-
-  return `[Node type=${value.nodeType}]`;
-}
-
 function resolveSpecialExecutionValue(value, options = {}) {
   return typeof options.normalizeSpecialValue === "function"
     ? options.normalizeSpecialValue(value)
@@ -360,8 +329,8 @@ export function createExecutionJsonReplacer(targetWindow, options = {}) {
       return `[Location ${value.href || ""}]`;
     }
 
-    if (isNodeLike(targetWindow, value)) {
-      return summarizeNode(targetWindow, value);
+    if (executionIsNodeLike(targetWindow, value)) {
+      return summarizeExecutionNode(targetWindow, value);
     }
 
     if (targetWindow?.NodeList && value instanceof targetWindow.NodeList) {
@@ -440,8 +409,8 @@ export function normalizeExecutionStructuredValue(value, options = {}) {
     return `[Location ${value.href || ""}]`;
   }
 
-  if (isNodeLike(targetWindow, value)) {
-    return summarizeNode(targetWindow, value);
+  if (executionIsNodeLike(targetWindow, value)) {
+    return summarizeExecutionNode(targetWindow, value);
   }
 
   if (targetWindow?.NodeList && value instanceof targetWindow.NodeList) {
@@ -625,4 +594,370 @@ export function formatExecutionLogArgs(args, options = {}) {
   }
 
   return formatExecutionTranscriptValue(normalizedArgs, options);
+}
+
+// ── THE ONE CONSOLE-VALUE FORMATTER FAMILY (P4b-2c) ────────────────────────────────
+//
+// Both agent surfaces render the values an executed block logs or returns, and before this
+// they each carried their own copy of that family — sixteen bodies that agreed on most
+// inputs and disagreed on the ones that matter (stack filtering, skill labels, and whether
+// the 220 / 8 / 2 caps were applied at all). One surface was reading a filtered stack and
+// the other was painting framework frames into the transcript.
+//
+// The family is a FACTORY because exactly one thing in it is surface-specific: the
+// `//# sourceURL` prefix that identifies agent-generated stack frames. Admin's copy hardcoded
+// `/space-admin-agent-execute/`; promoting that verbatim would have made every onscreen
+// error arrive with an empty frame list (its frames say `space-onscreen-agent-execute`) and
+// silently strip the stack the owner uses to debug. The prefix is therefore an ARGUMENT —
+// used to BUILD the source url and to RECOGNISE agent frames — and no surface identity is
+// spelled inside this module.
+//
+// The skill label is the other injected difference: the two surfaces mark a loaded skill with
+// different flags and display different fields, so they pass their own predicate.
+
+export const EXECUTION_WINDOW_ALIAS_KEYS = new Set(["page", "window", "globalThis", "self"]);
+
+export function normalizeExecutionSource(code) {
+  return typeof code === "string" ? code.replace(/\r\n/gu, "\n") : "";
+}
+
+export function flattenExecutionMessageValue(value) {
+  return String(value ?? "")
+    .replace(/\r\n/gu, "\n")
+    .replace(/\r/gu, "\n")
+    .split("\n")
+    .join("\\n");
+}
+
+// The executable block's `sourceURL` is the ONE identity both the runtime and the stack
+// filter agree on, so it is derived from the injected prefix in one place.
+export function buildExecutionSourceUrl(sourceUrlPrefix, runId) {
+  return `${sourceUrlPrefix}-${runId}.js`;
+}
+
+function executionIsNodeLike(targetWindow, value) {
+  return Boolean(targetWindow?.Node && value instanceof targetWindow.Node);
+}
+
+function executionIsElementLike(targetWindow, value) {
+  return Boolean(targetWindow?.Element && value instanceof targetWindow.Element);
+}
+
+export function summarizeExecutionElement(element) {
+  const tagName = element.tagName ? element.tagName.toLowerCase() : "element";
+  const id = element.id ? `#${element.id}` : "";
+  const classNames =
+    typeof element.className === "string" && element.className.trim()
+      ? `.${element.className.trim().split(/\s+/u).join(".")}`
+      : "";
+
+  return `<${tagName}${id}${classNames}>`;
+}
+
+export function summarizeExecutionNode(targetWindow, value) {
+  if (executionIsElementLike(targetWindow, value)) {
+    return summarizeExecutionElement(value);
+  }
+
+  if (value.nodeType === targetWindow?.Node?.TEXT_NODE) {
+    return `#text(${JSON.stringify((value.textContent || "").trim())})`;
+  }
+
+  return `[Node type=${value.nodeType}]`;
+}
+
+export function isConstructable(value) {
+  if (typeof value !== "function") {
+    return false;
+  }
+
+  try {
+    Reflect.construct(String, [], value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Returns the value-rendering family for ONE surface. Everything the renderer needs that
+// differs between surfaces arrives as an argument; everything that does not is closed over
+// here so both surfaces run the same arithmetic.
+export function createExecutionValueFormatters(options = {}) {
+  const sourceUrlPrefix = typeof options.sourceUrlPrefix === "string" ? options.sourceUrlPrefix : "";
+  const isLoadedSkill = typeof options.isLoadedSkill === "function" ? options.isLoadedSkill : () => false;
+
+  function formatString(value) {
+    if (value.length <= EXECUTION_FORMAT_MAX_STRING_LENGTH) {
+      return value;
+    }
+
+    return `${value.slice(0, EXECUTION_FORMAT_MAX_STRING_LENGTH - 3)}...`;
+  }
+
+  function formatEntries(entries, opener, closer, entryOptions) {
+    const { depth, seen, targetWindow } = entryOptions;
+    const renderedEntries = entries.slice(0, EXECUTION_FORMAT_MAX_COLLECTION_ENTRIES).map(([key, value]) => {
+      return `${key}: ${formatExecutionValue(value, {
+        depth: depth + 1,
+        seen,
+        targetWindow
+      })}`;
+    });
+
+    if (entries.length > EXECUTION_FORMAT_MAX_COLLECTION_ENTRIES) {
+      renderedEntries.push("...");
+    }
+
+    return `${opener}${renderedEntries.join(", ")}${closer}`;
+  }
+
+  function formatArrayLike(values, label, entryOptions) {
+    const { depth, seen, targetWindow } = entryOptions;
+    const renderedValues = Array.from(values)
+      .slice(0, EXECUTION_FORMAT_MAX_COLLECTION_ENTRIES)
+      .map((value) =>
+        formatExecutionValue(value, {
+          depth: depth + 1,
+          seen,
+          targetWindow
+        })
+      );
+
+    if (values.length > EXECUTION_FORMAT_MAX_COLLECTION_ENTRIES) {
+      renderedValues.push("...");
+    }
+
+    return `${label}(${values.length}) [${renderedValues.join(", ")}]`;
+  }
+
+  // The stack filter is the ONE place the injected prefix does work beyond naming the
+  // source url. A frame belongs to the agent when it carries this surface's prefix; every
+  // framework frame is noise the owner never asked to read mid-execution.
+  function formatError(error) {
+    if (!error) {
+      return "";
+    }
+
+    const message = `${error.name || "Error"}: ${error.message || String(error)}`;
+
+    if (!error.stack) {
+      return message;
+    }
+
+    const userFrames = error.stack
+      .split("\n")
+      .filter((line) => (sourceUrlPrefix ? line.includes(sourceUrlPrefix) : true));
+
+    if (!userFrames.length) {
+      return message;
+    }
+
+    return [message, ...userFrames].join("\n");
+  }
+
+  function formatExecutionValue(value, valueOptions = {}) {
+    const { targetWindow, depth = 0, seen = new WeakSet() } = valueOptions;
+
+    if (value === undefined) {
+      return "undefined";
+    }
+
+    if (value === null) {
+      return "null";
+    }
+
+    if (typeof value === "string") {
+      return formatString(value);
+    }
+
+    if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+      return String(value);
+    }
+
+    if (typeof value === "symbol") {
+      return value.toString();
+    }
+
+    if (typeof value === "function") {
+      return `[Function ${value.name || "anonymous"}]`;
+    }
+
+    if (value instanceof Error) {
+      return formatError(value);
+    }
+
+    if (value === targetWindow) {
+      return `[Window ${targetWindow.location?.href || ""}]`;
+    }
+
+    if (targetWindow?.Document && value instanceof targetWindow.Document) {
+      return `[Document ${value.URL || ""}]`;
+    }
+
+    if (targetWindow?.Location && value instanceof targetWindow.Location) {
+      return `[Location ${value.href || ""}]`;
+    }
+
+    if (executionIsNodeLike(targetWindow, value)) {
+      return summarizeExecutionNode(targetWindow, value);
+    }
+
+    if (Array.isArray(value)) {
+      if (depth >= EXECUTION_FORMAT_MAX_DEPTH) {
+        return `Array(${value.length})`;
+      }
+
+      return formatArrayLike(value, "Array", { depth, seen, targetWindow });
+    }
+
+    if (targetWindow?.NodeList && value instanceof targetWindow.NodeList) {
+      return formatArrayLike(Array.from(value), "NodeList", { depth, seen, targetWindow });
+    }
+
+    if (targetWindow?.HTMLCollection && value instanceof targetWindow.HTMLCollection) {
+      return formatArrayLike(Array.from(value), "HTMLCollection", { depth, seen, targetWindow });
+    }
+
+    if (value instanceof Map) {
+      if (depth >= EXECUTION_FORMAT_MAX_DEPTH) {
+        return `Map(${value.size})`;
+      }
+
+      return formatEntries(Array.from(value.entries()), "Map { ", " }", { depth, seen, targetWindow });
+    }
+
+    if (value instanceof Set) {
+      if (depth >= EXECUTION_FORMAT_MAX_DEPTH) {
+        return `Set(${value.size})`;
+      }
+
+      return formatArrayLike(Array.from(value.values()), "Set", { depth, seen, targetWindow });
+    }
+
+    if (typeof value === "object") {
+      if (isLoadedSkill(value)) {
+        return `[Loaded skill ${value.skillName || value.path}]`;
+      }
+
+      if (seen.has(value)) {
+        return "[Circular]";
+      }
+
+      seen.add(value);
+
+      if (depth >= EXECUTION_FORMAT_MAX_DEPTH) {
+        return `[${value.constructor?.name || "Object"}]`;
+      }
+
+      return formatEntries(Object.entries(value), "{ ", " }", { depth, seen, targetWindow });
+    }
+
+    try {
+      return String(value);
+    } catch (error) {
+      return `[Unprintable value: ${error.message}]`;
+    }
+  }
+
+  function formatExecutionResultValue(value, resultOptions = {}) {
+    const { targetWindow } = resultOptions;
+
+    return formatExecutionTranscriptValue(value, {
+      formatFallback: (fallbackValue, formatterOptions = {}) =>
+        formatExecutionValue(fallbackValue, {
+          targetWindow: formatterOptions.targetWindow || targetWindow
+        }),
+      normalizeSpecialValue: (specialValue) => {
+        if (isLoadedSkill(specialValue)) {
+          return `[Loaded skill ${specialValue.skillName || specialValue.path}]`;
+        }
+
+        return undefined;
+      },
+      targetWindow
+    });
+  }
+
+  return {
+    formatArrayLike,
+    formatEntries,
+    formatError,
+    formatExecutionResultValue,
+    formatExecutionValue,
+    formatString,
+    isLoadedSkill
+  };
+}
+
+// ── THE ONE TRANSCRIPT-LINE BUILDER (P4b-2c) ────────────────────────────────────────
+//
+// Both surfaces turn an execution result into the ordered lines the transcript paints, and
+// the skeleton was duplicated: the status line, the console-block loop, the result block,
+// the "returned nothing" notice, the error line. What genuinely differs is surface FEATURE,
+// so each difference is an injected hook rather than a second body:
+//
+//   resolveSkills(result)         called ONCE per render; its value is handed to both
+//                                 predicates below, so a surface never derives the same
+//                                 skill list twice and the two cannot disagree.
+//   appendSkillLines(l, r, s)     true means "a skill result is terminal here" — admin
+//                                 paints the skill and stops; onscreen paints then keeps
+//                                 going.
+//   suppressResultBlock(r, s)     a skill return value is not ALSO painted as plain text.
+//   suppressEmptyNotice(r, s)     something was painted, so "returned nothing" would lie.
+//   appendExtraLines(l, r)        onscreen's stripped-artifact note.
+//
+// The two suppression questions are SEPARATE on purpose and must not be folded into one.
+// Onscreen suppresses its result block only when the RETURNED value is a skill, while it
+// suppresses the empty notice whenever ANY skill was collected — including one that arrived
+// outside the return value. Collapsing them makes one surface print "returned no result"
+// directly under a skill block it has just painted.
+export function createExecutionResultLinesFormatter(options = {}) {
+  const resolveSkills = typeof options.resolveSkills === "function" ? options.resolveSkills : null;
+  const appendSkillLines =
+    typeof options.appendSkillLines === "function" ? options.appendSkillLines : null;
+  const suppressResultBlock =
+    typeof options.suppressResultBlock === "function" ? options.suppressResultBlock : () => false;
+  const suppressEmptyNotice =
+    typeof options.suppressEmptyNotice === "function" ? options.suppressEmptyNotice : () => false;
+  const appendExtraLines = typeof options.appendExtraLines === "function" ? options.appendExtraLines : null;
+
+  return function formatExecutionResultLines(result) {
+    const status =
+      typeof result?.status === "string" && result.status.trim() ? result.status.trim() : "done";
+    const lines = [`execution ${status}`];
+    const prints = Array.isArray(result?.logs) ? result.logs : [];
+    const skills = resolveSkills ? resolveSkills(result) : null;
+
+    prints.forEach((entry) => {
+      const level = typeof entry?.level === "string" && entry.level.trim() ? entry.level.trim() : "log";
+      appendExecutionTextBlock(lines, level, entry?.text ?? "");
+    });
+
+    if (appendSkillLines && appendSkillLines(lines, result, skills)) {
+      return lines;
+    }
+
+    if (result?.result !== undefined && !suppressResultBlock(result, skills)) {
+      appendExecutionTextBlock(lines, "result", result.resultText);
+    }
+
+    if (
+      !result?.error?.text &&
+      result?.result === undefined &&
+      !prints.length &&
+      !suppressEmptyNotice(result, skills)
+    ) {
+      lines.push("execution returned no result and no console logs were printed");
+    }
+
+    if (result?.error?.text) {
+      lines.push(`error: ${flattenExecutionMessageValue(result.error.text)}`);
+    }
+
+    if (appendExtraLines) {
+      appendExtraLines(lines, result);
+    }
+
+    return lines;
+  };
 }

@@ -1,10 +1,13 @@
 import {
   appendExecutionTextBlock,
-  EXECUTION_FORMAT_MAX_COLLECTION_ENTRIES as MAX_COLLECTION_ENTRIES,
-  EXECUTION_FORMAT_MAX_DEPTH as MAX_FORMAT_DEPTH,
-  EXECUTION_FORMAT_MAX_STRING_LENGTH as MAX_STRING_LENGTH,
+  buildExecutionSourceUrl,
+  createExecutionResultLinesFormatter,
+  createExecutionValueFormatters,
+  EXECUTION_WINDOW_ALIAS_KEYS as WINDOW_ALIAS_KEYS,
+  flattenExecutionMessageValue,
   formatExecutionLogArgs,
-  formatExecutionTranscriptValue
+  isConstructable,
+  normalizeExecutionSource
 } from "/modules/_core/framework/js/execution-format.js";
 import {
   collectExecutionFenceRegions as sharedCollectExecutionFenceRegions,
@@ -20,11 +23,11 @@ const EXECUTION_CONTEXT_KEY = "__spaceAdminAgentExecutionContext";
 const SHARED_STATE_KEY = "__spaceAdminAgentSharedState";
 const CONSOLE_METHODS = ["log", "info", "warn", "error", "debug", "dir", "table", "assert"];
 const INTERNAL_SCOPE_KEYS = new Set(["__spaceScope", "__spaceWindow"]);
-const WINDOW_ALIAS_KEYS = new Set(["page", "window", "globalThis", "self"]);
-// The cap NUMBERS are not declared here any more: they are the shared module's
-// `EXECUTION_FORMAT_MAX_*` exports (P4b-2a), imported under this file's existing names so
-// every use below is unchanged. One source for the numbers; this file's formatter bodies
-// are untouched.
+// The value-rendering family is NOT this file's any more (P4b-2c): it lives once in
+// `framework/js/execution-format.js` and is instantiated below with THIS surface's
+// `sourceURL` prefix. The prefix is the whole parameterization — it names the executed
+// block's source url AND decides which stack frames a rendered error keeps, so promoting
+// the family with a hardcoded prefix would have stripped one surface's frames.
 
 function isLoadedAdminSkill(value) {
   return Boolean(value?.__spaceAdminSkill) && typeof value?.content === "string" && typeof value?.path === "string";
@@ -34,6 +37,19 @@ function formatLoadedSkillResultText(skill) {
   const responseText = typeof skill?.loadResponseText === "string" ? skill.loadResponseText.trim() : "";
   return responseText || String(skill?.content || "").trim();
 }
+
+// The ONE console-value formatter family, parameterized by this surface's identity.
+const ADMIN_SOURCE_URL_PREFIX = "space-admin-agent-execute";
+
+const {
+  formatError,
+  formatExecutionResultValue,
+  formatExecutionValue,
+  isLoadedSkill
+} = createExecutionValueFormatters({
+  isLoadedSkill: isLoadedAdminSkill,
+  sourceUrlPrefix: ADMIN_SOURCE_URL_PREFIX
+});
 
 // Extraction and separator accounting live in the shared fence-aware module so
 // the admin and onscreen surfaces cannot drift apart on the display/execute
@@ -83,236 +99,9 @@ function tryCreateAsyncRunner(code) {
   }
 }
 
-function normalizeExecutionSource(code) {
-  return typeof code === "string" ? code.replace(/\r\n/gu, "\n") : "";
-}
 
-function isNodeLike(targetWindow, value) {
-  return Boolean(targetWindow.Node && value instanceof targetWindow.Node);
-}
 
-function isElementLike(targetWindow, value) {
-  return Boolean(targetWindow.Element && value instanceof targetWindow.Element);
-}
 
-function summarizeElement(element) {
-  const tagName = element.tagName ? element.tagName.toLowerCase() : "element";
-  const id = element.id ? `#${element.id}` : "";
-  const classNames =
-    typeof element.className === "string" && element.className.trim()
-      ? `.${element.className.trim().split(/\s+/u).join(".")}`
-      : "";
-
-  return `<${tagName}${id}${classNames}>`;
-}
-
-function summarizeNode(targetWindow, value) {
-  if (isElementLike(targetWindow, value)) {
-    return summarizeElement(value);
-  }
-
-  if (value.nodeType === targetWindow.Node.TEXT_NODE) {
-    return `#text(${JSON.stringify((value.textContent || "").trim())})`;
-  }
-
-  return `[Node type=${value.nodeType}]`;
-}
-
-function formatString(value) {
-  if (value.length <= MAX_STRING_LENGTH) {
-    return value;
-  }
-
-  return `${value.slice(0, MAX_STRING_LENGTH - 3)}...`;
-}
-
-function formatEntries(entries, opener, closer, options) {
-  const { depth, seen, targetWindow } = options;
-  const renderedEntries = entries.slice(0, MAX_COLLECTION_ENTRIES).map(([key, value]) => {
-    return `${key}: ${formatExecutionValue(value, {
-      depth: depth + 1,
-      seen,
-      targetWindow
-    })}`;
-  });
-
-  if (entries.length > MAX_COLLECTION_ENTRIES) {
-    renderedEntries.push("...");
-  }
-
-  return `${opener}${renderedEntries.join(", ")}${closer}`;
-}
-
-function formatArrayLike(values, label, options) {
-  const { depth, seen, targetWindow } = options;
-  const renderedValues = Array.from(values)
-    .slice(0, MAX_COLLECTION_ENTRIES)
-    .map((value) =>
-      formatExecutionValue(value, {
-        depth: depth + 1,
-        seen,
-        targetWindow
-      })
-    );
-
-  if (values.length > MAX_COLLECTION_ENTRIES) {
-    renderedValues.push("...");
-  }
-
-  return `${label}(${values.length}) [${renderedValues.join(", ")}]`;
-}
-
-function formatError(error) {
-  if (!error) {
-    return "";
-  }
-
-  const message = `${error.name || "Error"}: ${error.message || String(error)}`;
-
-  if (!error.stack) {
-    return message;
-  }
-
-  // Keep only frames from agent-generated code (identified by the sourceURL pattern)
-  const userFrames = error.stack
-    .split("\n")
-    .filter((line) => /space-admin-agent-execute/.test(line));
-
-  if (!userFrames.length) {
-    // No user frames (e.g. SyntaxError at compile time) — stack is all framework noise
-    return message;
-  }
-
-  return [message, ...userFrames].join("\n");
-}
-
-function formatExecutionValue(value, options) {
-  const { targetWindow, depth = 0, seen = new WeakSet() } = options;
-
-  if (value === undefined) {
-    return "undefined";
-  }
-
-  if (value === null) {
-    return "null";
-  }
-
-  if (typeof value === "string") {
-    return formatString(value);
-  }
-
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
-    return String(value);
-  }
-
-  if (typeof value === "symbol") {
-    return value.toString();
-  }
-
-  if (typeof value === "function") {
-    return `[Function ${value.name || "anonymous"}]`;
-  }
-
-  if (value instanceof Error) {
-    return formatError(value);
-  }
-
-  if (value === targetWindow) {
-    return `[Window ${targetWindow.location?.href || ""}]`;
-  }
-
-  if (targetWindow.Document && value instanceof targetWindow.Document) {
-    return `[Document ${value.URL || ""}]`;
-  }
-
-  if (targetWindow.Location && value instanceof targetWindow.Location) {
-    return `[Location ${value.href || ""}]`;
-  }
-
-  if (isNodeLike(targetWindow, value)) {
-    return summarizeNode(targetWindow, value);
-  }
-
-  if (Array.isArray(value)) {
-    if (depth >= MAX_FORMAT_DEPTH) {
-      return `Array(${value.length})`;
-    }
-
-    return formatArrayLike(value, "Array", {
-      depth,
-      seen,
-      targetWindow
-    });
-  }
-
-  if (targetWindow.NodeList && value instanceof targetWindow.NodeList) {
-    return formatArrayLike(Array.from(value), "NodeList", {
-      depth,
-      seen,
-      targetWindow
-    });
-  }
-
-  if (targetWindow.HTMLCollection && value instanceof targetWindow.HTMLCollection) {
-    return formatArrayLike(Array.from(value), "HTMLCollection", {
-      depth,
-      seen,
-      targetWindow
-    });
-  }
-
-  if (value instanceof Map) {
-    if (depth >= MAX_FORMAT_DEPTH) {
-      return `Map(${value.size})`;
-    }
-
-    return formatEntries(Array.from(value.entries()), "Map { ", " }", {
-      depth,
-      seen,
-      targetWindow
-    });
-  }
-
-  if (value instanceof Set) {
-    if (depth >= MAX_FORMAT_DEPTH) {
-      return `Set(${value.size})`;
-    }
-
-    return formatArrayLike(Array.from(value.values()), "Set", {
-      depth,
-      seen,
-      targetWindow
-    });
-  }
-
-  if (typeof value === "object") {
-    if (isLoadedAdminSkill(value)) {
-      return `[Loaded skill ${value.skillName || value.path}]`;
-    }
-
-    if (seen.has(value)) {
-      return "[Circular]";
-    }
-
-    seen.add(value);
-
-    if (depth >= MAX_FORMAT_DEPTH) {
-      return `[${value.constructor?.name || "Object"}]`;
-    }
-
-    return formatEntries(Object.entries(value), "{ ", " }", {
-      depth,
-      seen,
-      targetWindow
-    });
-  }
-
-  try {
-    return String(value);
-  } catch (error) {
-    return `[Unprintable value: ${error.message}]`;
-  }
-}
 
 function createConsoleRecorder(methodName, originalMethod, logs, targetWindow) {
   return (...args) => {
@@ -331,7 +120,7 @@ function createConsoleRecorder(methodName, originalMethod, logs, targetWindow) {
           targetWindow: formatterOptions.targetWindow || targetWindow
         }),
       normalizeSpecialValue: (value) => {
-        if (isLoadedAdminSkill(value)) {
+        if (isLoadedSkill(value)) {
           return `[Loaded skill ${value.skillName || value.path}]`;
         }
 
@@ -390,18 +179,6 @@ function patchConsole(targetWindow, logs) {
   };
 }
 
-function isConstructable(value) {
-  if (typeof value !== "function") {
-    return false;
-  }
-
-  try {
-    Reflect.construct(String, [], value);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function getScopedWindowValue(targetWindow, key, boundWindowMethods) {
   const value = targetWindow[key];
@@ -500,47 +277,18 @@ function createExecutionScope(targetWindow, sharedState) {
   });
 }
 
-function buildSourceUrl(runId) {
-  return `space-admin-agent-execute-${runId}.js`;
-}
 
-function flattenExecutionMessageValue(value) {
-  return String(value ?? "")
-    .replace(/\r\n/gu, "\n")
-    .replace(/\r/gu, "\n")
-    .split("\n")
-    .join("\\n");
-}
 
-function formatExecutionResultValue(value, options) {
-  const { targetWindow } = options;
-  return formatExecutionTranscriptValue(value, {
-    formatFallback: (fallbackValue, formatterOptions = {}) =>
-      formatExecutionValue(fallbackValue, {
-        targetWindow: formatterOptions.targetWindow || targetWindow
-      }),
-    normalizeSpecialValue: (specialValue) => {
-      if (isLoadedAdminSkill(specialValue)) {
-        return `[Loaded skill ${specialValue.skillName || specialValue.path}]`;
-      }
 
-      return undefined;
-    },
-    targetWindow
-  });
-}
+// The transcript SKELETON is the shared builder's (P4b-2c); what stays here is admin's
+// FEATURE: a loaded admin skill IS the result, so it is painted (body plus provenance) and
+// the builder stops instead of also painting a result block.
+const formatExecutionResultLines = createExecutionResultLinesFormatter({
+  appendSkillLines(lines, result) {
+    if (!isLoadedSkill(result?.result)) {
+      return false;
+    }
 
-function formatExecutionResultLines(result) {
-  const status = typeof result?.status === "string" && result.status.trim() ? result.status.trim() : "done";
-  const lines = [`execution ${status}`];
-  const prints = Array.isArray(result?.logs) ? result.logs : [];
-
-  prints.forEach((entry) => {
-    const level = typeof entry?.level === "string" && entry.level.trim() ? entry.level.trim() : "log";
-    appendExecutionTextBlock(lines, level, entry?.text ?? "");
-  });
-
-  if (isLoadedAdminSkill(result?.result)) {
     const loadedSkillResultText = formatLoadedSkillResultText(result.result);
 
     if (loadedSkillResultText) {
@@ -553,23 +301,9 @@ function formatExecutionResultLines(result) {
       lines.push(result.result.content);
     }
 
-    return lines;
+    return true;
   }
-
-  if (result?.result !== undefined) {
-    appendExecutionTextBlock(lines, "result", result.resultText);
-  }
-
-  if (!result?.error?.text && result?.result === undefined && !prints.length) {
-    lines.push("execution returned no result and no console logs were printed");
-  }
-
-  if (result?.error?.text) {
-    lines.push(`error: ${flattenExecutionMessageValue(result.error.text)}`);
-  }
-
-  return lines;
-}
+});
 
 function createExecutionError(error) {
   return {
@@ -640,7 +374,7 @@ export function createExecutionContext(options = {}) {
       const scope = createExecutionScope(targetWindow, sharedState);
       const restoreConsole = patchConsole(targetWindow, logs);
       const normalizedCode = normalizeExecutionSource(code);
-      const runnableCode = `${normalizedCode}\n//# sourceURL=${buildSourceUrl(runId)}`;
+      const runnableCode = `${normalizedCode}\n//# sourceURL=${buildExecutionSourceUrl(ADMIN_SOURCE_URL_PREFIX, runId)}`;
       const compileError = tryCreateAsyncRunner(runnableCode);
 
       let result;

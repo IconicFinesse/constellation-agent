@@ -5,9 +5,14 @@ import {
 } from "./turn-boundary.js";
 import {
   appendExecutionTextBlock,
-  EXECUTION_FORMAT_MAX_DEPTH as MAX_FORMAT_DEPTH,
+  buildExecutionSourceUrl,
+  createExecutionResultLinesFormatter,
+  createExecutionValueFormatters,
+  EXECUTION_WINDOW_ALIAS_KEYS as WINDOW_ALIAS_KEYS,
+  flattenExecutionMessageValue,
   formatExecutionLogArgs,
-  formatExecutionTranscriptValue
+  isConstructable,
+  normalizeExecutionSource
 } from "/modules/_core/framework/js/execution-format.js";
 import {
   collectExecutionFenceRegions as sharedCollectExecutionFenceRegions,
@@ -23,10 +28,11 @@ const EXECUTION_CONTEXT_KEY = "__spaceOnscreenAgentExecutionContext";
 const SHARED_STATE_KEY = "__spaceOnscreenAgentSharedState";
 const CONSOLE_METHODS = ["log", "info", "warn", "error", "debug", "dir", "table", "assert"];
 const INTERNAL_SCOPE_KEYS = new Set(["__spaceScope", "__spaceWindow"]);
-const WINDOW_ALIAS_KEYS = new Set(["page", "window", "globalThis", "self"]);
-// Sourced from the shared module (P4b-2a), not declared here. This surface still applies
-// ONLY the depth cap in its console formatter; the string/collection caps admin applies are
-// the divergence P4b-2c reconciles, and adding them here would be that lane's work.
+// The value-rendering family is NOT this file's any more (P4b-2c): it lives once in
+// `framework/js/execution-format.js` and is instantiated below with THIS surface's
+// `sourceURL` prefix. That prefix is the whole parameterization — it names the executed
+// block's source url AND decides which stack frames a rendered error keeps, so a hardcoded
+// prefix in the shared module would have stripped one surface's frames.
 function isLoadedOnscreenSkill(value) {
   return Boolean(value?.__spaceSkill) && typeof value?.content === "string" && typeof value?.path === "string";
 }
@@ -62,6 +68,21 @@ function formatLoadedSkillResultText(skill) {
   const responseText = typeof skill?.loadResponseText === "string" ? skill.loadResponseText.trim() : "";
   return responseText || String(skill?.content || "").trim();
 }
+
+// The ONE console-value formatter family, parameterized by this surface's identity.
+const ONSCREEN_SOURCE_URL_PREFIX = "space-onscreen-agent-execute";
+
+const {
+  formatError,
+  formatExecutionResultValue,
+  formatExecutionValue,
+  isLoadedSkill
+} = createExecutionValueFormatters({
+  isLoadedSkill: isLoadedOnscreenSkill,
+  sourceUrlPrefix: ONSCREEN_SOURCE_URL_PREFIX
+});
+
+export { formatExecutionResultValue };
 
 // Extraction and separator accounting live in the shared fence-aware module so
 // the onscreen and admin surfaces cannot drift apart on the display/execute
@@ -189,206 +210,9 @@ function tryCreateAsyncRunner(code) {
   }
 }
 
-function normalizeExecutionSource(code) {
-  return typeof code === "string" ? code.replace(/\r\n/g, "\n") : "";
-}
 
-function isNodeLike(targetWindow, value) {
-  return Boolean(targetWindow.Node && value instanceof targetWindow.Node);
-}
 
-function isElementLike(targetWindow, value) {
-  return Boolean(targetWindow.Element && value instanceof targetWindow.Element);
-}
 
-function summarizeElement(element) {
-  const tagName = element.tagName ? element.tagName.toLowerCase() : "element";
-  const id = element.id ? `#${element.id}` : "";
-  const classNames =
-    typeof element.className === "string" && element.className.trim()
-      ? `.${element.className.trim().split(/\s+/).join(".")}`
-      : "";
-
-  return `<${tagName}${id}${classNames}>`;
-}
-
-function summarizeNode(targetWindow, value) {
-  if (isElementLike(targetWindow, value)) {
-    return summarizeElement(value);
-  }
-
-  if (value.nodeType === targetWindow.Node.TEXT_NODE) {
-    return `#text(${JSON.stringify((value.textContent || "").trim())})`;
-  }
-
-  return `[Node type=${value.nodeType}]`;
-}
-
-function formatString(value) {
-  return value;
-}
-
-function formatEntries(entries, opener, closer, options) {
-  const { depth, seen, targetWindow } = options;
-  const renderedEntries = entries.map(([key, value]) => {
-    return `${key}: ${formatExecutionValue(value, {
-      depth: depth + 1,
-      seen,
-      targetWindow
-    })}`;
-  });
-
-  return `${opener}${renderedEntries.join(", ")}${closer}`;
-}
-
-function formatArrayLike(values, label, options) {
-  const { depth, seen, targetWindow } = options;
-  const renderedValues = Array.from(values).map((value) =>
-    formatExecutionValue(value, {
-      depth: depth + 1,
-      seen,
-      targetWindow
-    })
-  );
-
-  return `${label}(${values.length}) [${renderedValues.join(", ")}]`;
-}
-
-function formatError(error) {
-  if (!error) {
-    return "";
-  }
-
-  return error.stack || `${error.name || "Error"}: ${error.message || String(error)}`;
-}
-
-function formatExecutionValue(value, options) {
-  const { targetWindow, depth = 0, seen = new WeakSet() } = options;
-
-  if (value === undefined) {
-    return "undefined";
-  }
-
-  if (value === null) {
-    return "null";
-  }
-
-  if (typeof value === "string") {
-    return formatString(value);
-  }
-
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
-    return String(value);
-  }
-
-  if (typeof value === "symbol") {
-    return value.toString();
-  }
-
-  if (typeof value === "function") {
-    return `[Function ${value.name || "anonymous"}]`;
-  }
-
-  if (value instanceof Error) {
-    return formatError(value);
-  }
-
-  if (value === targetWindow) {
-    return `[Window ${targetWindow.location?.href || ""}]`;
-  }
-
-  if (targetWindow.Document && value instanceof targetWindow.Document) {
-    return `[Document ${value.URL || ""}]`;
-  }
-
-  if (targetWindow.Location && value instanceof targetWindow.Location) {
-    return `[Location ${value.href || ""}]`;
-  }
-
-  if (isNodeLike(targetWindow, value)) {
-    return summarizeNode(targetWindow, value);
-  }
-
-  if (Array.isArray(value)) {
-    if (depth >= MAX_FORMAT_DEPTH) {
-      return `Array(${value.length})`;
-    }
-
-    return formatArrayLike(value, "Array", {
-      depth,
-      seen,
-      targetWindow
-    });
-  }
-
-  if (targetWindow.NodeList && value instanceof targetWindow.NodeList) {
-    return formatArrayLike(Array.from(value), "NodeList", {
-      depth,
-      seen,
-      targetWindow
-    });
-  }
-
-  if (targetWindow.HTMLCollection && value instanceof targetWindow.HTMLCollection) {
-    return formatArrayLike(Array.from(value), "HTMLCollection", {
-      depth,
-      seen,
-      targetWindow
-    });
-  }
-
-  if (value instanceof Map) {
-    if (depth >= MAX_FORMAT_DEPTH) {
-      return `Map(${value.size})`;
-    }
-
-    return formatEntries(Array.from(value.entries()), "Map { ", " }", {
-      depth,
-      seen,
-      targetWindow
-    });
-  }
-
-  if (value instanceof Set) {
-    if (depth >= MAX_FORMAT_DEPTH) {
-      return `Set(${value.size})`;
-    }
-
-    return formatArrayLike(Array.from(value.values()), "Set", {
-      depth,
-      seen,
-      targetWindow
-    });
-  }
-
-  if (typeof value === "object") {
-    if (isLoadedOnscreenSkill(value)) {
-      return `[Loaded skill ${value.path}]`;
-    }
-
-    if (seen.has(value)) {
-      return "[Circular]";
-    }
-
-    seen.add(value);
-
-    if (depth >= MAX_FORMAT_DEPTH) {
-      return `[${value.constructor?.name || "Object"}]`;
-    }
-
-    return formatEntries(Object.entries(value), "{ ", " }", {
-      depth,
-      seen,
-      targetWindow
-    });
-  }
-
-  try {
-    return String(value);
-  } catch (error) {
-    return `[Unprintable value: ${error.message}]`;
-  }
-}
 
 function createConsoleRecorder(methodName, originalMethod, logs, targetWindow) {
   return (...args) => {
@@ -407,8 +231,8 @@ function createConsoleRecorder(methodName, originalMethod, logs, targetWindow) {
           targetWindow: formatterOptions.targetWindow || targetWindow
         }),
       normalizeSpecialValue: (value) => {
-        if (isLoadedOnscreenSkill(value)) {
-          return `[Loaded skill ${value.path}]`;
+        if (isLoadedSkill(value)) {
+          return `[Loaded skill ${value.skillName || value.path}]`;
         }
 
         return undefined;
@@ -466,18 +290,6 @@ function patchConsole(targetWindow, logs) {
   };
 }
 
-function isConstructable(value) {
-  if (typeof value !== "function") {
-    return false;
-  }
-
-  try {
-    Reflect.construct(String, [], value);
-    return true;
-  } catch (error) {
-    return false;
-  }
-}
 
 function getScopedWindowValue(targetWindow, key, boundWindowMethods) {
   const value = targetWindow[key];
@@ -576,81 +388,42 @@ function createExecutionScope(targetWindow, sharedState) {
   });
 }
 
-function buildSourceUrl(runId) {
-  return `space-onscreen-agent-execute-${runId}.js`;
-}
 
-function flattenExecutionMessageValue(value) {
-  return String(value ?? "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split("\n")
-    .join("\\n");
-}
 
-export function formatExecutionResultValue(value, options) {
-  const { targetWindow } = options;
-  return formatExecutionTranscriptValue(value, {
-    formatFallback: (fallbackValue, formatterOptions = {}) =>
-      formatExecutionValue(fallbackValue, {
-        targetWindow: formatterOptions.targetWindow || targetWindow
-      }),
-    normalizeSpecialValue: (specialValue) => {
-      if (isLoadedOnscreenSkill(specialValue)) {
-        return `[Loaded skill ${specialValue.path}]`;
+
+// The transcript SKELETON is the shared builder's (P4b-2c). What stays here is onscreen's
+// FEATURE: several skills may be collected in one run (painted in order, separated by a blank
+// line) and a stripped-artifact note follows the body. The skill list is resolved ONCE and
+// handed to every predicate, so the block and the empty notice cannot disagree about it.
+const formatExecutionResultLines = createExecutionResultLinesFormatter({
+  resolveSkills: collectLoadedSkills,
+  appendSkillLines(lines, result, skills) {
+    skills.forEach((skill, index) => {
+      const loadedSkillResultText = formatLoadedSkillResultText(skill);
+
+      if (!loadedSkillResultText) {
+        return;
       }
 
-      return undefined;
-    },
-    targetWindow
-  });
-}
+      if (index > 0) {
+        lines.push("");
+      }
 
-function formatExecutionResultLines(result) {
-  const status = typeof result?.status === "string" && result.status.trim() ? result.status.trim() : "done";
-  const lines = [`execution ${status}`];
-  const prints = Array.isArray(result?.logs) ? result.logs : [];
-  const loadedSkills = collectLoadedSkills(result);
+      lines.push(loadedSkillResultText);
+    });
 
-  prints.forEach((entry) => {
-    const level = typeof entry?.level === "string" && entry.level.trim() ? entry.level.trim() : "log";
-    appendExecutionTextBlock(lines, level, entry?.text ?? "");
-  });
-
-  loadedSkills.forEach((skill, index) => {
-    const loadedSkillResultText = formatLoadedSkillResultText(skill);
-
-    if (!loadedSkillResultText) {
-      return;
+    return false;
+  },
+  suppressResultBlock: (result) => isLoadedOnscreenSkill(result?.result),
+  suppressEmptyNotice: (result, skills) => Boolean(skills && skills.length),
+  appendExtraLines(lines, result) {
+    if (Array.isArray(result?.removedArtifactLines) && result.removedArtifactLines.length) {
+      lines.push(
+        `note: removed trailing non-JavaScript line${result.removedArtifactLines.length > 1 ? "s" : ""}: ${result.removedArtifactLines.join(", ")}`
+      );
     }
-
-    if (index > 0) {
-      lines.push("");
-    }
-
-    lines.push(loadedSkillResultText);
-  });
-
-  if (result?.result !== undefined && !isLoadedOnscreenSkill(result?.result)) {
-    appendExecutionTextBlock(lines, "result", result.resultText);
   }
-
-  if (!result?.error?.text && result?.result === undefined && !prints.length && !loadedSkills.length) {
-    lines.push("execution returned no result and no console logs were printed");
-  }
-
-  if (result?.error?.text) {
-    lines.push(`error: ${flattenExecutionMessageValue(result.error.text)}`);
-  }
-
-  if (Array.isArray(result?.removedArtifactLines) && result.removedArtifactLines.length) {
-    lines.push(
-      `note: removed trailing non-JavaScript line${result.removedArtifactLines.length > 1 ? "s" : ""}: ${result.removedArtifactLines.join(", ")}`
-    );
-  }
-
-  return lines;
-}
+});
 
 function createExecutionError(error) {
   return {
@@ -705,7 +478,7 @@ export function createExecutionContext(options = {}) {
       const restoreConsole = patchConsole(targetWindow, logs);
       const previousSkillLoadHook = targetWindow[ONSCREEN_SKILL_LOAD_HOOK_KEY];
       const normalizedCode = normalizeExecutionSource(code);
-      let runnableCode = `${normalizedCode}\n//# sourceURL=${buildSourceUrl(runId)}`;
+      let runnableCode = `${normalizedCode}\n//# sourceURL=${buildExecutionSourceUrl(ONSCREEN_SOURCE_URL_PREFIX, runId)}`;
       let compileError = tryCreateAsyncRunner(runnableCode);
       let removedArtifactLines = [];
 
@@ -713,7 +486,7 @@ export function createExecutionContext(options = {}) {
         const stripped = stripTrailingExecutionArtifacts(normalizedCode);
 
         if (stripped.removed.length) {
-          const strippedRunnableCode = `${stripped.code}\n//# sourceURL=${buildSourceUrl(runId)}`;
+          const strippedRunnableCode = `${stripped.code}\n//# sourceURL=${buildExecutionSourceUrl(ONSCREEN_SOURCE_URL_PREFIX, runId)}`;
           const strippedCompileError = tryCreateAsyncRunner(strippedRunnableCode);
 
           if (!strippedCompileError) {
