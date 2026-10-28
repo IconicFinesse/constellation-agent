@@ -85,6 +85,18 @@ export function buildRequest({
     body.parallel_tool_calls = parallelToolCallOverride !== false;
   }
 
+  // Usage on a STREAM is a wire capability, not a caching one: a provider can cache
+  // the prefix perfectly and still report `prompt_tokens_details: null` unless the
+  // request asks (NeuralWatt, measured). So the field is added only where the
+  // capability seam resolved `stream_usage` true — which means only where it was
+  // measured — and only on a request that actually streams. A non-streaming request
+  // already carries usage in its body, and a provider that did not declare support
+  // never sees a field we have not proven it tolerates. The gate reads the RESOLVED
+  // `body.stream`, because `params` may override it above.
+  if (body.stream === true && capabilities.flags.stream_usage) {
+    body.stream_options = { include_usage: true };
+  }
+
   return Object.freeze({
     adapter: OPENAI_SHAPE_ADAPTER_ID,
     body: Object.freeze(body),

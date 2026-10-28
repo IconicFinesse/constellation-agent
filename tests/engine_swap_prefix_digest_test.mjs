@@ -175,11 +175,19 @@ test("the digest does not reach the outbound request body", async () => {
   const serialized = JSON.stringify(request.body);
 
   assert.doesNotMatch(serialized, /prefix|digest|fnv1a/iu);
-  // The body is exactly the three launch keys plus messages/model/stream.
+
+  // Every key present must be one the transport legitimately assembles. This is the
+  // real claim: the DIGEST annotation never turns into a body field. (P5-2 added
+  // `stream_options` for a provider whose `stream_usage` is measured true — the
+  // fixture drives Synthetic over a stream, so it is expected here and is asserted
+  // by name rather than tolerated as 'anything goes'.)
+  const allowed = ["messages", "model", "parallel_tool_calls", "stream", "stream_options", "tools"];
+
   assert.deepEqual(
     Object.keys(request.body).sort(),
-    ["messages", "model", "stream", "tools"].filter((key) => key in request.body).sort()
+    allowed.filter((key) => key in request.body).sort()
   );
+  assert.deepEqual(request.body.stream_options, { include_usage: true });
 });
 
 // ------------------------------------------------ recon facts, asserted ------
