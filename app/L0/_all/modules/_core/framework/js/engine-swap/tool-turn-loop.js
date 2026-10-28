@@ -190,8 +190,12 @@ export async function runToolTurn({
 
     const text = typeof response?.text === "string" ? response.text : "";
     const toolCalls = Array.isArray(response?.toolCalls) ? response.toolCalls : [];
+    // Cache accounting is REPORTED, never acted on. It rides on the turn record so a
+    // surface or a test can read what the provider said about prefix reuse; `null`
+    // means the provider did not say (unknown), which is not a miss.
+    const usage = response?.usage && typeof response.usage === "object" ? response.usage : null;
 
-    turns.push(Object.freeze({ iteration, text, toolCallCount: toolCalls.length }));
+    turns.push(Object.freeze({ iteration, text, toolCallCount: toolCalls.length, usage }));
     emit({ iteration, text, toolCalls, type: "assistant-turn" });
 
     // No calls: this is the plain-text answer, and the loop is done.

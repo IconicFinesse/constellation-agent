@@ -104,6 +104,91 @@ export function isCompleteToolArguments(text) {
   }
 }
 
+// CACHE ACCOUNTING (P5-1).
+//
+// Providers report prefix-cache reuse in the standard usage block, and the engine
+// used to throw the whole block away. Both target providers do implicit caching, so
+// a 98.5% hit rate was invisible: no log line, no turn result field, nothing to
+// regress against.
+//
+// THE RULE THAT MATTERS: absent is not zero.
+//   `prompt_tokens_details: null`  -> cachedTokens: null   (UNKNOWN)
+//   `prompt_tokens_details: {...}` -> cachedTokens: number (0 is a real miss)
+// A provider that says nothing has not told us it missed -- and reporting that as
+// "0 cached" would be a lie in the opposite direction to the one we came to fix.
+// NeuralWatt returns literal `null` on a cold call, and ALSO returns nothing at all
+// on a stream unless `stream_options.include_usage` is requested, which this lane
+// deliberately does not send (that is a request-body change and belongs with the
+// capability table, not with a reporting feature). So `null` is the expected
+// production reading for NeuralWatt: unknown != no cache.
+
+function toTokenCount(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+// Reads one payload's usage block into a normalized record of NULLABLE counts.
+// Returns null when the payload carries no usage at all, so a caller can tell
+// "this chunk said nothing" from "this chunk said nothing was cached".
+export function normalizeUsageBlock(payload) {
+  const usage = payload?.usage;
+
+  if (!usage || typeof usage !== "object") {
+    return null;
+  }
+
+  const details = usage.prompt_tokens_details;
+  // A `null` details object is the NeuralWatt cold-call shape; an absent one is an
+  // older provider shape. Both mean UNKNOWN and both must stay null.
+  const cached = details && typeof details === "object" ? toTokenCount(details.cached_tokens) : null;
+
+  return Object.freeze({
+    cachedTokens: cached,
+    completionTokens: toTokenCount(usage.completion_tokens),
+    createdCacheTokens: toTokenCount(usage.created_cache_tokens),
+    promptTokens: toTokenCount(usage.prompt_tokens),
+    totalTokens: toTokenCount(usage.total_tokens)
+  });
+}
+
+// Merges a newer usage record over an older one, field by field. Providers report
+// usage on the final chunk, but a provider that reports it mid-stream and then
+// omits it must not have its numbers erased by the omission.
+function mergeUsage(previous, next) {
+  if (!next) {
+    return previous;
+  }
+
+  if (!previous) {
+    return next;
+  }
+
+  const merged = {};
+
+  for (const key of ["cachedTokens", "completionTokens", "createdCacheTokens", "promptTokens", "totalTokens"]) {
+    merged[key] = next[key] === null ? previous[key] : next[key];
+  }
+
+  return Object.freeze(merged);
+}
+
+// One line per turn for the existing turn log. `unknown` is spelled out rather
+// than printed as 0 or omitted: with the request body deliberately unchanged, a
+// provider that only reports usage on `stream_options.include_usage` (NeuralWatt)
+// lands in this bucket on EVERY production turn -- unknown is not "no cache", it is
+// "we did not ask". A present 0 stays 0 and means a genuine miss.
+export function formatCacheUsageLine(usage) {
+  const show = (value) => (typeof value === "number" && Number.isFinite(value) ? String(value) : "unknown");
+
+  if (!usage) {
+    return "[engine-swap] cache cached=unknown prompt=unknown created=unknown";
+  }
+
+  return (
+    `[engine-swap] cache cached=${show(usage.cachedTokens)} prompt=${show(usage.promptTokens)}` +
+    ` created=${show(usage.createdCacheTokens)}`
+  );
+}
+
 // One assembler per streamed turn. `applyPayload` is the convenient entry point
 // for an OpenAI-shape SSE payload; `applyDelta` is the primitive.
 export function createStreamingToolCallAssembler() {
@@ -113,6 +198,7 @@ export function createStreamingToolCallAssembler() {
   let finishReason = "";
   let sawFinish = false;
   let sawAnyPayload = false;
+  let usage = null;
 
   function recordFor(index, id) {
     const key = Number.isFinite(index) ? Number(index) : null;
@@ -188,7 +274,16 @@ export function createStreamingToolCallAssembler() {
 
     // One SSE payload. Text and tool-call fragments are handled together because
     // providers interleave them in a single choice delta.
+    //
+    // USAGE IS READ BEFORE THE CHOICE GUARD, deliberately. A provider that reports
+    // usage at all (OpenAI shape with `stream_options.include_usage`) sends it on a
+    // FINAL chunk whose `choices` is an EMPTY ARRAY. Reading usage after this guard
+    // would drop the only chunk that ever carries it, and the feature would look
+    // like a provider that never reports. The guard is about "not a choice delta",
+    // not about "nothing to learn here".
     applyPayload(payload) {
+      usage = mergeUsage(usage, normalizeUsageBlock(payload));
+
       const choice = payload?.choices?.[0];
 
       if (!choice) {
@@ -230,6 +325,9 @@ export function createStreamingToolCallAssembler() {
         sawAnyPayload,
         sawFinish,
         text,
+        // Nullable counts, report-only: nothing in this module branches on them.
+        // `null` means the provider did not say, which is NOT the same as a miss.
+        usage: usage || null,
         truncated: cutShort,
         toolCalls: Object.freeze(
           calls.map((call, position) =>
