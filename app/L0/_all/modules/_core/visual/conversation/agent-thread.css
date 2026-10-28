@@ -609,6 +609,23 @@
   color: #ffd586;
 }
 
+/* STRUCTURAL LABELS, not statuses (P4b-3). `log↓` / `info↓` / `debug↓` are the headers that
+   give a payload its shape and they had no rule at all, so they inherited the body colour.
+   This rule TINTS them so they read as labels beside `result↓` (green) and `warn↓` (amber):
+   never success/warning/error coloured, and not the muted colour `.is-muted` body text wears.
+
+   MEASURED, and the honest direction: on the pane background this tint is 9.69:1 while the
+   inherited body colour is 17.39:1 — so this tints these headers DOWN, it does not make them
+   more prominent, and they are not the most visible text in the pane. It still clears WCAG AA
+   for normal text (4.5:1). If structural headers should be MORE prominent than body text
+   rather than merely distinct, that is a one-line token change, not a rework.
+
+   Note the classifier is END-ANCHORED: only a bare `log:` / `log↓` label line is classified,
+   not a line such as `log: first line of output`. */
+.agent-thread-surface .terminal-line.is-print {
+  color: var(--color-accent-primary-strong);
+}
+
 .agent-thread-surface .terminal-line.is-muted,
 .agent-thread-surface .terminal-line.is-meta {
   color: var(--agent-thread-muted-color);
