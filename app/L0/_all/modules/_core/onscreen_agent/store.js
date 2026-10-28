@@ -1454,6 +1454,12 @@ const model = {
   // (second-hold refusal, hold outcome, status text) and reads and writes this
   // field through its injected surface, so there is still exactly one copy.
   engineSwapPendingHold: null,
+  // Which resolved-tier reason the "legacy engine" notice was last shown for
+  // (P7-2). A DECLARED data property, not an undeclared write and not a driver
+  // getter: the whole point of the notice is that it is visible, and this
+  // campaign already has a rule that anything a template observes must be real
+  // state on this store. Empty string means no notice has been shown yet.
+  engineSwapFallbackNoticeShownFor: "",
   // Expanded state for grouped tool-call runs. Held HERE rather than on the DOM
   // because the thread view replaces rows on every render; a `<details open>`
   // boolean living only on a node would be lost as soon as a result landed.
@@ -5721,6 +5727,42 @@ const model = {
       // a config that does not resolve the tools capability keeps the text protocol
       // byte-identically (with one diagnostics line, logged by the bridge).
       const tierPlan = await resolveOnscreenTier1Plan({ settings: this.settings });
+
+      // THE FALLBACK IS NEVER SILENT (P7-2). Since v1.5.0 BETA the typed tool loop
+      // is the DEFAULT engine, so a session that does not resolve the tools
+      // capability is no longer an opt-out nobody notices: it is a model that the
+      // beta is NOT testing. A console line was the only signal before, which is
+      // invisible in a live chat and was exactly how the previous default hid
+      // itself. The owner asked for fail-loudly-but-usable: the chat still answers,
+      // and the reason appears in the conversation.
+      //
+      // ONCE PER CONFIG, not per turn: the resolved tier is stable for a given
+      // model/provider, so repeating it every message would be noise the owner
+      // learns to ignore. The key is the same resolved tier + diagnostics string
+      // the bridge logs, so this notice and the console line cannot disagree.
+      if (tierPlan?.dispatchEnabled === true && String(tierPlan?.tier || "") !== "tier1") {
+        const noticeKey = `${tierPlan?.tier || ""}|${tierPlan?.diagnostics || ""}`;
+
+        if (this.engineSwapFallbackNoticeShownFor !== noticeKey) {
+          this.engineSwapFallbackNoticeShownFor = noticeKey;
+
+          try {
+            // `tone` is deliberately "info": the toast vocabulary is closed to
+            // error/success and silently maps anything else to info, so asking for
+            // a "warning" tone would render info while reading as if a warning
+            // style existed. This is a notice, not a failure.
+            showToast(
+              "This model is not tool-capable, so this chat is running on the legacy engine. Engine turn logging is still active.",
+              {
+                durationMs: 8000,
+                tone: "info"
+              }
+            );
+          } catch {
+            // A notice must never break a turn.
+          }
+        }
+      }
 
       if (String(tierPlan?.tier || "") === "tier1") {
         // Parity with the text path above: the prompt-history surface shows this

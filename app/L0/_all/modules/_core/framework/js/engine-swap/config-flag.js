@@ -9,11 +9,21 @@
 // Default OFF, and OFF means inert: every entry point in this layer returns
 // before importing any engine-swap machinery. ON means shadow mode — Tier 3
 // behavior stays byte-identical and the layer only observes.
+//
+// NOTE (P7-2): that paragraph is about ENGINE_SWAP_SHADOW, which IS default off.
+// The two flags no longer share a default — see the dispatch flag below.
 
 export const ENGINE_SWAP_FLAG_NAME = "ENGINE_SWAP_SHADOW";
 
-// P2 master gate. OFF (default) keeps every session on today's text protocol,
-// byte-identical. ON lets a tools-capable session resolve Tier 1 per config.
+// P2 master gate. ON BY DEFAULT since v1.5.0 BETA: the typed tool loop is the
+// engine, not an opt-in, so a config that resolves the tools capability runs it
+// and one that does not stays on the text protocol. `false` forces the legacy
+// text protocol for every session, byte-identical, and is an explicit choice
+// rather than a fallback — the store shows no fallback notice in that case.
+//
+// The shadow flag above stays OFF: it is the COMPARISON recorder, and a real
+// Tier 1 turn executes no Tier 3 blocks, so its diff would be empty and would
+// read as a false pass. The always-on per-turn trail is `turn-log.js` (P7-1).
 export const ENGINE_SWAP_DISPATCH_FLAG_NAME = "ENGINE_SWAP_DISPATCH";
 
 export const ENGINE_SWAP_MODE = Object.freeze({

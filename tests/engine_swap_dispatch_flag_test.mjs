@@ -18,8 +18,10 @@
 //     silently
 //   - a missing/throwing runtime resolves OFF rather than breaking a turn
 //   - params.yaml declares ENGINE_SWAP_DISPATCH as a frontend-exposed boolean
-//     whose default is false (the flag mechanism is the existing runtime-params
-//     system, not a second settings store)
+//     whose default is TRUE since v1.5.0 BETA (the flag mechanism is the
+//     existing runtime-params system, not a second settings store). The new
+//     engine is the engine, not an opt-in: a default-off flag would mean the
+//     shipped product never runs what the beta is supposed to test.
 //
 // Hermetic: stubbed runtime, no network, no keys, no app-data writes, and every
 // global this suite touches is restored in `t.after()`.
@@ -65,15 +67,35 @@ const TEXT_ONLY = Object.freeze({ flags: Object.freeze({ tools: false }) });
 
 // --- flag declaration ------------------------------------------------------
 
-test("params.yaml declares ENGINE_SWAP_DISPATCH as a frontend-exposed false-default boolean", async () => {
+test("params.yaml declares ENGINE_SWAP_DISPATCH as a frontend-exposed TRUE-default boolean", async () => {
   const source = await readFile(PARAMS_YAML, "utf8");
   const block = source.slice(source.indexOf("ENGINE_SWAP_DISPATCH:"));
   const entry = block.slice(0, block.indexOf("\nENGINE_SWAP") === -1 ? undefined : block.indexOf("\nENGINE_SWAP"));
 
   assert.match(entry, /type:\s*boolean/u);
-  assert.match(entry, /default:\s*false/u);
+  assert.match(entry, /default:\s*true/u);
   assert.match(entry, /frontend_exposed:\s*true/u);
-  assert.ok(source.includes("ENGINE_SWAP_SHADOW:"), "the P1 shadow flag stays declared");
+});
+
+// The two flags are NOT a matched pair and must not be flipped together.
+//
+// `ENGINE_SWAP_SHADOW` is the COMPARISON recorder: it diffs what the old engine
+// would have done against what actually ran. `config-flag.js` deliberately
+// suppresses it on a real Tier 1 turn because such a turn executes no Tier 3
+// blocks, so the diff would be empty and would read as a false pass. Enabling it
+// by default would therefore buy nothing on the engine this beta actually tests,
+// while paying for artifact writes on every fallback turn.
+//
+// The per-turn trail the owner needs is the ENGINE TURN LOG (P7-1), which records
+// what the NEW engine did and is always on. Pinned here so a future edit cannot
+// quietly re-enable the comparison instrument alongside the engine.
+test("params.yaml keeps the shadow comparison recorder OFF while dispatch is on", async () => {
+  const source = await readFile(PARAMS_YAML, "utf8");
+  const block = source.slice(source.indexOf("ENGINE_SWAP_SHADOW:"));
+  const entry = block.slice(0, block.indexOf("\nENGINE_SWAP") === -1 ? undefined : block.indexOf("\nENGINE_SWAP"));
+
+  assert.ok(entry, "the P1 shadow flag stays declared");
+  assert.match(entry, /default:\s*false/u);
 });
 
 test("the dispatch flag name is the documented one", () => {
