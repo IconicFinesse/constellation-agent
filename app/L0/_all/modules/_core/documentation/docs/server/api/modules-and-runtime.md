@@ -83,6 +83,17 @@ Important runtime endpoints:
 - `user_crypto_session_key`
 - `user_self_info`
 
+Engine telemetry endpoint:
+
+- `engine_log`
+
+`engine_log`:
+
+- is authenticated (never anonymous): it stores the caller's own engine session trail
+- accepts one bounded, CONTENT-FREE turn record per `POST` -- counts, byte lengths, tool names, an outcome word and a truncated error string, never a prompt, a reply, a tool argument value or a tool result payload -- and rejects a malformed payload with `400`, dropping unknown keys instead of storing them
+- appends it to a ring-buffered JSONL log under the resolved runtime temp directory (`context.tmpDir`, defaulting to `server/tmp/`) and keeps only the last 500 records, trimmed by line count so the append and the trim share one unit
+- `GET` returns the most recent records (default 50, capped at the buffer size) so the owner can read the trail over HTTP instead of SSH-ing into a VM
+
 `extensions_load`:
 
 - resolves module-owned `ext/...` files through the layered override system

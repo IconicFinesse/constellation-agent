@@ -182,6 +182,7 @@ Current endpoint families:
 - local history: `git_history_list`, `git_history_diff`, `git_history_preview`, `git_history_rollback`, `git_history_revert`
 - modules: `module_list`, `module_info`, `module_install`, `module_remove`
 - runtime and identity: `extensions_load`, `debug_path_index`, `password_generate`, `password_change`, `user_crypto_session_key`, `user_self_info`
+- engine telemetry: `engine_log`
 
 `file_write` still defaults to whole-file replacement, but it now also supports append, prepend, and text-insert mutations through the shared file-access layer, so browser callers can update ordinary text files incrementally without fetching and rewriting the full file every time.
 
