@@ -152,6 +152,19 @@ Important notes:
 - `user_self_info` returns the authenticated user's derived identity plus browser-bootstrap crypto metadata: `{ username, fullName, groups, managedGroups, sessionId, userCryptoKeyId, userCryptoState }`
 - `password_generate` is an authenticated utility endpoint that returns the backend-sealed `password.json` payload and should stay narrow
 
+Engine telemetry endpoint:
+
+- `engine_log`
+
+Current rules:
+
+- it is authenticated (never `allowAnonymous`): it stores the caller's own engine session trail, which is real session data
+- `post` accepts ONE bounded turn record: counts, byte lengths, tool names, an outcome word and a truncated error string — never a prompt, a reply, a tool argument value or a tool result payload. The ONE exception, stated rather than implied: `turn-error.message` is provider-supplied text truncated to `TURN_LOG_MAX_ERROR_CHARS` (500), and providers commonly echo rejected input inside a validation error, so it MAY contain request content. It appears only on a turn that already failed at the provider
+- malformed payloads are rejected with `createHttpError(..., 400)`, and validation RETURNS a normalized record so unknown top-level and per-step keys are DROPPED rather than stored; a smuggled field cannot reach the file after a future edit
+- it appends to a ring-buffered JSONL log (`engine-log/turns.jsonl`) under the resolved runtime temp directory (`context.tmpDir`, defaulting to `server/tmp/`), keeping only the last 500 records and trimming by line count so the append and the trim share one unit
+- appends are serialized through one in-process promise chain, because read-modify-write only trims correctly when the reads and writes are ordered
+- `get` returns the most recent records (default 50, capped at the buffer size) so the owner can read the trail over HTTP instead of SSH-ing into a VM
+
 ### Handler Contract
 
 Handlers receive the request context assembled by `server/router/router.js`, including:
