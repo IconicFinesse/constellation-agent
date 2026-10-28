@@ -91,8 +91,8 @@ ENGINE_SWAP_SHADOW:
   default: false
   frontend_exposed: true
 ENGINE_SWAP_DISPATCH:
-  description: Enable the engine-swap Tier 1 tool-call path. When false (default) every session runs the existing text protocol byte-identically; when true a session whose config resolves the tools capability runs the typed tool loop (schema-validated dispatch, structured tool results, destructive calls held for confirmation) and a session without it stays on the text protocol with one diagnostics line.
+  description: Enable the engine-swap Tier 1 tool-call path. TRUE BY DEFAULT since v1.5.0 BETA - the typed tool loop is the engine, not an opt-in. A session whose config resolves the tools capability runs the typed tool loop (schema-validated dispatch, structured tool results, destructive calls held for confirmation). A session whose config does NOT resolve it stays on the text protocol AND says so visibly in the chat, so a silent fallback can never hide a model that is not being tested. Set false to force the legacy text protocol for every session.
   type: boolean
   allowed: [true, false]
-  default: false
+  default: true
   frontend_exposed: true
