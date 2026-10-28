@@ -609,6 +609,15 @@
   color: #ffd586;
 }
 
+/* STRUCTURAL LABELS, not statuses (P4b-3). `log:` / `info↓` / `debug:` lines are the headers
+   that give a payload its shape, and before this rule they inherited the default body colour,
+   which made them the least visible text in the pane while `result↓` was green and `warn↓`
+   amber. The accent tint keeps them non-status (never green/red/amber) and distinguishable
+   from `.is-muted` body text so a reader can see where a block starts. */
+.agent-thread-surface .terminal-line.is-print {
+  color: var(--color-accent-primary-strong);
+}
+
 .agent-thread-surface .terminal-line.is-muted,
 .agent-thread-surface .terminal-line.is-meta {
   color: var(--agent-thread-muted-color);

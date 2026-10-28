@@ -1254,8 +1254,8 @@ export function createAgentThreadView(config = {}) {
         createExecutionPane({
           body: inputBody,
           label: formattedArguments.lineCount
-            ? `Arguments • ${formatLineCount(formattedArguments.lineCount)}`
-            : "Arguments",
+            ? `Input • ${formatLineCount(formattedArguments.lineCount)}`
+            : "Input",
           scrollKey: messageId ? `${messageId}:input` : "",
           type: "input"
         })
