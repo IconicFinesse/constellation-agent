@@ -9,7 +9,7 @@ check-in points, open decisions.
 Working evidence lives in the maintainer's local checkout: paths under
 `fixes/`, `prs/`, `worktrees/`, and `local/` are not tracked in this repository.
 
-Updated: 2026-10-26 — **`v1.2.1` closes a consent-boundary defect in the agent execution model: a fenced code block shown to the user could execute for real once the `v1.2.0` compile rescue stripped the trailing fence line. Extraction and separator accounting are one shared fence-aware module for both agent surfaces now, and admin gained the plan guards it lacked. The next line is still module intake — voice and llm-manager.**
+Updated: 2026-10-28 — **`v1.5.0` BETA is the engine swap. The typed tool-call loop is the default engine rather than an opt-in flag, every Tier 1 turn leaves a content-free per-turn record on disk, a config that cannot tool-call says so in the chat instead of falling back silently, a malformed YAML manifest fails loudly instead of parsing into the wrong type, and a mistyped API endpoint names itself instead of reporting a missing file. This tag is the owner's own beta window; the fixes it produces, plus new default modules, land as `v2.0.0`.**
 
 ## Phase status
 

@@ -34,6 +34,37 @@ honestly provide, contract decisions now and content decisions from use.
 The fork began at upstream commit `10f4ffd` (tag `baseline-2026-06-08`, the v0.66
 era). Everything below diverges from that point.
 
+### `v1.5.0` — First Light (BETA)
+
+The engine swap. The typed tool-call loop stops being an opt-in and becomes the
+default engine, with a per-turn record of what it actually did. This is the beta
+the owner tests against his own daily use; fixes found here feed `v2.0.0`.
+
+- **The typed tool loop is the engine.** `ENGINE_SWAP_DISPATCH` defaults to on.
+  A tools-capable config runs Tier 1: the model is offered typed tools, its calls
+  are validated, risk-classified and executed against the existing handlers, and
+  results return as structured tool messages. A config that does not resolve the
+  tools capability stays on the text protocol and **says so in the chat**, once per
+  model, instead of hiding behind a console line. An explicit `false` still runs
+  the legacy protocol byte for byte and shows no notice, because a choice is not a
+  fallback.
+- **Every turn leaves a trail.** `turn-log.js` records one content-free record per
+  Tier 1 turn — model, wire length, tools offered, iterations, outcome, duration,
+  and each step (assistant turn, dispatch with argument/result sizes, turn error,
+  refused incomplete arguments). Ring-buffered to the last 500 turns on disk and
+  readable over HTTP. It is deliberately not the shadow comparison recorder: a
+  real Tier 1 turn has no Tier 3 blocks to diff, so an empty diff would read as a
+  false pass. `ENGINE_SWAP_SHADOW` therefore stays off.
+- **A malformed manifest fails loudly.** The YAML parser used to accept an
+  unterminated flow value as a plain string, so `a: [1, 2` parsed "successfully"
+  with a string where a list belonged. It rejects the opener without its closer
+  on the line that caused it, and the serializer quotes quote-leading strings so
+  round-tripping stays lossless.
+- **A missing API endpoint names itself.** An `/api/<name>` that matches no
+  module used to fall through to the page layer and answer `File not found`; it
+  now answers `Unknown API endpoint: <name>`, auth-gated, with the same CORS
+  headers its 405 sibling always carried.
+
 ### `v1.2.1` — First Light
 
 A consent-boundary fix for the onscreen and admin agent execution model, found by
