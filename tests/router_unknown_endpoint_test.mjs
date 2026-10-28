@@ -107,6 +107,9 @@ test("an unknown API endpoint reports the endpoint, not a missing file", async (
   assert.deepEqual(JSON.parse(payload.body), {
     error: "Unknown API endpoint: nope_nope"
   });
+  // An API-shaped response must carry the same CORS policy as its 405 sibling in
+  // `handleApiModuleRequest`; the page layer that used to answer this path set none.
+  assert.equal(payload.headers["Access-Control-Allow-Origin"], "*");
 });
 
 // The guard must not swallow anything that is genuinely a static path: only an

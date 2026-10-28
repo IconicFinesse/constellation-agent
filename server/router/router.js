@@ -382,6 +382,9 @@ function createRequestHandler(options) {
           return;
         }
 
+        // Same CORS policy as the 405 sibling in `handleApiModuleRequest`: an
+        // API-shaped response must not be the one API response without them.
+        applyApiCorsHeaders(res);
         sendJson(res, 404, {
           error: `Unknown API endpoint: ${requestUrl.pathname.slice("/api/".length)}`
         });
