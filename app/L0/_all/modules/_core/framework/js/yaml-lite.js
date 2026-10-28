@@ -241,16 +241,37 @@ function parseValueToken(rawValue, lineNumber) {
     return null;
   }
 
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+  const opener = value[0];
+  const closer = value[value.length - 1];
+
+  if ((opener === '"' && closer === '"') || (opener === "'" && closer === "'")) {
     return parseQuotedString(value, lineNumber);
   }
 
-  if (value.startsWith("[") && value.endsWith("]")) {
+  if (opener === "[" && closer === "]") {
     return parseInlineArray(value, lineNumber, parseValueToken);
   }
 
-  if (value.startsWith("{") && value.endsWith("}")) {
+  if (opener === "{" && closer === "}") {
     return parseInlineObject(value, lineNumber, parseValueToken);
+  }
+
+  // A plain YAML scalar may not begin with a flow indicator or a quote. Before
+  // this check, a value that merely STARTED with "[" or "{" fell through to the
+  // plain-scalar return, so an unterminated "a: [1, 2" parsed successfully as the
+  // STRING "[1, 2" and every caller downstream saw a string where a list was
+  // meant. Rejecting the opener without its closer turns that silent type
+  // corruption into a normal parse error, on the line that caused it.
+  if (opener === "[" || opener === "{" || opener === '"' || opener === "'") {
+    const expected = opener === "[" ? "]" : opener === "{" ? "}" : opener;
+    throw createYamlError(
+      `unterminated inline value starting with "${opener}": expected a closing "${expected}"`,
+      lineNumber
+    );
+  }
+
+  if (opener === "]" || opener === "}") {
+    throw createYamlError(`unexpected "${opener}" with no matching opener`, lineNumber);
   }
 
   if (/^(?:true|false)$/iu.test(value)) {
@@ -690,7 +711,18 @@ function needsQuotedString(value) {
     return true;
   }
 
-  if (value.startsWith("[") || value.startsWith("{") || value.startsWith("]") || value.startsWith("}")) {
+  // A value that STARTS with a flow indicator or a quote must be quoted on the
+  // way out, because the parser now rejects a plain scalar that begins with one
+  // (an unterminated "[1, 2" used to degrade to a string). Leaving the quotes off
+  // made serialization non-round-tripping for a string like "'odd".
+  if (
+    value.startsWith("[") ||
+    value.startsWith("{") ||
+    value.startsWith("]") ||
+    value.startsWith("}") ||
+    value.startsWith('"') ||
+    value.startsWith("'")
+  ) {
     return true;
   }
 

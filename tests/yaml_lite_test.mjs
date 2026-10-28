@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 import {
   parseSimpleYaml,
   parseYamlScalar,
-  serializeSimpleYaml
+  serializeSimpleYaml,
+  SimpleYamlError
 } from "../app/L0/_all/modules/_core/framework/js/yaml-lite.js";
 import { parseAdminAgentParamsText } from "../app/L0/_all/modules/_core/admin/views/agent/llm-params.js";
 import { parseOnscreenAgentParamsText } from "../app/L0/_all/modules/_core/onscreen_agent/llm-params.js";
@@ -19,6 +20,7 @@ const YAML_DIRECTORIES = ["app", "server", "tests"];
 
 async function main() {
   verifyScalarParsing();
+  verifyFlowStrictness();
   verifySerializerCompatibility();
   verifyCompactNestedParsing();
   verifyRoundTrips();
@@ -32,6 +34,48 @@ function verifyScalarParsing() {
   assert.equal(parseYamlScalar(" true "), true);
   assert.equal(parseYamlScalar(""), "");
   assert.deepEqual(parseYamlScalar("[one, two, 3]"), ["one", "two", 3]);
+}
+
+// A plain scalar may not START with a flow indicator or a quote. Before this
+// rule an unterminated `[1, 2` parsed successfully as the STRING "[1, 2", so a
+// corrupt manifest silently carried a string where a list belonged. Each case
+// below is a silent-type-corruption shape, asserted to THROW; the paired
+// balanced cases must still parse, so the rule cannot pass by rejecting
+// everything.
+function verifyFlowStrictness() {
+  const rejected = ["a: [1, 2", "a: {b: 1", "a: [1, 2}", "a: {b: 1]", "a: 'unterminated", 'a: "unterminated', "a: ]", "a: }"];
+
+  for (const sourceText of rejected) {
+    assert.throws(
+      () => parseSimpleYaml(sourceText),
+      SimpleYamlError,
+      `expected a parse error for: ${JSON.stringify(sourceText)}`
+    );
+  }
+
+  const accepted = [
+    ["a: [1, 2]", { a: [1, 2] }],
+    ["a: {b: 1}", { a: { b: 1 } }],
+    ["a: []", { a: [] }],
+    ["a: {}", { a: {} }],
+    ["a: 'x'", { a: "x" }],
+    ['a: "x"', { a: "x" }],
+    // A bracket AFTER the first character is ordinary scalar content, never a
+    // flow collection, so the strictness rule must not touch these.
+    ["a: x[1", { a: "x[1" }],
+    ["a: plain }", { a: "plain }" }]
+  ];
+
+  for (const [sourceText, expected] of accepted) {
+    assert.deepEqual(parseSimpleYaml(sourceText), expected, sourceText);
+  }
+
+  // The round-trip proof: the string a corrupt parse used to produce is still
+  // representable, but only through quoting, so parse(serialize(x)) == x.
+  for (const value of ["[1, 2", "{b: 1", "'odd", '"odd']) {
+    const serialized = serializeSimpleYaml({ a: value });
+    assert.deepEqual(parseSimpleYaml(serialized), { a: value }, serialized);
+  }
 }
 
 function verifySerializerCompatibility() {

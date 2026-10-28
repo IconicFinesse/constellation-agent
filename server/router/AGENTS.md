@@ -40,6 +40,9 @@ Rules:
 - keep this order explicit and centralized in `router.js`
 - do not hide route precedence in scattered conditionals across unrelated files
 - all non-public API, module, and app-fetch routes require an authenticated request context before dispatch
+- an `/api/<name>` path that resolves to no registered module answers an explicit `404 {"error":"Unknown API endpoint: <name>"}` rather than falling through to the page layer's generic `File not found`; the branch is auth-gated like its neighbours, and only the exact single-segment endpoint shape takes it, so genuine static paths still reach `pages_handler.js`
+- `API_ENDPOINT_PATH_PATTERN` is the ONE definition of that endpoint shape, shared by module resolution and the unknown-endpoint rejection so the two cannot drift
+- a real endpoint reached with an unsupported verb keeps its own precise `405` naming the verb; the unknown-endpoint branch restores parity with that precision one level up instead of replacing it
 - API dispatch forwards the runtime-resolved `tmpDir` into every endpoint context so transient-artifact endpoints such as `folder_download` stage work under the configured temp root instead of a bundled path
 
 ### State Version Contract

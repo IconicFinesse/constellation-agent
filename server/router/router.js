@@ -43,8 +43,13 @@ function createParamsObject(searchParams) {
   return params;
 }
 
+// ONE definition, shared by module resolution and the unknown-endpoint rejection
+// in the request handler, so those two can never drift into disagreeing about
+// which paths are API paths at all.
+const API_ENDPOINT_PATH_PATTERN = /^\/api\/([a-z0-9_-]+)$/iu;
+
 function resolveApiModule(apiRegistry, pathname) {
-  const match = pathname.match(/^\/api\/([a-z0-9_-]+)$/i);
+  const match = pathname.match(API_ENDPOINT_PATH_PATTERN);
   if (!match) {
     return null;
   }
@@ -361,6 +366,31 @@ function createRequestHandler(options) {
       }
 
       const apiModule = resolveApiModule(apiRegistry, requestUrl.pathname);
+
+      // An `/api/<name>` path that matches no registered module is an UNKNOWN
+      // ENDPOINT, not a missing file. Without this branch the request fell through
+      // every later prefix test (none of them match `/api/...`) into
+      // `handlePageRequest`, whose static handler answered
+      // `404 {"error":"File not found"}` — a message that names the wrong resource
+      // and sends any debugging session down a path-resolution dead end. The
+      // sibling failure on a REAL endpoint with a bad verb already gets a precise
+      // 405 from `handleApiModuleRequest`; this restores that same precision one
+      // level up. Auth-gated like the neighbouring `/modules/` and `/L*/` branches,
+      // so an unauthenticated caller learns nothing it could not already infer.
+      if (!apiModule && API_ENDPOINT_PATH_PATTERN.test(requestUrl.pathname)) {
+        if (!ensureAuthenticatedOrRespond(res, requestContext, auth)) {
+          return;
+        }
+
+        // Same CORS policy as the 405 sibling in `handleApiModuleRequest`: an
+        // API-shaped response must not be the one API response without them.
+        applyApiCorsHeaders(res);
+        sendJson(res, 404, {
+          error: `Unknown API endpoint: ${requestUrl.pathname.slice("/api/".length)}`
+        });
+        return;
+      }
+
       if (apiModule) {
         if (!apiModule.allowAnonymous && !ensureAuthenticatedOrRespond(res, requestContext, auth)) {
           return;
