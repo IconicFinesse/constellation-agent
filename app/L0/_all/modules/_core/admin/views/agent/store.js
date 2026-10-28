@@ -20,6 +20,13 @@ import {
 import { DEFAULT_MODEL_INPUT, DTYPE_OPTIONS, normalizeHuggingFaceModelInput } from "/modules/_core/huggingface/helpers.js";
 import { getHuggingFaceManager } from "/modules/_core/huggingface/manager.js";
 import { closeDialog, openDialog } from "/modules/_core/visual/forms/dialog.js";
+// THE turn-progress vocabulary, shared with the onscreen surface and the thread view
+// (P4b-2b). This surface used to answer a two-branch lookalike, so the same turn read
+// differently here than on the onscreen surface.
+import {
+  getTurnProgressLabel,
+  TURN_PROGRESS_THINKING
+} from "/modules/_core/visual/conversation/turn-progress.js";
 import { countTextTokens } from "/modules/_core/framework/js/token-count.js";
 import {
   createAttachmentRuntime,
@@ -2672,7 +2679,7 @@ const model = {
         this.applyPromptInput(preparedRequest.promptInput);
         this.history = [...requestMessages];
         this.syncCurrentChatRuntime();
-        this.status = "Thinking...";
+        this.status = TURN_PROGRESS_THINKING;
         this.render();
         await this.persistHistory({
           immediate: true
@@ -3086,8 +3093,16 @@ function getTier1TurnDriver() {
         },
         // Admin paints streaming prose through its ordinary status line; there is no
         // second status surface to keep in step.
+        //
+        // THE SHARED VOCABULARY, not a local two-branch lookalike (P4b-2b). This used to
+        // answer only `Thinking...` / `Writing response...`, so the same turn read
+        // differently here than on the onscreen surface (`Writing N lines of code...`).
+        // One classifier, one set of phrases, and the fence-aware extractor injected
+        // because admin owns its own execution module.
         setStreamingAssistantStatus: (content) => {
-          const nextStatus = String(content || "").trim() ? "Writing response..." : "Thinking...";
+          const nextStatus = getTurnProgressLabel(content, {
+            extractExecuteBlocks: execution.extractExecuteBlocks
+          });
 
           if (adminAgent.status !== nextStatus) {
             adminAgent.status = nextStatus;
