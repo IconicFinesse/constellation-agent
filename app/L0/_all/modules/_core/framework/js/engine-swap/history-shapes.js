@@ -461,19 +461,50 @@ export function projectHistoryEntryForDisplay(entry) {
       ? `error (${read.error.class || "execution"}): ${read.error.message || ""}`
       : JSON.stringify(read.payload ?? null);
 
-    return Object.freeze({
-      content: `execution ${read.name || "tool"} result\n${detail}`,
-      id: read.id || `tool-result-${read.callId}`,
-      kind: "execution-output",
-      role: "user",
-      typedTool: "result",
-      typedToolCallId: read.callId,
-      typedToolName: read.name,
-      typedToolOutcome: classifyToolResultOutcome(entry)
-    });
+    return withDisplayOnlyResultFields(
+      {
+        content: `execution ${read.name || "tool"} result\n${detail}`,
+        id: read.id || `tool-result-${read.callId}`,
+        kind: "execution-output",
+        role: "user",
+        typedTool: "result",
+        typedToolCallId: read.callId,
+        typedToolName: read.name,
+        typedToolOutcome: classifyToolResultOutcome(entry)
+      },
+      read
+    );
   }
 
   return entry;
+}
+
+// THE PAYLOAD OBJECT, carried alongside the projected text (P4b-1).
+//
+// The render layer draws STRUCTURE now: a `run_code` result is `logs` / `result` /
+// `resultText` / `error`, and recovering that shape by re-parsing the projected JSON text
+// would be a second derivation of a fact this module already holds as an object. So the
+// object travels with the projection.
+//
+// These fields are DISPLAY-ONLY, and non-enumerable on purpose: `JSON.stringify(projected)`
+// — the persistence and comparison face — is byte-identical to what it was before they
+// existed. They are never persisted, never serialized, and never fed back into a prompt
+// projection (the prompt projection above reads the stored entry, not this).
+export function withDisplayOnlyResultFields(projection, read) {
+  Object.defineProperty(projection, "typedToolResultError", {
+    configurable: false,
+    enumerable: false,
+    value: read.error,
+    writable: false
+  });
+  Object.defineProperty(projection, "typedToolResultPayload", {
+    configurable: false,
+    enumerable: false,
+    value: read.payload,
+    writable: false
+  });
+
+  return Object.freeze(projection);
 }
 
 // Outcome of a typed tool RESULT, in the closed vocabulary the CHAT SURFACE needs to
@@ -585,7 +616,17 @@ export function projectToolCallForChip({ arguments: rawArguments, name = "" } = 
 // drift if this were written by hand (an `undefined` result commits as the quoted
 // `"the tool returned no value."` string, not as `undefined`).
 //
-export function projectToolResultText({ content = "", isError = false } = {}) {
+// THE ONE RESULT DERIVATION (P4b-1): projected text AND the payload object it came from,
+// from a single read.
+//
+// The chip has to carry the same object the committed row carries, or the two surfaces
+// would each have to recover the structure for themselves — one of them by re-parsing text,
+// which is the second derivation this lane exists to delete. So the derivation returns all
+// three faces at once: the projected body (`text`), the payload object, and the error face.
+//
+// `projectToolResultText` below is a THIN reader of this function, not a parallel
+// implementation: delete the delegation and its answer has no source.
+export function projectToolResultDetail({ content = "", isError = false } = {}) {
   const message = createToolResultMessage({
     content: String(content ?? ""),
     isError: isError === true,
@@ -594,7 +635,23 @@ export function projectToolResultText({ content = "", isError = false } = {}) {
   const entries = canonicalMessagesToTypedEntries([message], { fromIndex: 0 });
   const resultEntry = entries.find((entry) => entry?.kind === HISTORY_ENTRY_KIND.TOOL_RESULT);
 
-  return resultEntry ? readProjectedChipBody(projectHistoryEntryForDisplay(resultEntry)) : "";
+  if (!resultEntry) {
+    return Object.freeze({ error: null, payload: undefined, text: "" });
+  }
+
+  const projected = projectHistoryEntryForDisplay(resultEntry);
+
+  return Object.freeze({
+    error: projected.typedToolResultError ?? null,
+    payload: projected.typedToolResultPayload,
+    text: readProjectedChipBody(projected)
+  });
+}
+
+// The text face alone, for every caller that only draws text. One derivation: this asks
+// `projectToolResultDetail`, so it can never disagree with the payload the chip carries.
+export function projectToolResultText(options = {}) {
+  return projectToolResultDetail(options).text;
 }
 
 // Prompt projection for the text-protocol (Tier 3) path.

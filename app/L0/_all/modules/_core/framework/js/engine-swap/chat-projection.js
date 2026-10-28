@@ -27,7 +27,8 @@
 
 import {
   projectToolCallForChip,
-  projectToolResultText
+  projectToolResultDetail,
+  withDisplayOnlyResultFields
 } from "/modules/_core/framework/js/engine-swap/history-shapes.js";
 
 export const PROVISIONAL_CHIP_PREFIX = "provisional-call-";
@@ -139,10 +140,16 @@ export function createProvisionalChipEntry(call = {}) {
   // `projectToolResultText`. It is absent until the call is dispatched, which is the one
   // case where an empty pane is the truth rather than a placeholder.
   const projectedCall = projectToolCallForChip({ arguments: call?.arguments, name });
-  const outputText =
+
+  // ONE DERIVATION for the settled chip too (P4b-1): `projectToolResultDetail` returns the
+  // projected text AND the payload object it was derived from, so the chip carries the same
+  // structure the committed row carries. Formatting it separately here — even from the same
+  // string — is how the two panes would drift the moment either formatter changed.
+  const resultDetail =
     typeof call?.resultContent === "string"
-      ? projectToolResultText({ content: call.resultContent, isError: call.resultIsError === true })
-      : "";
+      ? projectToolResultDetail({ content: call.resultContent, isError: call.resultIsError === true })
+      : null;
+  const outputText = resultDetail ? resultDetail.text : "";
 
   // SETTLE-ON-DISPATCH (owner-reported: every chip read `Running` for the whole turn).
   // The record carries a terminal `outcome` once the loop has dispatched that call, and
@@ -154,24 +161,31 @@ export function createProvisionalChipEntry(call = {}) {
   // `error`, `held`, `deferred`); no new word or icon is introduced here.
   const outcome = String(call?.outcome || "").trim() || "running";
 
-  return Object.freeze({
-    // The committed call row's own projection, byte for byte: the shared formatter owns
-    // the `execution <name> call` prefix AND the JSON body, so the arguments pane here is
-    // the arguments pane there.
-    content: projectedCall.content,
-    id: `${PROVISIONAL_CHIP_PREFIX}${callId || name}`,
-    kind: "execution-output",
-    provisional: true,
-    role: "user",
-    typedTool: "call",
-    typedToolArgumentsText: projectedCall.argumentsText,
-    typedToolCallId: callId,
-    typedToolName: name,
-    typedToolOutcome: outcome,
-    // The OUTPUT pane. Empty until the call is dispatched: an args-complete-but-pending
-    // chip has no result, so it must not fabricate one.
-    typedToolOutputText: outputText
-  });
+  return withDisplayOnlyResultFields(
+    {
+      // The committed call row's own projection, byte for byte: the shared formatter owns
+      // the `execution <name> call` prefix AND the JSON body, so the arguments pane here is
+      // the arguments pane there.
+      content: projectedCall.content,
+      id: `${PROVISIONAL_CHIP_PREFIX}${callId || name}`,
+      kind: "execution-output",
+      provisional: true,
+      role: "user",
+      typedTool: "call",
+      typedToolArgumentsText: projectedCall.argumentsText,
+      typedToolCallId: callId,
+      typedToolName: name,
+      typedToolOutcome: outcome,
+      // The OUTPUT pane. Empty until the call is dispatched: an args-complete-but-pending
+      // chip has no result, so it must not fabricate one.
+      typedToolOutputText: outputText
+    },
+    // The SAME object the committed row carries, from the SAME derivation, attached by the
+    // SAME helper. A chip with no result yet carries `undefined`/`null` here, which is the
+    // truth: there is no payload to structure, so the pane stays empty rather than
+    // inventing one.
+    { error: resultDetail?.error ?? null, payload: resultDetail?.payload }
+  );
 }
 
 export function buildChatRenderProjection({ history = [], preview = null, provisionalCalls = [] } = {}) {

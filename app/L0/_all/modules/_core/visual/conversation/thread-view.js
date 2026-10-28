@@ -4,6 +4,20 @@ import { renderMarkdown } from "/modules/_core/framework/js/markdown-frontmatter
 // the mid-turn provisional chip slice the body identically instead of keeping two copies
 // of the rule. Pure data transform: no I/O, no dispatch, no engine-swap machinery.
 import { readProjectedChipBody } from "/modules/_core/framework/js/engine-swap/history-shapes.js";
+// THE ONE LINE CLASSIFIER and the ONE typed-result formatter (P4b-1).
+//
+// The classifier MOVED here from this file's factory closure: it closes over nothing but
+// its own print-level pattern, so living in the shared layer changes no behaviour and makes
+// the `result↓` arrow reachable from the typed panes — which is the whole point, because a
+// typed payload is drawn as classified lines now instead of one undifferentiated blob.
+//
+// Both the mid-turn chip and the committed row paint through this one module, so there is
+// exactly one vocabulary for what a line means.
+import {
+  formatTypedToolArguments,
+  formatTypedToolResult,
+  getExecutionOutputLineModifier
+} from "/modules/_core/framework/js/engine-swap/typed-result-format.js";
 import {
   collectToolRun,
   collectToolRunCalls,
@@ -20,7 +34,7 @@ import {
 } from "/modules/_core/visual/conversation/preview-markdown.js";
 
 const EXECUTION_STATUS_LINE_PATTERN = /^execution\s+(.+)$/iu;
-const EXECUTION_PRINT_LINE_PATTERN = /^(log|info|warn|error|debug|dir|table|assert)(:\s*|↓)$/iu;
+// `EXECUTION_PRINT_LINE_PATTERN` MOVED with the classifier it belongs to (P4b-1).
 const ORDERED_LIST_LINE_PATTERN = /^\d+\.\s+/u;
 const STICKY_SCROLL_THRESHOLD = 96;
 
@@ -331,35 +345,8 @@ export function createAgentThreadView(config = {}) {
     return parseExecutionOutputMessage(message.content);
   }
 
-  function getExecutionOutputLineModifier(line) {
-    const trimmed = typeof line === "string" ? line.trim() : "";
-
-    if (!trimmed) {
-      return "is-muted";
-    }
-
-    if (/^execution\s+/iu.test(trimmed)) {
-      return "is-meta";
-    }
-
-    if (/^result(?::\s*|↓)$/iu.test(trimmed)) {
-      return "is-result";
-    }
-
-    if (/^warn(?::\s*|↓)$/iu.test(trimmed)) {
-      return "is-warn";
-    }
-
-    if (/^error(?::\s*|↓)$/iu.test(trimmed)) {
-      return "is-error";
-    }
-
-    if (EXECUTION_PRINT_LINE_PATTERN.test(trimmed)) {
-      return "is-print";
-    }
-
-    return "";
-  }
+  // The line classifier MOVED to the shared typed-result formatter (P4b-1). It is not
+  // re-declared here: one classifier, one vocabulary, imported from above.
 
   function appendTerminalLine(container, text, modifier) {
     const line = document.createElement("div");
@@ -1063,15 +1050,48 @@ export function createAgentThreadView(config = {}) {
       inputBody.className = "execution-code-list";
       inputBody.dataset.executionInputList = "true";
 
+      // THE ARGUMENTS, PRETTY-PRINTED (P4b-1). A `run_code` call's arguments are a whole
+      // program inside a JSON string, so the untouched text is one line full of escaped
+      // `\n` — the wall the owner reported. The shared formatter parses, re-serializes with
+      // indentation, and hands back the untouched original for the Raw toggle. A payload
+      // that is not JSON comes back verbatim: never mangled.
+      const formattedArguments = formatTypedToolArguments({ argumentsText: typedTool.argumentsText });
       const inputBlock = document.createElement("pre");
       inputBlock.className = "terminal-code";
-      inputBlock.textContent = String(typedTool.argumentsText || "{}");
+      inputBlock.textContent = formattedArguments.text;
       inputBody.append(inputBlock);
+
+      // The `{ } Raw` affordance, matching the legacy card's. LOCAL DOM STATE ONLY: it swaps
+      // this `<pre>`'s text and nothing else — no store field, no persistence, and
+      // deliberately absent from `getGroupRenderSignature`, so every repaint starts on the
+      // pretty form. The button wears neither `data-message-action` nor
+      // `data-terminal-action`, so a store's delegated handler cannot mistake it for one of
+      // its own actions.
+      const rawButton = document.createElement("button");
+      rawButton.type = "button";
+      rawButton.className = "execution-detail-button";
+      rawButton.dataset.typedArgumentsToggle = "raw";
+      const rawIcon = document.createElement("x-icon");
+      rawIcon.textContent = "data_object";
+      const rawLabel = document.createElement("span");
+      rawLabel.textContent = "Raw";
+      rawButton.append(rawIcon, rawLabel);
+      rawButton.addEventListener("click", () => {
+        const showingRaw = rawButton.dataset.typedArgumentsShown === "raw";
+
+        inputBlock.textContent = showingRaw ? formattedArguments.text : formattedArguments.raw;
+        rawButton.dataset.typedArgumentsShown = showingRaw ? "pretty" : "raw";
+        rawButton.classList.toggle("is-active", !showingRaw);
+      });
+
+      inputBody.append(rawButton);
 
       details.append(
         createExecutionPane({
           body: inputBody,
-          label: "Arguments",
+          label: formattedArguments.lineCount
+            ? `Arguments • ${formatLineCount(formattedArguments.lineCount)}`
+            : "Arguments",
           scrollKey: messageId ? `${messageId}:input` : "",
           type: "input"
         })
@@ -1083,12 +1103,29 @@ export function createAgentThreadView(config = {}) {
     outputBody.dataset.executionOutputList = "true";
 
     if (typedState) {
-      // Typed output is not a terminal transcript, so it is not line-modifier parsed.
-      // One block, verbatim, which is what the tool actually returned.
-      const typedOutput = document.createElement("div");
-      typedOutput.className = "terminal-line";
-      typedOutput.textContent = String(typedTool.outputText || typedTool.resultText || "No output yet.");
-      outputBody.append(typedOutput);
+      // THE TYPED RESULT, STRUCTURED AND CLASSIFIED (P4b-1).
+      //
+      // This used to be ONE `terminal-line` holding the whole payload as text — the wall the
+      // owner reported, and the reason the `result↓` arrow was missing: nothing here ever
+      // reached the classifier. The shared formatter renders the payload object it was
+      // given (a `run_code` result becomes its `logs`, `result` and `error` blocks; every
+      // other tool becomes pretty-printed JSON) and returns `{text, modifier}` lines, which
+      // `appendTerminalLine` draws with the CSS that already exists.
+      //
+      // A pending typed call has no payload at all, so it keeps the honest placeholder it
+      // always had rather than an invented empty result.
+      const typedResultLines = formatTypedToolResult({
+        error: typedTool.error ?? null,
+        name: typedTool.name,
+        outputText: String(typedTool.outputText || typedTool.resultText || ""),
+        payload: typedTool.payload
+      });
+
+      if (typedResultLines.length) {
+        typedResultLines.forEach((entry) => appendTerminalLine(outputBody, entry.text, entry.modifier));
+      } else {
+        appendTerminalLine(outputBody, "No output yet.", "is-muted");
+      }
     } else {
       appendTerminalOutput(outputBody, displayOutputResults || [], pendingState);
     }
@@ -1557,9 +1594,14 @@ export function createAgentThreadView(config = {}) {
 
     return {
       argumentsText: getTypedEntryBodyText(callEntry) || "{}",
+      // THE PAYLOAD OBJECT, so the output pane can be rendered structurally instead of
+      // re-parsed out of `outputText` (P4b-1). Display-only fields the shared projection
+      // attached; a call with no result yet has neither, which is the truth.
+      error: resultEntry?.typedToolResultError ?? null,
       name: String(record?.name || callEntry?.typedToolName || "tool"),
       outcome: String(record?.outcome || "running"),
-      outputText: resultEntry ? getTypedEntryBodyText(resultEntry) : ""
+      outputText: resultEntry ? getTypedEntryBodyText(resultEntry) : "",
+      payload: resultEntry?.typedToolResultPayload
     };
   }
 
@@ -1649,19 +1691,29 @@ export function createAgentThreadView(config = {}) {
 
       // The CLASSIFIED outcome of this call's own result when one exists; `running` only
       // when nothing has answered this call yet, which is the one case where it is true.
+      // THE RESULT OBJECT, when the projection supplied one (P4b-1). A settled PROVISIONAL
+      // chip is a `call` entry carrying its own output text, so the payload pair has to
+      // travel here too — otherwise the live chip could only re-parse its text while the
+      // committed row rendered structure, and the two panes would stop being byte-equal.
       return {
         argumentsText: projectedArguments || getTypedEntryBodyText(entry) || "{}",
+        error: entry.typedToolResultError ?? null,
         name: resolvedName || "tool",
         outcome: ownTerminalOutcome || settledOutcome || "running",
-        outputText: projectedOutput
+        outputText: projectedOutput,
+        payload: entry.typedToolResultPayload
       };
     }
 
+    // A standalone RESULT entry carries its own object, attached by the display projection,
+    // so this row renders structure exactly as a grouped row does (P4b-1).
     return {
       argumentsText: "",
+      error: entry.typedToolResultError ?? null,
       name: resolvedName || "tool",
       outcome: String(entry.typedToolOutcome || "success"),
-      outputText: getTypedEntryBodyText(entry)
+      outputText: getTypedEntryBodyText(entry),
+      payload: entry.typedToolResultPayload
     };
   }
 
