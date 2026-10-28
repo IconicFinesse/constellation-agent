@@ -227,20 +227,26 @@ export function canonicalToolOrder(records) {
   return [...records].sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
 }
 
-// Small deterministic non-cryptographic digest for the assembled prefix. The
-// artifact contract hashes code and args with SHA-256; this digest only needs to
-// prove "same config + same model -> same bytes", so FNV-1a is enough and stays
-// synchronous.
-export function hashAssembledList(tools) {
-  const text = stableStringify(tools);
+// THE FNV-1a implementation. One copy tree-wide: the assembled-list hash and the
+// cache-prefix digest both call this, so two artefacts that claim to be
+// "the same bytes" can never disagree about how those bytes are hashed. The
+// artifact contract hashes code and args with SHA-256; these digests only need to
+// prove "same input -> same bytes", so FNV-1a is enough and stays synchronous.
+export function hashCanonicalText(text) {
+  const source = typeof text === "string" ? text : "";
   let hash = 0x811c9dc5;
 
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index) & 0xff;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index) & 0xff;
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
 
   return `fnv1a32:${hash.toString(16).padStart(8, "0")}`;
+}
+
+// Small deterministic non-cryptographic digest for the assembled prefix.
+export function hashAssembledList(tools) {
+  return hashCanonicalText(stableStringify(tools));
 }
 
 function resolveEnabledNames(registry, config = {}) {
