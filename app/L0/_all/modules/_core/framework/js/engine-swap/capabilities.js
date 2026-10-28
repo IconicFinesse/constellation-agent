@@ -19,7 +19,8 @@ export const CAPABILITY_FLAGS = Object.freeze([
   "tools_strict",
   "parallel_tool_calls",
   "json_mode",
-  "prompt_cache"
+  "prompt_cache",
+  "stream_usage"
 ]);
 
 export const UNKNOWN_PROVIDER_KEY = "unknown";
@@ -41,53 +42,76 @@ function freezeFlags(flags) {
 
 // Provider defaults. `transportSupport` is what the adapter itself can carry;
 // a capability cannot resolve true where the transport cannot express it.
+//
+// `stream_usage` is a WIRE capability, deliberately separate from `prompt_cache`:
+// a provider can cache the prefix perfectly and still need to be ASKED to report
+// the hit on a streamed response (NeuralWatt is exactly that case — measured).
+// Therefore a row sets it true only where that provider's streaming usage was
+// measured with `stream_options.include_usage` in the body.
 const PROVIDER_CAPABILITY_DEFAULTS = Object.freeze({
   neuralwatt: {
     label: "NeuralWatt",
+    // Implicit prefix caching measured working with NO client marker (7,424 of
+    // 7,538 prompt tokens cached on a repeated prefix). Streaming is the gap: a
+    // streamed turn reports `prompt_tokens_details: null` unless the request asks
+    // for usage, and `cached_tokens: 1280` when it does. The caching was always
+    // there; only the reporting had to be requested.
     flags: freezeFlags({
       json_mode: true,
       parallel_tool_calls: false,
-      prompt_cache: false,
+      prompt_cache: true,
+      stream_usage: true,
       tools: true,
       tools_strict: false
     }),
-    transportSupport: freezeFlags({ json_mode: true, parallel_tool_calls: true, prompt_cache: false, tools: true, tools_strict: true })
+    transportSupport: freezeFlags({ json_mode: true, parallel_tool_calls: true, prompt_cache: true, stream_usage: true, tools: true, tools_strict: true })
   },
   openai: {
     label: "OpenAI",
-    // OpenAI supports prompt caching, but the launch OpenAI-shape adapter emits
-    // no cache markers yet — that is P5 work. The clamp below keeps resolution
-    // honest until the transport can actually carry the flag.
+    // OpenAI declares prompt caching, and no cache markers are needed or sent:
+    // implicit prefix caching is provider-side. Its transportSupport for caching
+    // stays false because NEITHER caching nor streamed usage reporting was
+    // measured for OpenAI in this campaign, and this table only reports what was
+    // measured. `stream_usage` stays false for the same reason: an unproven body
+    // field is exactly what the clamp exists to prevent.
     flags: freezeFlags({
       json_mode: true,
       parallel_tool_calls: true,
       prompt_cache: true,
+      stream_usage: false,
       tools: true,
       tools_strict: true
     }),
-    transportSupport: freezeFlags({ json_mode: true, parallel_tool_calls: true, prompt_cache: false, tools: true, tools_strict: true })
+    transportSupport: freezeFlags({ json_mode: true, parallel_tool_calls: true, prompt_cache: false, stream_usage: false, tools: true, tools_strict: true })
   },
   openrouter: {
     label: "OpenRouter",
+    // Not measured in this campaign: no caching claim and no usage-on-stream claim.
     flags: freezeFlags({
       json_mode: true,
       parallel_tool_calls: true,
       prompt_cache: false,
+      stream_usage: false,
       tools: true,
       tools_strict: true
     }),
-    transportSupport: freezeFlags({ json_mode: true, parallel_tool_calls: true, prompt_cache: false, tools: true, tools_strict: true })
+    transportSupport: freezeFlags({ json_mode: true, parallel_tool_calls: true, prompt_cache: false, stream_usage: false, tools: true, tools_strict: true })
   },
   synthetic: {
     label: "Synthetic",
+    // Implicit prefix caching measured working with NO client marker (7,424 of
+    // 7,538 prompt tokens cached on a repeated prefix), and usage is reported on
+    // a stream with or without `stream_options` — so asking costs nothing and the
+    // field is tolerated.
     flags: freezeFlags({
       json_mode: true,
       parallel_tool_calls: false,
-      prompt_cache: false,
+      prompt_cache: true,
+      stream_usage: true,
       tools: true,
       tools_strict: true
     }),
-    transportSupport: freezeFlags({ json_mode: true, parallel_tool_calls: true, prompt_cache: false, tools: true, tools_strict: true })
+    transportSupport: freezeFlags({ json_mode: true, parallel_tool_calls: true, prompt_cache: true, stream_usage: true, tools: true, tools_strict: true })
   },
   [UNKNOWN_PROVIDER_KEY]: {
     label: "Unknown",
