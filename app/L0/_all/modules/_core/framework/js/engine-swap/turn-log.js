@@ -17,12 +17,22 @@
 // loop's real constant, so there is still exactly one vocabulary in the product while
 // the import graph stays inert when dispatch is off.
 //
-// HARD PRIVACY RULE, and it is load-bearing: NEVER record message content. No user
+// HARD PRIVACY RULE, and it is load-bearing: never record message content. No user
 // prompts, no model reply text, no tool argument VALUES, no tool result payloads.
-// Only counts, byte lengths, tool NAMES, outcome words, and truncated error strings.
-// The owner pastes this log into a chat; anything content-bearing makes that unsafe.
+// Only counts, byte lengths, tool NAMES, outcome words, and the ONE bounded exception
+// stated below.
+//
+// THE ONE EXCEPTION, written down rather than implied: `turn-error.message` carries a
+// provider's OWN error text, and providers commonly echo the rejected input back inside
+// a validation error (`invalid value for messages[0].content: "..."`). So up to
+// TURN_LOG_MAX_ERROR_CHARS (500) characters of provider-supplied text -- which MAY
+// contain request content -- can reach the record. It is bounded, it only appears when
+// a turn already failed at the provider, and the owner pastes this log into a chat, so
+// the honest scope is "content-free apart from one truncated provider error string".
+// Everything else here is a count or a name.
+//
 // The event -> step mapping below is the ONE choke point where a raw event becomes a
-// record entry, and it is the reason no call site ever touches raw text.
+// record entry, and it is the reason no other call site ever touches raw text.
 
 export const TURN_LOG_MAX_ERROR_CHARS = 500;
 

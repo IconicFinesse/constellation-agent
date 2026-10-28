@@ -159,7 +159,7 @@ Engine telemetry endpoint:
 Current rules:
 
 - it is authenticated (never `allowAnonymous`): it stores the caller's own engine session trail, which is real session data
-- `post` accepts ONE bounded, CONTENT-FREE turn record: counts, byte lengths, tool names, an outcome word and a truncated error string, never a prompt, a reply, a tool argument value or a tool result payload
+- `post` accepts ONE bounded turn record: counts, byte lengths, tool names, an outcome word and a truncated error string — never a prompt, a reply, a tool argument value or a tool result payload. The ONE exception, stated rather than implied: `turn-error.message` is provider-supplied text truncated to `TURN_LOG_MAX_ERROR_CHARS` (500), and providers commonly echo rejected input inside a validation error, so it MAY contain request content. It appears only on a turn that already failed at the provider
 - malformed payloads are rejected with `createHttpError(..., 400)`, and validation RETURNS a normalized record so unknown top-level and per-step keys are DROPPED rather than stored; a smuggled field cannot reach the file after a future edit
 - it appends to a ring-buffered JSONL log (`engine-log/turns.jsonl`) under the resolved runtime temp directory (`context.tmpDir`, defaulting to `server/tmp/`), keeping only the last 500 records and trimming by line count so the append and the trim share one unit
 - appends are serialized through one in-process promise chain, because read-modify-write only trims correctly when the reads and writes are ordered
