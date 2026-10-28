@@ -5747,17 +5747,35 @@ const model = {
           this.engineSwapFallbackNoticeShownFor = noticeKey;
 
           try {
+            // SAY ONLY WHAT IS TRUE (audit NB1 + NB2).
+            //
+            // Two false claims were drafted into this string and both would have
+            // been read by the owner during the beta:
+            //
+            //   1. "Engine turn logging is still active" — FALSE. The P7-1 turn log
+            //      is written only inside `runTier1ConversationTurn`, which a
+            //      fallback turn never reaches. A legacy turn records nothing.
+            //   2. "This model is not tool-capable" — FALSE for the local-provider
+            //      fallback, which is on Tier 3 because a browser-inference provider
+            //      has no HTTP tool transport at all, not because of its capability.
+            //
+            // So the sentence branches on the one discriminator the resolver
+            // already reports. `diagnostics === "local-provider"` is set by
+            // `engine-swap-dispatch.js` on exactly that path and nowhere else.
+            //
             // `tone` is deliberately "info": the toast vocabulary is closed to
             // error/success and silently maps anything else to info, so asking for
             // a "warning" tone would render info while reading as if a warning
             // style existed. This is a notice, not a failure.
-            showToast(
-              "This model is not tool-capable, so this chat is running on the legacy engine. Engine turn logging is still active.",
-              {
-                durationMs: 8000,
-                tone: "info"
-              }
-            );
+            const noticeMessage =
+              String(tierPlan?.diagnostics || "") === "local-provider"
+                ? "This model runs locally and has no tool transport, so this chat is using the legacy engine."
+                : "This model is not tool-capable, so this chat is using the legacy engine.";
+
+            showToast(noticeMessage, {
+              durationMs: 8000,
+              tone: "info"
+            });
           } catch {
             // A notice must never break a turn.
           }
