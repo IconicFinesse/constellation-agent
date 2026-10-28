@@ -1,10 +1,20 @@
 import {
-  buildOnscreenAgentPromptInput
+  buildOnscreenAgentPromptInput,
+  ONSCREEN_AGENT_PREPARED_MESSAGE_BLOCK
 } from "/modules/_core/onscreen_agent/llm.js";
 import {
   createAgentPromptInstance,
   hasPreparedPromptInput
 } from "/modules/_core/agent_prompt/prompt-runtime.js";
+
+// The protocol-envelope marker vocabulary, re-exported under an admin-owned name.
+//
+// This is a RE-EXPORT, not a copy: one object, one owner (`onscreen_agent/llm.js`, which
+// also builds admin's prompt input — this module already imports it). The Tier 1 wire
+// hygiene pass needs the exact markers admin's own prompt builder emits, and a second
+// literal list here would drift the moment a marker is added.
+//
+export const ADMIN_AGENT_PREPARED_MESSAGE_BLOCK = ONSCREEN_AGENT_PREPARED_MESSAGE_BLOCK;
 
 export const DEFAULT_ADMIN_SYSTEM_PROMPT_PATH = "/modules/_core/admin/views/agent/system-prompt.md";
 export const ADMIN_HISTORY_COMPACT_MODE = Object.freeze({

@@ -10,10 +10,10 @@ import * as execution from "/modules/_core/onscreen_agent/execution.js";
 import { maybeObserveEngineSwapShadowTurn } from "/modules/_core/onscreen_agent/engine-swap-shadow.js";
 import {
   canonicalMessagesToTypedEntries,
-  isToolResultEntry,
   normalizeTypedHistoryFields,
   projectHistoryEntryForDisplay,
   projectHistoryEntryForPrompt,
+  replaceHeldToolResult,
   serializeTypedHistoryFields
 } from "/modules/_core/framework/js/engine-swap/history-shapes.js";
 import { createTier1TurnDriver } from "/modules/_core/framework/js/engine-swap/turn-driver.js";
@@ -5551,32 +5551,16 @@ const model = {
 
 
 
-  // Replaces the held tool-result entry with the settled one. Exactly one result
-  // must exist per call id: appending a second would make the next Tier 1 request
-  // invalid on the wire, and duplicating a result is a lie about what happened.
+  // Replaces the held tool-result entry with the settled one.
+  //
+  // DELEGATES to the shared implementation (P4a-3c): the transformation is pure — build
+  // entries through the shared writer, match the last entry by call id, replace, never
+  // append — so it belongs in `history-shapes.js` next to the other shape mappings, not
+  // on one surface. Admin confirms and denies through the SAME function, so the two
+  // surfaces cannot drift on what "settled" means. This method is now only the
+  // `this.history` binding.
   replaceEngineSwapHeldResult({ content, isError, toolCallId }) {
-    const entries = canonicalMessagesToTypedEntries([
-      {
-        content,
-        isError: isError === true,
-        role: "tool",
-        toolCallId: String(toolCallId || "")
-      }
-    ]);
-    const history = Array.isArray(this.history) ? [...this.history] : [];
-    const index = history.findIndex(
-      (entry, position) =>
-        isToolResultEntry(entry) &&
-        String(entry?.toolResult?.callId || "") === String(toolCallId || "") &&
-        position === history.length - 1
-    );
-
-    if (index === -1 || !entries.length) {
-      return history;
-    }
-
-    history[index] = entries[entries.length - 1];
-    return history;
+    return replaceHeldToolResult(this.history, { content, isError, toolCallId });
   },
 
   async confirmEngineSwapHold() {

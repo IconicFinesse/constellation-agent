@@ -301,6 +301,50 @@ export function canonicalMessagesToTypedEntries(messages, { fromIndex = 0 } = {}
   return Object.freeze(entries);
 }
 
+// Replaces a HELD tool result with its settled one, on a COPIED history.
+//
+// A destructive call that was held leaves a placeholder result row standing in for the
+// action the user is deciding about. Confirming or denying settles exactly that call, so
+// the transcript has to carry the real outcome in the row the user was looking at.
+//
+// EXACTLY ONE RESULT PER CALL ID. Appending a second result would make the next Tier 1
+// request invalid on the wire (one `tool_call_id` answered twice) and would also leave
+// the placeholder claiming something that never happened. So this replaces and never
+// appends — and it only replaces the LAST entry, because a settled result belongs to the
+// call the turn ended on; rewriting an older row deeper in the transcript would silently
+// edit history the user already watched.
+//
+// HISTORY IS A PARAMETER, not a receiver. This lives in the shared module so both
+// surfaces reach ONE implementation: an admin-local copy would be a third copy of one
+// behaviour, which is the defect class this module exists to remove.
+//
+// Returns a NEW array in every case, including when nothing matched, so a caller can
+// assign the result unconditionally and array identity never silently means "no change".
+export function replaceHeldToolResult(history, { content = "", isError = false, toolCallId = "" } = {}) {
+  const entries = canonicalMessagesToTypedEntries([
+    {
+      content,
+      isError: isError === true,
+      role: "tool",
+      toolCallId: String(toolCallId || "")
+    }
+  ]);
+  const next = Array.isArray(history) ? [...history] : [];
+  const index = next.findIndex(
+    (entry, position) =>
+      isToolResultEntry(entry) &&
+      String(entry?.toolResult?.callId || "") === String(toolCallId || "") &&
+      position === next.length - 1
+  );
+
+  if (index === -1 || !entries.length) {
+    return next;
+  }
+
+  next[index] = entries[entries.length - 1];
+  return next;
+}
+
 // Persistence mapping, used by BOTH the writer and the reader so they cannot
 // drift. Returns `{}` for a legacy message: its stored shape stays byte-identical
 // to before, with no new keys.

@@ -34,11 +34,18 @@ import {
 // shape mapping. Legacy messages have neither typed field, so every write and read of
 // a legacy message stays byte-identical to before.
 import {
+  canonicalMessagesToTypedEntries,
   normalizeTypedHistoryFields,
   projectHistoryEntryForDisplay,
   projectHistoryEntryForPrompt,
+  replaceHeldToolResult,
   serializeTypedHistoryFields
 } from "/modules/_core/framework/js/engine-swap/history-shapes.js";
+// The admin surface's bridge into the shared engine-swap layer (P4a-3c): ONE tier
+// resolver, ONE turn driver, ONE tool-turn transport — the same three onscreen uses.
+// Admin imports the BRIDGE, not the engine modules themselves, so `store.js` carries no
+// engine import of its own and the engine stays reachable for any future surface.
+import * as engineSwapBridge from "/modules/_core/admin/views/agent/engine-swap-bridge.js";
 
 const huggingfaceManager = getHuggingFaceManager();
 
@@ -375,12 +382,19 @@ const model = {
   // dispatch pipeline, and admin still resolves Tier 3. Nothing in this lane can set
   // a hold, so the bar cannot appear. That is correct, not a gap to close here.
   engineSwapPendingHold: null,
-  // The Tier 1 session a held call belongs to. Populated ONLY by the adoption lane
-  // (steps 3-5); until then it stays null and every consent handler returns before
-  // touching state — which is what keeps a confirm from clearing a bar it cannot act
-  // on. Declared explicitly rather than left undefined so the guard reads as a
-  // contract instead of a coincidence.
+  // The Tier 1 session a held call belongs to (P4a-3c: populated by the turn driver).
+  // Declared explicitly rather than left undefined so every consent guard reads as a
+  // contract instead of a coincidence. Kept as REAL DATA rather than an accessor onto
+  // driver state, because P4a-3a pins the descriptor: behind a getter the driver's write
+  // would bypass this store proxy's set trap, no trigger would fire, and the confirm bar
+  // would silently stop appearing on a real held deletion.
   engineSwapTier1Session: null,
+  // The canonical message list the held turn ended on, so confirming can RESUME the loop
+  // with the real outcome instead of stranding the user with a settled chip. Projected
+  // from the driver's own slot for the same data-property reason as the session above.
+  engineSwapHeldMessages: null,
+  // One rAF handle coalescing chip repaints (`scheduleEngineSwapChipRender`).
+  engineSwapChipFrame: 0,
   executionContext: null,
   executionOutputOverrides: Object.create(null),
   history: [],
@@ -1293,23 +1307,56 @@ const model = {
     return (Array.isArray(history) ? history : []).map((entry) => projectHistoryEntryForDisplay(entry));
   },
 
-  // --- Consent affordance handlers (P4a-3a) ---------------------------------
+  // --- Tier 1 turn delegation (P4a-3c) --------------------------------------
   //
-  // Ported from onscreen's handlers with their ORDERING preserved, because the
-  // ordering is the honesty rule: the guard runs FIRST, so a confirm that has no
-  // session to execute through returns WITHOUT clearing the bar. A control that
-  // cannot act must not appear to have acted — the same class of lie this campaign
-  // removed from tool chips that claimed Success before the call ran.
+  // Admin's loop calls these; the WORK is the shared driver's. No turn logic lives here
+  // — if a retry rule, a preview lifecycle or a chip derivation ever needs changing, it
+  // changes ONCE, in `turn-driver.js`, for both surfaces.
   //
-  // What is deliberately NOT ported: the transcript patch (`replaceEngineSwapHeldResult`)
-  // and the post-hold continuation. Both need the held-message bookkeeping the turn
-  // driver owns, so writing them here would be a second history mapping and
-  // adoption-lane logic in a lane forbidden to import the driver. Adoption adds them
-  // inside the `session` branch below; the guard and the bar-clearing order do not
-  // change.
+  // `collectEngineSwapDisplayOnlyIds` is a seam the driver itself calls back through, so
+  // a caller that replaces it is honoured; it delegates to the driver's own derivation
+  // rather than re-deriving anything.
+  runTier1ConversationTurn(requestMessages, preparedRequest, plan, options = {}) {
+    return getTier1TurnDriver().runTier1ConversationTurn(requestMessages, preparedRequest, plan, options);
+  },
+
+  runTier1TurnAndCommit(requestMessages, preparedRequest, plan, options = {}) {
+    return getTier1TurnDriver().runTier1TurnAndCommit(requestMessages, preparedRequest, plan, options);
+  },
+
+  collectEngineSwapDisplayOnlyIds(entries, outputOverrides = null) {
+    return getTier1TurnDriver().collectEngineSwapDisplayOnlyIds(entries, outputOverrides);
+  },
+
+  syncEngineSwapDisplayOnlyIds(history, outputOverrides = null) {
+    return getTier1TurnDriver().syncEngineSwapDisplayOnlyIds(history, outputOverrides);
+  },
+
+  // PROJECTS the driver's turn state onto this store's data fields.
   //
-  // INERT TODAY: admin resolves Tier 3 and nothing in this lane can create a session
-  // or a hold, so both are null and every handler below returns on its guard.
+  // This is the one place admin departs from onscreen's shape, and it is forced: P4a-3a
+  // pins `engineSwapTier1Session` as a real data property (an accessor onto driver state
+  // would bypass this store proxy's set trap and the confirm bar would silently stop
+  // appearing). So the driver keeps its own slot — one writer, as designed — and this
+  // copies the two values the surface's handlers need after each committed turn. Reading
+  // the driver is the only source here; nothing is re-derived.
+  syncEngineSwapTurnState() {
+    const driver = getTier1TurnDriver();
+
+    this.engineSwapTier1Session = driver.state.engineSwapTier1Session;
+    this.engineSwapHeldMessages = driver.state.engineSwapHeldMessages;
+
+    return driver.state;
+  },
+
+  // --- Consent affordance handlers (P4a-3c) ---------------------------------
+  //
+  // The ordering is the honesty rule: the GUARD runs FIRST, so a confirm that has no
+  // session to execute through returns WITHOUT clearing the bar. A control that cannot
+  // act must not appear to have acted.
+  //
+  // REACHABLE NOW: the turn driver creates the session and the destructive gate creates
+  // the hold, so these handlers do real work on a real held `file_delete`.
   async confirmEngineSwapHold() {
     const session = this.engineSwapTier1Session;
     const hold = this.engineSwapPendingHold;
@@ -1319,17 +1366,67 @@ const model = {
     }
 
     // The affordance disappears immediately: the user answered, and a second click
-    // must not re-enter this path.
+    // must not re-enter this path. The gate has NOT run at this point.
     this.engineSwapPendingHold = null;
     this.status = "Executing the confirmed deletion...";
 
+    // EXACTLY ONCE: `confirmHeld()` settles the gate (a second call finds no hold and
+    // answers null) and runs the call through the pipeline's execution-only stage, so
+    // the arguments the human approved are the arguments that execute.
     const executed = await session.confirmHeld();
+    // `formatOutcome` is part of the shared session's contract, but a caller-supplied
+    // session (a suite driving the consent path with no transport) may expose only
+    // `confirmHeld`. Falling back to an empty text keeps the transcript honest — the row
+    // still records that the call was confirmed and executed — instead of throwing after
+    // the destructive call already ran.
+    const outcomeText =
+      executed && typeof session.formatOutcome === "function" ? session.formatOutcome(executed) : "";
+    const toolResultText = executed ? outcomeText : "error: the held call could not be executed.";
+    const callId = executed?.call?.callId || hold.callId || "";
 
-    this.status =
-      executed && executed.status === "ok" ? "Confirmed and executed." : "The confirmed call failed.";
-    this.render({
-      preserveScroll: true
+    // REPLACE, never append: exactly one result may exist per call id, or the next
+    // Tier 1 request is invalid on the wire. Shared with onscreen through the ONE
+    // implementation in `history-shapes.js`.
+    this.history = replaceHeldToolResult(this.history, {
+      content: toolResultText,
+      isError: !executed || executed.status !== "ok",
+      toolCallId: callId
     });
+    await this.persistHistory({
+      immediate: true
+    });
+    this.render();
+
+    // The agent reports what actually happened: the loop resumes from the held turn with
+    // the REAL outcome, so the model's next words describe the execution, not the hold.
+    const heldMessages = Array.isArray(this.engineSwapHeldMessages) ? this.engineSwapHeldMessages : [];
+
+    this.engineSwapTier1Session = null;
+    this.engineSwapHeldMessages = null;
+
+    if (!heldMessages.length) {
+      this.status = executed?.status === "ok" ? "Confirmed and executed." : "The confirmed call failed.";
+      return;
+    }
+
+    try {
+      const continuation = await session.runContinuation({
+        messages: heldMessages,
+        toolResultText
+      });
+      const tailEntries = canonicalMessagesToTypedEntries(continuation?.messages || [], {
+        fromIndex: heldMessages.length
+      });
+
+      this.history = [...this.history, ...tailEntries];
+      await this.persistHistory({
+        immediate: true
+      });
+      this.status = executed?.status === "ok" ? "Confirmed and executed." : "The confirmed call failed.";
+      this.render();
+    } catch (error) {
+      this.reportError("resuming the tool turn after confirmation", error);
+    }
   },
 
   async denyEngineSwapHold() {
@@ -1339,20 +1436,37 @@ const model = {
       return;
     }
 
+    // CANCEL-BY-DENY: the gate settles to `denied` and the call NEVER reaches the
+    // pipeline, so nothing on disk changes. The transcript still records the refusal,
+    // replacing the held row so one result per call id stays true.
     const settled = session.denyHeld?.();
+    const callId = settled?.callId || this.engineSwapPendingHold?.callId || "";
+    const description = settled?.description || settled?.tool || "the action";
 
     this.engineSwapPendingHold = null;
     this.engineSwapTier1Session = null;
+    this.engineSwapHeldMessages = null;
+    this.history = replaceHeldToolResult(this.history, {
+      content: `policy: the user denied ${description}.`,
+      isError: true,
+      toolCallId: callId
+    });
+    await this.persistHistory({
+      immediate: true
+    });
     this.render({
       preserveScroll: true
     });
-    this.status = `Cancelled: the user denied ${settled?.description || settled?.tool || "the action"}.`;
+    this.status = `Cancelled: the user denied ${description}.`;
   },
 
   cancelEngineSwapHold() {
+    // A stop or a chat clear ends the episode: tell the gate so its state machine
+    // reaches a terminal status instead of being abandoned mid-hold.
     this.engineSwapTier1Session?.cancelHeld?.();
     this.engineSwapTier1Session = null;
     this.engineSwapPendingHold = null;
+    this.engineSwapHeldMessages = null;
   },
 
   async flushHistoryPersistence() {
@@ -2427,6 +2541,40 @@ const model = {
         return boundaryActionBeforeStream;
       }
 
+      // Engine-swap gate (P4a-3c). Resolved once per turn from the ONE capability seam
+      // through admin's bridge; a config that does not resolve the tools capability keeps
+      // the text protocol byte-identically, with one diagnostics line logged by the
+      // bridge. This is the SAME rule onscreen applies — no admin-only variant.
+      const tierPlan = await engineSwapBridge.resolveAdminTier1Plan({ settings: this.settings });
+
+      if (String(tierPlan?.tier || "") === "tier1") {
+        // Parity with the text path below: the prompt-history surface shows this turn, the
+        // submitted user turn reaches disk before the request so a page teardown cannot
+        // lose it, and — critically — the user's turn enters the history the RENDER reads
+        // BEFORE that render. Without the assignment the pre-request render paints the
+        // previous turn, so the user's own message stays invisible until the reply lands
+        // and a fresh chat draws nothing at all. The commit rewrites history as
+        // `[...requestMessages, ...tailEntries]`, so this is a preview of the same prefix,
+        // never a second source of truth.
+        this.applyPromptInput(preparedRequest.promptInput);
+        this.history = [...requestMessages];
+        this.syncCurrentChatRuntime();
+        this.status = "Thinking...";
+        this.render();
+        await this.persistHistory({
+          immediate: true
+        });
+
+        const outcome = await this.runTier1TurnAndCommit(requestMessages, preparedRequest, tierPlan);
+
+        // The driver owns its own turn state; the surface's consent fields are projected
+        // from it so `confirmEngineSwapHold` can act on a real hold (see the projection's
+        // note for why these stay data properties rather than accessors).
+        this.syncEngineSwapTurnState();
+
+        return outcome;
+      }
+
       this.applyPromptInput(preparedRequest.promptInput);
       const assistantMessage = createStreamingAssistantMessage();
 
@@ -2725,6 +2873,112 @@ const model = {
     }
   }
 };
+
+// --- The Tier 1 turn driver wiring (P4a-3c) ----------------------------------
+//
+// Admin now runs Tier 1 on the SAME engine onscreen runs. The driver is built once,
+// lazily, and every surface member below is a THUNK that calls through the store at call
+// time — copying method references here would freeze whichever implementation existed at
+// construction, so a caller that replaces a paint seam afterwards would silently be
+// bypassed.
+//
+// The driver never asks which surface it serves; this wiring never tells it. A
+// `surface === admin` branch anywhere would mean the boundary is wrong.
+//
+// `engineSwapPendingHold` is read and written THROUGH the store, never mirrored: it is
+// the confirm bar's reactive binding, so exactly one copy of it exists and it lives where
+// the template can see the write. That is also why `engineSwapTier1Session` stays a real
+// data property rather than an accessor onto driver state (P4a-3a pins the descriptor):
+// the driver's own slot is projected onto it after each turn instead.
+let tier1TurnDriver = null;
+
+function getTier1TurnDriver() {
+  if (!tier1TurnDriver) {
+    // Registration is synchronous bookkeeping; the engine modules themselves load on the
+    // first Tier 1 turn (both flags off means this function is never called at all).
+    tier1TurnDriver = engineSwapBridge.createAdminTier1TurnDriver({
+      inputs: {
+        createStreamingAssistantMessage,
+        // INJECTED vocabularies and classifiers (BUG-007 preventers): the fence-aware
+        // separator test and the protocol-envelope markers each keep exactly one owner.
+        envelopeMarkers: prompt.ADMIN_AGENT_PREPARED_MESSAGE_BLOCK,
+        executionContext: () => adminAgent.executionContext,
+        executionOutputOverrides: () => adminAgent.executionOutputOverrides,
+        fenceRegions: (content) => execution.findExecutionFenceRegions(content),
+        findSeparatorIndex: (content) => execution.findExecutableSeparatorIndex(content),
+        // Admin's OWN follow-up vocabulary: the only kinds admin writes are
+        // `execution-output` and `execution-retry`. Importing onscreen's wider set would
+        // make this surface reason about kinds it never produces.
+        isFrameworkFollowUpKind: (kind) => isExecutionFollowUpKind(kind),
+        parseParams: (text) => llmParams.parseAdminAgentParamsText(text),
+        runTier1Turn: (turnRequest) => engineSwapBridge.runAdminTier1Turn(turnRequest),
+        runtime: () => adminAgent.runtime || globalThis.space || null,
+        separator: execution.EXECUTION_SEPARATOR,
+        settings: () => adminAgent.settings,
+        shapeSystemPrompt: (shapeRequest) => engineSwapBridge.shapeAdminSystemPromptForTier(shapeRequest),
+        stopRequested: () => adminAgent.stopRequested,
+        streamToolTurn: (transportRequest) => engineSwapBridge.streamAdminToolTurn(transportRequest),
+        // THE COMPOSITION SEAMS. Both are public store methods a caller may replace; a
+        // suite stubs the conversation turn to drive the commit path with no transport.
+        collectDisplayOnlyIds: (entries, overrides) =>
+          adminAgent.collectEngineSwapDisplayOnlyIds(entries, overrides),
+        runConversationTurn: (requestMessages, preparedRequest, plan, options) =>
+          adminAgent.runTier1ConversationTurn(requestMessages, preparedRequest, plan, options)
+      },
+      surface: {
+        getActiveRequestController: () => adminAgent.activeRequestController,
+        getPendingHold: () => adminAgent.engineSwapPendingHold,
+        // HONEST NO-OPS. Admin has no compact mode: it has one thread and paints into it.
+        // A compact bubble would be an affordance this surface does not have, so these do
+        // nothing rather than inventing one.
+        maybeShowCompactStreamingAssistantBubble: () => {},
+        persistHistory: (options) => adminAgent.persistHistory(options),
+        render: (options) => adminAgent.render(options),
+        reportError: (context, error) => adminAgent.reportError(context, error),
+        // One frame coalesces chip repaints, exactly like the streaming-row patch.
+        scheduleEngineSwapChipRender: () => {
+          if (adminAgent.engineSwapChipFrame) {
+            return;
+          }
+
+          adminAgent.engineSwapChipFrame = window.requestAnimationFrame(() => {
+            adminAgent.engineSwapChipFrame = 0;
+            adminAgent.render({
+              preserveScroll: true
+            });
+          });
+        },
+        scheduleStreamingMessageRender: (message) => adminAgent.scheduleStreamingMessageRender(message),
+        setActiveRequestController: (controller) => {
+          adminAgent.activeRequestController = controller;
+        },
+        setHistory: (history) => {
+          adminAgent.history = history;
+        },
+        setPendingHold: (hold) => {
+          adminAgent.engineSwapPendingHold = hold;
+        },
+        setStatus: (text) => {
+          adminAgent.status = text;
+        },
+        // Admin paints streaming prose through its ordinary status line; there is no
+        // second status surface to keep in step.
+        setStreamingAssistantStatus: (content) => {
+          const nextStatus = String(content || "").trim() ? "Writing response..." : "Thinking...";
+
+          if (adminAgent.status !== nextStatus) {
+            adminAgent.status = nextStatus;
+          }
+        },
+        // Admin has no compact reply bubble (see the no-op above): the answer reaches the
+        // transcript through the committed history entries the driver writes.
+        showCompactAssistantReplyBubble: () => {}
+      }
+    });
+  }
+
+  return tier1TurnDriver;
+}
 
 const adminAgent = space.fw.createStore("adminAgent", model);
 
