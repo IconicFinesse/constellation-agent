@@ -169,41 +169,109 @@ test("a non-streaming request never carries stream_options, even on a gated prov
 
 // ---------------------------------------------------- structural equivalence --
 
-// The lane's equivalence claim, as an instrument rather than an opinion: the two
-// bodies must differ in EXACTLY one key, and every other key must be deep-equal.
-// A structural diff that compared serialized strings would not tell you WHICH key
-// moved; this does, so an accidental extra field cannot hide behind a stale
-// expectation.
-test("a gated body differs from an ungated one by exactly stream_options", () => {
-  // The SAME provider and model, gated then not, so nothing else about the request
-  // differs. The ungated body is obtained by suppressing the flag through the
-  // provider key: the endpoint/model still resolve synthetic normally, so this
-  // isolates the one variable under test.
-  const gated = request("synthetic");
-  const baselineBody = { ...gated.body };
+// ---------------------------------------------------- structural equivalence --
 
-  delete baselineBody.stream_options;
+// The pre-P5-2 body shape for a tool turn on each gated provider: a LITERAL, measured
+// from the real base tree (`0b3f8e3`) rather than derived from the body under test. An
+// earlier draft built its baseline by copying the gated body and deleting
+// `stream_options`, then counted keys against that same copy — self-referential, and
+// therefore unable to detect an extra field, which is the very failure it exists to
+// catch.
+//
+// The two providers differ by ONE key and that difference is real: NeuralWatt's
+// `deepseek-v4.1-flash` model rule enables `parallel_tool_calls`, so the BASE body
+// legitimately carries it there and not on Synthetic. Grounding per provider is what
+// keeps this an exact guard instead of a superset that tolerates anything.
+const BASE_TOOL_TURN_KEYS_BY_PROVIDER = Object.freeze({
+  neuralwatt: Object.freeze(["messages", "model", "parallel_tool_calls", "stream", "tools"]),
+  synthetic: Object.freeze(["messages", "model", "stream", "tools"])
+});
 
+function expectedGatedKeys(providerName) {
+  const baseKeys = BASE_TOOL_TURN_KEYS_BY_PROVIDER[providerName];
+
+  assert.ok(Array.isArray(baseKeys), `${providerName}: no grounded base key set declared`);
+
+  return [...baseKeys, "stream_options"].sort();
+}
+
+function assertGatedBodyShape(body, providerName) {
   assert.deepEqual(
-    { ...gated.body, stream_options: undefined },
-    { ...baselineBody, stream_options: undefined },
-    "everything except stream_options must be byte-for-byte the same object shape"
+    Object.keys(body).sort(),
+    expectedGatedKeys(providerName),
+    `${providerName}: a gated body must carry the base tool-turn keys plus stream_options and NOTHING else`
   );
-  assert.deepEqual(gated.body.stream_options, { include_usage: true });
-
-  const gatedKeys = Object.keys(gated.body).sort();
-  const baselineKeys = Object.keys(baselineBody).sort();
-
+  assert.deepEqual(body.stream_options, { include_usage: true });
   assert.deepEqual(
-    gatedKeys.filter((key) => key !== "stream_options"),
-    baselineKeys,
-    "adding the capability must not add or remove any other body key"
+    body.stream_options && Object.keys(body.stream_options),
+    ["include_usage"],
+    `${providerName}: the nested object must carry exactly the one flag`
   );
-  assert.equal(
-    gatedKeys.length - baselineKeys.length,
-    1,
-    "exactly one key is added, and it is named stream_options"
-  );
+  assert.equal(body.stream_options.include_usage, true);
+}
+
+test("a gated body carries the base tool-turn keys plus stream_options and nothing else", () => {
+  for (const providerName of GATED) {
+    const built = request(providerName);
+
+    assert.equal(built.provider, providerName);
+    assertGatedBodyShape(built.body, providerName);
+
+    // ...and the rest of the body is untouched by the addition: removing the one key
+    // leaves exactly that provider's grounded base shape, key for key.
+    const withoutField = { ...built.body };
+
+    delete withoutField.stream_options;
+
+    assert.deepEqual(
+      Object.keys(withoutField).sort(),
+      [...BASE_TOOL_TURN_KEYS_BY_PROVIDER[providerName]].sort(),
+      `${providerName}: removing stream_options must leave the base body exactly`
+    );
+  }
+});
+
+// THE guard's teeth. A test that cannot fail is a fixture, and this lane has already
+// shipped one instrument defect of that class. Seed the exact regressions the guard
+// exists to catch — an extra field on a gated body, in every plausible disguise — and
+// prove the assertion rejects each one.
+test("the gated-body guard rejects a seeded extra key", () => {
+  for (const providerName of GATED) {
+    const built = request(providerName);
+
+    // Positive control first: the real body passes, so the rejections below are the
+    // mutations and not a guard that fails on everything.
+    assertGatedBodyShape(built.body, providerName);
+
+    for (const [label, injected] of [
+      ["an unexpected top-level key", { usage_hint: true }],
+      ["a cache marker smuggled in", { cache_control: { type: "ephemeral" } }],
+      ["the prefix digest leaking", { prefix_digest: "fnv1a32:00000000" }],
+      ["a key the other gated provider legitimately carries", { parallel_tool_calls: true }]
+    ]) {
+      // The last seed matters most for Synthetic: `parallel_tool_calls` is REAL on
+      // NeuralWatt, so a shared superset would quietly tolerate it here. Per-provider
+      // grounding is what makes that rejection possible.
+      if (providerName === "neuralwatt" && label.includes("other gated provider")) {
+        continue;
+      }
+
+      const mutated = { ...built.body, ...injected };
+
+      assert.throws(
+        () => assertGatedBodyShape(mutated, providerName),
+        /must carry the base tool-turn keys plus stream_options and NOTHING else/u,
+        `${providerName} / ${label} must be rejected by the exact-key guard`
+      );
+    }
+
+    // ...and a mutated FLAG VALUE is rejected too, so the nested check is not vacuous.
+    assert.throws(
+      () => assertGatedBodyShape({ ...built.body, stream_options: { include_usage: false } }, providerName),
+      /the nested object must carry exactly the one flag|Expected values to be strictly deep-equal/u,
+      `${providerName}: a wrong include_usage value must be rejected`
+    );
+  }
 });
 
 // The stronger direction: for a provider whose flag is false, the body is what the

@@ -176,17 +176,19 @@ test("the digest does not reach the outbound request body", async () => {
 
   assert.doesNotMatch(serialized, /prefix|digest|fnv1a/iu);
 
-  // Every key present must be one the transport legitimately assembles. This is the
-  // real claim: the DIGEST annotation never turns into a body field. (P5-2 added
-  // `stream_options` for a provider whose `stream_usage` is measured true — the
-  // fixture drives Synthetic over a stream, so it is expected here and is asserted
-  // by name rather than tolerated as 'anything goes'.)
-  const allowed = ["messages", "model", "parallel_tool_calls", "stream", "stream_options", "tools"];
-
-  assert.deepEqual(
-    Object.keys(request.body).sort(),
-    allowed.filter((key) => key in request.body).sort()
-  );
+  // The EXACT key set this fixture can produce — a literal, not a filter of itself and
+  // not a superset. A permitted-but-absent key would make this guard toothless exactly
+  // where it has teeth: the one committed exact-key check over a real gated-provider
+  // body. (Synthetic resolves `parallel_tool_calls` false, so it emits no such field;
+  // permitting it here would tolerate any value at all in it.) If a future change makes
+  // the fixture emit a sixth key, this must be edited deliberately.
+  assert.deepEqual(Object.keys(request.body).sort(), [
+    "messages",
+    "model",
+    "stream",
+    "stream_options",
+    "tools"
+  ]);
   assert.deepEqual(request.body.stream_options, { include_usage: true });
 });
 
