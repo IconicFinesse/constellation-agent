@@ -391,3 +391,74 @@ test("a fenced display reply on admin's path dispatches NOTHING", async (t) => {
   assert.equal(deletes.length, deletesBefore, "display content must never execute");
   assert.equal(store.engineSwapPendingHold, null, "no hold can come from display text");
 });
+
+// --- the promotion, and the no-fork guard ------------------------------------
+
+test("onscreen settles a hold through the SAME shared function admin uses", async () => {
+  // THE PARITY THAT MAKES THE PROMOTION SAFE. If onscreen's delegation ever diverges
+  // from `replaceHeldToolResult` — a re-implemented body, a dropped argument, a narrowed
+  // match — this goes red while everything else stays green. Parity is asserted by
+  // RESULT over histories that exercise each branch of the guard, not by reading source.
+  const { replaceHeldToolResult } = await import(
+    "/modules/_core/framework/js/engine-swap/history-shapes.js"
+  );
+  const { onscreenAgent } = await import("/modules/_core/onscreen_agent/store.js");
+
+  // A history whose LAST entry is the held result for `callId`.
+  function historyWithHeldResult(callId) {
+    return [
+      { content: "delete it", id: "a1", kind: "", role: "assistant" },
+      {
+        content: `held: the file ${callId} is waiting for the user's confirmation in the chat.`,
+        id: `tool-result-${callId}`,
+        kind: "tool_result",
+        role: "user",
+        toolResult: { callId, name: "file_delete", payload: null }
+      }
+    ];
+  }
+
+  const cases = [
+    { args: { content: "ok: {\"deleted\":true}", isError: false, toolCallId: "call_1" }, history: historyWithHeldResult("call_1") },
+    { args: { content: "policy: the user denied the file.", isError: true, toolCallId: "call_2" }, history: historyWithHeldResult("call_2") },
+    // NO MATCH: the array comes back unchanged but still as a NEW array.
+    { args: { content: "ok: 1", isError: false, toolCallId: "missing" }, history: historyWithHeldResult("call_9") }
+  ];
+
+  for (const { args, history } of cases) {
+    const previous = onscreenAgent.history;
+    onscreenAgent.history = history;
+
+    try {
+      assert.deepEqual(
+        onscreenAgent.replaceEngineSwapHeldResult(args),
+        replaceHeldToolResult(history, args),
+        "onscreen must settle through the shared function, identically"
+      );
+    } finally {
+      onscreenAgent.history = previous;
+    }
+  }
+
+  // The shared function must not mutate its input either.
+  const original = historyWithHeldResult("call_3");
+  const snapshot = JSON.stringify(original);
+  replaceHeldToolResult(original, { content: "ok: 1", isError: false, toolCallId: "call_3" });
+  assert.equal(JSON.stringify(original), snapshot, "the input history must not be mutated");
+});
+
+test("the shared LOOP is used, never re-implemented on admin's side", () => {
+  const source = readFileSync(new URL("store.js", ADMIN_DIR), "utf8");
+  const bridge = readFileSync(new URL("engine-swap-bridge.js", ADMIN_DIR), "utf8");
+
+  // A forked loop would need the loop's own vocabulary. Neither file has any of it:
+  // the iteration cap, the stop-reason set and the loop entry point all stay reachable
+  // only through the shared driver/session.
+  assert.doesNotMatch(source, /TOOL_TURN_MAX_ITERATIONS/u, "the iteration cap is the shared loop's");
+  assert.doesNotMatch(source, /TOOL_TURN_STOP_REASON/u, "stop reasons are the shared loop's");
+  assert.doesNotMatch(source, /runToolTurn/u, "admin must not call the loop directly");
+  assert.doesNotMatch(bridge, /runToolTurn/u, "the bridge must not fork the loop either");
+  // And the driver is reached through the bridge, not re-implemented.
+  assert.match(bridge, /createTier1TurnDriver/u);
+  assert.doesNotMatch(source, /engine-swap\/turn-driver\.js/u);
+});
