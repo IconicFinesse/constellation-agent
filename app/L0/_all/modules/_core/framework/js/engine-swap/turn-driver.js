@@ -43,6 +43,17 @@ import {
   sanitizeTier1WireMessages
 } from "/modules/_core/framework/js/engine-swap/wire-hygiene.js";
 import { canonicalMessagesToTypedEntries } from "/modules/_core/framework/js/engine-swap/history-shapes.js";
+// The ENGINE TURN LOG (P7-1). A dependency-free leaf, so importing it here keeps the
+// dispatch-OFF import graph exactly as inert as it was: this file is statically
+// imported by both surface stores, and nothing below allocates, logs or writes until a
+// real Tier 1 turn begins.
+import {
+  appendTurnLogStep,
+  createTurnLogRecord,
+  emitTurnLogRecord,
+  finalizeTurnLogRecord,
+  turnLogStepFromEvent
+} from "/modules/_core/framework/js/engine-swap/turn-log.js";
 
 // The closed dispatch-outcome mapping. A status outside the `DISPATCH_OUTCOME` set is not
 // a settle signal — the chip stays `Running` rather than having an outcome invented for it.
@@ -84,7 +95,11 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
     engineSwapPreviewSealed: false,
     engineSwapProvisionalCalls: [],
     engineSwapStreamingPreview: null,
-    engineSwapTier1Session: null
+    engineSwapTier1Session: null,
+    // The IN-FLIGHT engine turn log (P7-1): `{ lastEventAt, record }` for the turn
+    // currently running, or null outside one. Seventh member of the owned state and
+    // subject to the same rule as the other six -- nothing template-binds to it.
+    engineSwapTurnLog: null
   };
 
   // THE PUBLIC SEAMS THE SURFACE OWNS. `runTier1TurnAndCommit` composes TWO driver
@@ -370,6 +385,83 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
       return true;
     },
 
+    // --- engine turn log (P7-1) ------------------------------------------------
+    //
+    // OBSERVATION ONLY. One content-free record per turn, delivered fire-and-forget
+    // through the surface's api client. Every helper below is TOTAL and SILENT on
+    // failure: a log that can break or delay a chat turn is worse than no log, so each
+    // one swallows its own throw and the emit path additionally resolves rather than
+    // rejects. Nothing here reads or influences dispatch, validation, transport or the
+    // committed history.
+    //
+    // WHY THE `finally` AND NOT THE RETURN: `runTier1ConversationTurn` has ONE exit for
+    // a finished turn and a `finally` that every path crosses -- success, transport
+    // error, user stop, held, iteration cap, AND a thrown transport that never reaches
+    // a return statement at all. Recording the end there means a turn that dies cannot
+    // leave a record permanently open, which a return-site record would.
+    beginEngineTurnLog({ model = "", tier = "", wireMessageCount = 0 } = {}) {
+      try {
+        state.engineSwapTurnLog = {
+          lastEventAt: Date.now(),
+          record: createTurnLogRecord({ model, startedAt: Date.now(), tier })
+        };
+        state.engineSwapTurnLog.record.wireMessageCount = Number(wireMessageCount) || 0;
+      } catch {
+        state.engineSwapTurnLog = null;
+      }
+    },
+
+    recordEngineTurnLogEvent(event) {
+      try {
+        const active = state.engineSwapTurnLog;
+
+        if (!active) {
+          return;
+        }
+
+        const now = Date.now();
+        const step = turnLogStepFromEvent(event, { durationMs: now - active.lastEventAt });
+
+        if (!step) {
+          return;
+        }
+
+        appendTurnLogStep(active.record, step);
+        active.lastEventAt = now;
+      } catch {
+        // Observation must never break a turn.
+      }
+    },
+
+    finishEngineTurnLog({ outcome = "", toolCount = 0, wireMessageCount = 0 } = {}) {
+      try {
+        const active = state.engineSwapTurnLog;
+
+        state.engineSwapTurnLog = null;
+
+        if (!active) {
+          return null;
+        }
+
+        const record = finalizeTurnLogRecord(active.record, {
+          endedAt: Date.now(),
+          outcome,
+          toolCount,
+          wireMessageCount
+        });
+
+        // Fire-and-forget: the promise is intentionally not awaited, and a rejected
+        // post resolves to null inside the recorder.
+        emitTurnLogRecord(record, { api: inputs.runtime()?.api || null });
+
+        return record;
+      } catch {
+        // Observation must never break a turn.
+      }
+
+      return null;
+    },
+
     // The ONE translation from a loop event to surface state. Every OTHER event the loop
     // emits (`assistant-turn`, `turn-error`, `incomplete-arguments-refused`) already reaches
     // the surface through the turn RESULT, so consuming those here would be a second source
@@ -380,6 +472,14 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
     // never raised.
     handleEngineSwapTurnEvent(event = {}) {
       try {
+        // ENGINE TURN LOG (P7-1): the SAME subscription the chip settle already uses.
+        // Recording happens BEFORE the dispatch-only early return below, because three
+        // of the four recorded step types (`assistant-turn`, `turn-error`,
+        // `incomplete-arguments-refused`) are exactly the events that return early --
+        // subscribing anywhere after that guard would log dispatch steps only. The
+        // recorder swallows its own errors, so this cannot change the return value.
+        driver.recordEngineTurnLogEvent(event);
+
         if (String(event?.type || "") !== "dispatch") {
           return false;
         }
@@ -496,7 +596,20 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
         sendCompletion
       });
 
+      // ENGINE TURN LOG (P7-1). Declared OUTSIDE the try so the `finally` below can
+      // close the record on every exit; both are assigned inside it.
+      let turnLogOutcome = "";
+      let turnLogToolCount = 0;
+
       try {
+        // One record per turn, opened before the first provider call so the turn's own
+        // duration covers the whole thing the owner waited for. `wireMessageCount` is
+        // filled at the finish below, where the sanitized wire length is in scope.
+        driver.beginEngineTurnLog({
+          model: String(inputs.settings().model || ""),
+          tier: String(plan?.tier || "")
+        });
+
         const turn = await inputs.runTier1Turn(buildTurnRequest({
           initialMessages: messages,
           // SETTLE-ON-DISPATCH: the loop emits `{ type: "dispatch", call, outcome }` the
@@ -541,6 +654,11 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
             });
           }
         }));
+
+        // How many tools the model was actually OFFERED, read off the session that
+        // built the request list rather than re-derived from config: a logged count
+        // that disagrees with the wire would be evidence against us.
+        turnLogToolCount = Number(turn?.session?.assembled?.tools?.length) || turnLogToolCount;
 
         // BOUNDED CORRECTIVE RETRY. A sanitized wire is the fix; this is the belt for
         // the case where a model still answered with separator prose and never made a
@@ -636,6 +754,8 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
               }
             }));
 
+            turnLogToolCount = Number(second?.session?.assembled?.tools?.length) || turnLogToolCount;
+
             // The coaching turn is scaffolding, not conversation. Dropping it from
             // the persisted message list keeps the transcript honest: the user never
             // said it, so it must not become a user bubble they later scroll past.
@@ -670,6 +790,11 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
         // reply and its tool results. Reported here so there is one source of truth
         // for what was actually sent. Deliberately the ORIGINAL wire length, so a
         // corrective retry cannot erase the first attempt from history.
+        // The turn's own settled status IS the logged outcome: one vocabulary, read from
+        // the loop rather than re-decided here. A thrown turn never reaches this line,
+        // which the recorder reports as `error` -- the honest word for it.
+        turnLogOutcome = String(finalTurn?.result?.status || "");
+
         return {
           correctiveRetry: retry,
           result: finalTurn.result,
@@ -678,6 +803,22 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
           wireMessageCount: messages.length
         };
       } finally {
+        // ENGINE TURN LOG (P7-1): ONE guaranteed exit. This `finally` is why the record is
+        // finished HERE and not at a return site -- success, transport error, user stop, a
+        // held destructive call, the iteration cap AND a thrown transport all cross this
+        // line, and a record left open by the one path that never returns would be the
+        // same stranding defect the preview slot was fixed for. Delivered fire-and-forget:
+        // nothing is awaited, so logging cannot delay the turn either.
+        try {
+          driver.finishEngineTurnLog({
+            outcome: turnLogOutcome,
+            toolCount: turnLogToolCount,
+            wireMessageCount: messages.length
+          });
+        } catch {
+          // Observation must never break a turn.
+        }
+
         // The preview dies with the turn. Commit, hold, error, stop, iteration cap and
         // a thrown transport all return through here, so a streamed reply the user
         // watched can never linger as a row that history does not contain.

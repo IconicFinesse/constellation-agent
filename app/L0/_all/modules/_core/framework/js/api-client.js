@@ -618,6 +618,35 @@ function createFolderDownloadQuery(pathOrOptions) {
   };
 }
 
+/**
+ * Build the write request for one engine turn-log record.
+ * The record is a bounded, content-free summary of what the engine did.
+ *
+ * @param {object} record
+ * @returns {{ method: string, body: object }}
+ */
+function createEngineLogWriteRequest(record) {
+  return {
+    body: record && typeof record === "object" ? record : {},
+    method: "POST"
+  };
+}
+
+/**
+ * Build the read request for recent engine turn-log records.
+ *
+ * @param {number | { limit?: number }} limitOrOptions
+ * @returns {{ method: string, query: { limit?: number } }}
+ */
+function createEngineLogReadRequest(limitOrOptions = 50) {
+  const limit = isPlainObject(limitOrOptions) ? limitOrOptions.limit : limitOrOptions;
+
+  return {
+    method: "GET",
+    query: Number.isFinite(Number(limit)) ? { limit: Number(limit) } : {}
+  };
+}
+
 function createGitHistoryListRequest(pathOrOptions, limit) {
   if (isPlainObject(pathOrOptions)) {
     return {
@@ -1168,6 +1197,27 @@ export function createApiClient(options = {}) {
   }
 
   /**
+   * Append ONE engine turn-log record. Fire-and-forget by contract: the recorder
+   * catches the rejection, so a logging failure can never break or delay a turn.
+   *
+   * @param {object} record
+   * @returns {Promise<{ ok: boolean, stored: number }>}
+   */
+  async function engineLogWrite(record) {
+    return call("engine_log", createEngineLogWriteRequest(record));
+  }
+
+  /**
+   * Read the most recent engine turn-log records (newest last).
+   *
+   * @param {number | { limit?: number }} [limitOrOptions]
+   * @returns {Promise<{ ok: boolean, records: object[], total: number }>}
+   */
+  async function engineLogRead(limitOrOptions = 50) {
+    return call("engine_log", createEngineLogReadRequest(limitOrOptions));
+  }
+
+  /**
    * Read the patch for one file in a local-history commit.
    *
    * @param {string | { path?: string, commitHash?: string, commit?: string, hash?: string, filePath?: string, file?: string, pathWithinCommit?: string }} pathOrOptions
@@ -1228,6 +1278,8 @@ export function createApiClient(options = {}) {
 
   return {
     call,
+    engineLogRead,
+    engineLogWrite,
     fileCopy,
     fileDelete,
     fileInfo,
