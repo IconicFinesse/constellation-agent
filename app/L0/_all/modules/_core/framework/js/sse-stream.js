@@ -153,8 +153,15 @@ export function pumpEventStreamText(bodyText, onDelta, meta, onPayload = null) {
 
   const remaining = buffer.trim();
 
+  // The trailing UNTERMINATED frame is a real frame: a provider may end its body
+  // mid-frame with no closing `\n\n`, and its payload may be the ONLY one that
+  // carries a `tool_calls` fragment (or the whole completion). `readStreamingResponse`
+  // forwards the hook here (see its own callsite); dropping it on this path meant a
+  // buffered body ending mid-frame delivered ZERO payloads to the assembler — a blank
+  // turn with a green suite. The dirty-flag read that `pumpEventStreamText` guards on
+  // is unchanged: this is the same single block parse, with the same hook.
   if (remaining) {
-    parseEventBlock(remaining, onDelta, meta);
+    parseEventBlock(remaining, onDelta, meta, onPayload);
   }
 
   return finalizeCompletionResponseMeta(meta);
