@@ -558,39 +558,223 @@ test("structural label lines are painted with the `is-print` modifier", () => {
   );
 });
 
-test("a CSS rule exists for `.is-print` and its colour is neither a status nor muted", () => {
-  const css = readProductFile(AGENT_THREAD_CSS);
-  const rule = css.match(/\.terminal-line\.is-print\s*\{([^}]*)\}/u);
+// --- CSS colour resolution ---------------------------------------------------------------
+//
+// WHAT THIS REPLACES, AND WHY IT WAS A BLIND INSTRUMENT. The rule declares
+// `var(--color-accent-primary-strong)` — an UNRESOLVED string — and the earlier version of this
+// test compared that string against RESOLVED hex values. A `var()` expression never equals a
+// hex, so every `notEqual` passed regardless of which token the rule named: seeding the success,
+// warning, danger or muted colour into the rule still passed all of them. Only the two literal
+// hex comparisons could ever fail. Under the owner's bar a measurement is evidence only if it
+// could have failed, so the check is now resolved-versus-resolved, with the var() chain followed
+// (`--agent-thread-muted-color` is itself `var(--color-text-secondary)`).
 
-  assert.ok(rule, "`.terminal-line.is-print` must have a rule alongside the other is-* rules");
+function readTokenMap() {
+  return [COLORS_CSS, AGENT_THREAD_CSS].map(readProductFile).reduce((tokens, source) => {
+    const declaration = /(--[a-z0-9-]+)\s*:\s*([^;]+);/giu;
+    let match;
 
-  const color = rule[1].match(/color:\s*([^;]+);/u)?.[1]?.trim();
+    while ((match = declaration.exec(stripComments(source))) !== null) {
+      // First declaration of a name wins, as a single :root block would.
+      if (!tokens.has(match[1])) {
+        tokens.set(match[1], match[2].trim());
+      }
+    }
 
-  assert.ok(color, "the rule must set a colour");
+    return tokens;
+  }, new Map());
+}
 
-  const colors = readProductFile(COLORS_CSS);
-  const tokenValue = (name) => {
-    const found = colors.match(new RegExp(`${name}:\\s*([^;]+);`, "u"));
+function resolveColor(value, tokens, depth = 0) {
+  const trimmed = String(value || "").trim();
 
-    return found ? found[1].trim() : null;
-  };
+  if (depth > 8) {
+    throw new Error(`var() chain too deep at ${trimmed}`);
+  }
 
-  const statusTokens = [
-    tokenValue("--color-status-success"),
-    tokenValue("--color-status-warning"),
-    tokenValue("--color-status-danger")
-  ].filter(Boolean);
+  const variable = trimmed.match(/^var\(\s*(--[a-z0-9-]+)\s*(?:,\s*([^)]+))?\)$/iu);
 
-  // The rule must not reuse a STATUS colour: these are structural labels, not outcomes.
-  statusTokens.forEach((statusValue) => {
-    assert.notEqual(color, statusValue, `is-print must not read as a status (${statusValue})`);
+  if (!variable) {
+    return trimmed;
+  }
+
+  const [, name, fallback] = variable;
+  const declared = tokens.get(name);
+
+  if (declared === undefined) {
+    if (fallback !== undefined) {
+      return resolveColor(fallback, tokens, depth + 1);
+    }
+
+    throw new Error(`unresolved custom property ${name}`);
+  }
+
+  return resolveColor(declared, tokens, depth + 1);
+}
+
+function declaredRuleColor(cssText, selectorFragment) {
+  // `[^{]*` because the muted rule shares its block with `.is-meta`.
+  const block = cssText.match(new RegExp(`\\.terminal-line\\.${selectorFragment}[^{]*\\{([^}]*)\\}`, "u"));
+
+  return block ? (block[1].match(/color:\s*([^;]+);/u)?.[1]?.trim() ?? null) : null;
+}
+
+// Colours the structural-label rule must NOT resolve to. The sibling modifier rules are read
+// from the stylesheet itself, so the file's own literals are covered without hardcoding them.
+const FORBIDDEN_COLOURS = [
+  { label: "status success", value: "var(--color-status-success)" },
+  { label: "status warning", value: "var(--color-status-warning)" },
+  { label: "status danger", value: "var(--color-status-danger)" },
+  { label: "muted body text", value: "var(--agent-thread-muted-color)" }
+];
+
+const SIBLING_MODIFIERS = ["is-warn", "is-error", "is-result", "is-muted"];
+
+// Returns the COLLISIONS found rather than asserting internally, so a seeded mutation can call
+// it directly and be observed going non-empty.
+function colourCollisions(cssText) {
+  const tokens = readTokenMap();
+  const declared = declaredRuleColor(cssText, "is-print");
+
+  if (!declared) {
+    return ["no .terminal-line.is-print colour"];
+  }
+
+  const resolved = resolveColor(declared, tokens);
+  const collisions = [];
+
+  FORBIDDEN_COLOURS.forEach(({ label, value }) => {
+    if (resolved === resolveColor(value, tokens)) {
+      collisions.push(`equals ${label} (${resolved})`);
+    }
   });
-  assert.notEqual(color, "#ffb0a9", "the literal error colour");
-  assert.notEqual(color, "#ffd586", "the literal warn colour");
 
-  // Nor may it be identical to muted body text, or a reader cannot see where a block starts.
-  assert.notEqual(color, "var(--agent-thread-muted-color)", "is-print must be distinguishable from muted body text");
-  assert.notEqual(color, tokenValue("--color-text-secondary"), "and not literally the muted value");
+  SIBLING_MODIFIERS.forEach((sibling) => {
+    const siblingColour = declaredRuleColor(cssText, sibling);
+
+    if (siblingColour && resolveColor(siblingColour, tokens) === resolved) {
+      collisions.push(`equals .${sibling} (${resolved})`);
+    }
+  });
+
+  return collisions;
+}
+
+// WCAG 2.x relative luminance and contrast, computed here so the numbers quoted in the report
+// are checkable rather than copied.
+function linearChannel(channel) {
+  const scaled = channel / 255;
+
+  return scaled <= 0.03928 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
+}
+
+function luminance(hex) {
+  const value = Number.parseInt(String(hex).replace("#", ""), 16);
+
+  return (
+    0.2126 * linearChannel((value >> 16) & 255) +
+    0.7152 * linearChannel((value >> 8) & 255) +
+    0.0722 * linearChannel(value & 255)
+  );
+}
+
+function contrastRatio(a, b) {
+  const first = luminance(a);
+  const second = luminance(b);
+
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+}
+
+test("a CSS rule exists for `.is-print` and its RESOLVED colour collides with no status or muted colour", () => {
+  const css = readProductFile(AGENT_THREAD_CSS);
+
+  assert.ok(
+    /\.terminal-line\.is-print\s*\{/u.test(css),
+    "`.terminal-line.is-print` must have a rule alongside the other is-* rules"
+  );
+
+  const collisions = colourCollisions(css);
+
+  assert.deepEqual(
+    collisions,
+    [],
+    `is-print must not resolve to a status or muted colour; collisions: ${collisions.join("; ")}`
+  );
+});
+
+test("PROOF THE INSTRUMENT CAN FAIL: every forbidden colour seeded into the rule is caught", () => {
+  const css = readProductFile(AGENT_THREAD_CSS);
+  const seeds = [
+    { label: "status success token", color: "var(--color-status-success)" },
+    { label: "status warning token", color: "var(--color-status-warning)" },
+    { label: "status danger token", color: "var(--color-status-danger)" },
+    { label: "muted body-text token", color: "var(--agent-thread-muted-color)" },
+    { label: "muted value via chained token", color: "var(--color-text-secondary)" },
+    { label: "warn literal", color: "#ffd586" },
+    { label: "error literal", color: "#ffb0a9" }
+  ];
+  const caught = [];
+
+  const seed = (color) =>
+    css.replace(
+      /(\.terminal-line\.is-print\s*\{[^}]*color:\s*)([^;]+)(;)/u,
+      (_match, head, _original, tail) => `${head}${color}${tail}`
+    );
+
+  seeds.forEach(({ label, color }) => {
+    const seeded = seed(color);
+
+    assert.notEqual(seeded, css, `${label}: the seed must actually rewrite the rule`);
+
+    if (colourCollisions(seeded).length > 0) {
+      caught.push(label);
+    }
+  });
+
+  assert.deepEqual(
+    caught,
+    seeds.map((entry) => entry.label),
+    `every seeded status/muted colour must be caught (caught ${caught.length} of ${seeds.length})`
+  );
+
+  // INERT CONTROL: a different, non-status colour must NOT be reported, so a matcher that fired
+  // on everything could not pass this test.
+  const inert = seed("var(--color-accent-primary)");
+
+  assert.notEqual(inert, css, "the inert control must actually rewrite the rule");
+  assert.deepEqual(colourCollisions(inert), [], "a distinct accent colour must not be flagged");
+});
+
+test("the structural-label colour is legible and is NOT brighter than body text (measured)", () => {
+  const css = readProductFile(AGENT_THREAD_CSS);
+  const tokens = readTokenMap();
+  const label = resolveColor(declaredRuleColor(css, "is-print"), tokens);
+  const muted = resolveColor("var(--agent-thread-muted-color)", tokens);
+  const body = resolveColor("var(--color-text-primary)", tokens);
+  const pane = resolveColor(tokens.get("--agent-thread-execution-pane-bg") || "#09131f", tokens);
+
+  // AA for normal text is 4.5:1; the tint clears it comfortably.
+  assert.ok(
+    contrastRatio(label, pane) >= 4.5,
+    `is-print must stay legible, got ${contrastRatio(label, pane).toFixed(2)}:1`
+  );
+
+  // THE CORRECTED FACT, pinned so it cannot be misstated again. The accent is DARKER than both
+  // body text and muted text, so this rule does not brighten these headers and they are not the
+  // most prominent text in the pane — it identity-tints them, the way `result↓` and `warn↓` are
+  // tinted. The claim in the earlier report and in the CSS comment was backwards.
+  assert.ok(
+    luminance(label) < luminance(muted),
+    `is-print (L=${luminance(label).toFixed(4)}) must be darker than muted (L=${luminance(muted).toFixed(4)})`
+  );
+  assert.ok(
+    luminance(label) < luminance(body),
+    `is-print (L=${luminance(label).toFixed(4)}) must be darker than body text (L=${luminance(body).toFixed(4)})`
+  );
+  assert.ok(
+    contrastRatio(label, pane) < contrastRatio(body, pane),
+    "and its contrast must be LOWER than the inherited body colour, which is what the report now says"
+  );
 });
 
 test("`is-print` has ONE producer: the shared typed formatter, not a per-surface copy", () => {
