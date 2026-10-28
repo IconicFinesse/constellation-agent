@@ -27,8 +27,14 @@
 
 import {
   appendExecutionTextBlock,
+  boundExecutionStructuredValue,
+  boundExecutionTranscriptChunks,
+  EXECUTION_FORMAT_MAX_TRANSCRIPT_LINES,
+  hasExecutionHiddenMarker,
   normalizeExecutionTextBlock
 } from "/modules/_core/framework/js/execution-format.js";
+
+export { hasExecutionHiddenMarker };
 
 // The print-level prefix vocabulary, unchanged from the render layer it came from.
 export const EXECUTION_PRINT_LINE_PATTERN = /^(log|info|warn|error|debug|dir|table|assert)(:\s*|↓)$/iu;
@@ -153,62 +159,84 @@ export function formatTypedToolArguments({ argumentsText = "" } = {}) {
 // `appendExecutionTextBlock` is the SAME writer admin's transcript uses for a console log,
 // a result and an error, so a typed payload reads the way an executed one always has —
 // same `↓` arrow, same indentation, same modifier vocabulary.
-function appendLabelledBlock(entries, label, value) {
+function labelledEntries(label, value) {
   const lines = [];
 
   appendExecutionTextBlock(lines, label, value);
-  lines.forEach((line) => entries.push(classifiedLine(line)));
+
+  return lines.map(classifiedLine);
+}
+
+// THE STRUCTURED-VALUE ADAPTER (P4b-2a).
+//
+// A JSON value is clamped by the SHARED structured rule before it is serialized, so an
+// over-deep payload cannot paint a wall either. `unbounded` is what the pane's expansion
+// affordance renders, and it comes through THIS function with the clamp switched off —
+// never through a second serializer, so "bounded" and "everything" cannot drift apart.
+function prettyBoundedValue(value, options) {
+  return prettyJson(options.unbounded ? value : boundExecutionStructuredValue(value));
 }
 
 // `run_code`'s payload shape is stable and known (established by the execution engine):
 //   { error: {text} | null, logs: [{level, text}], result, resultText, runId, status }
-// Render it structurally, in the order the transcript has always used.
-function formatRunCodePayload(payload, entries) {
+//
+// Build it as ORDERED CHUNKS, in the order the transcript has always used. A chunk is one
+// labelled block plus whether it is exempt from bounding, because exemption is a property of
+// a whole block: an error body must survive intact, and a flat line list would lose that the
+// moment the classifier labelled its lines.
+function runCodeChunks(payload, options) {
+  const chunks = [];
   const logs = Array.isArray(payload?.logs) ? payload.logs : [];
 
   logs.forEach((entry) => {
     const level = typeof entry?.level === "string" && entry.level.trim() ? entry.level.trim() : "log";
 
-    appendLabelledBlock(entries, level, entry?.text ?? "");
+    chunks.push({ entries: labelledEntries(level, entry?.text ?? ""), exempt: false });
   });
 
   const hasResult = payload?.result !== undefined || (typeof payload?.resultText === "string" && payload.resultText !== "");
 
   if (hasResult) {
-    const resultText =
-      typeof payload?.resultText === "string" && payload.resultText !== ""
-        ? payload.resultText
-        : prettyJson(payload?.result);
+    const resultIsText = typeof payload?.resultText === "string" && payload.resultText !== "";
+    // A TEXT result is transcript text and is bounded by LINES only; a structured result is
+    // a console value and takes the structured caps. Two rules, applied where each belongs.
+    const resultText = resultIsText ? payload.resultText : prettyBoundedValue(payload?.result, options);
 
-    appendLabelledBlock(entries, "result", resultText);
+    chunks.push({ entries: labelledEntries("result", resultText), exempt: false });
   }
 
   const errorText = payload?.error?.text;
 
   if (errorText !== undefined && errorText !== null && String(errorText) !== "") {
-    appendLabelledBlock(entries, "error", String(errorText));
+    // EXEMPT. An error is never truncated — not by lines, not by characters, not by depth.
+    // An unreadable error is a defect, so this block is exempt from every bound in this lane.
+    chunks.push({ entries: labelledEntries("error", String(errorText)), exempt: true });
   }
 
-  return entries.length > 0;
+  return chunks;
 }
 
 // Every other tool: pretty-printed JSON under a `result↓` line. Still structure, still
 // classified, still no new vocabulary.
-function formatGenericPayload(payload, entries) {
-  entries.push(classifiedLine("result↓"));
-  splitLines(prettyJson(payload)).forEach((line) => entries.push(classifiedLine(line)));
-
-  return true;
+function genericChunks(payload, options) {
+  return [
+    {
+      entries: [
+        classifiedLine("result↓"),
+        ...splitLines(prettyBoundedValue(payload, options)).map((line) => classifiedLine(line))
+      ],
+      exempt: false
+    }
+  ];
 }
 
 // The error face of any tool that is not `run_code`, or a `run_code` whose payload did not
 // arrive. `coaching`/`message` are the two fields the history reader keeps.
-function formatErrorResult(error, entries) {
+function errorChunks(error) {
   const body = String(error?.coaching || error?.message || error?.text || "").trim();
 
-  appendLabelledBlock(entries, "error", body || "The tool reported an error.");
-
-  return true;
+  // EXEMPT for the same reason as the payload's error block: an error body is never cut.
+  return [{ entries: labelledEntries("error", body || "The tool reported an error."), exempt: true }];
 }
 
 // The last-resort face: no payload object and no error, only the committed text.
@@ -217,16 +245,44 @@ function formatErrorResult(error, entries) {
 // on disk), and the shape a caller gets when it only knows the projected string. It is run
 // through the SAME classifier line by line, so it is honest classified output rather than a
 // raw dump — and never a second rendering vocabulary.
-function formatTextFallback(outputText, entries) {
+function textChunks(outputText) {
   const text = String(outputText ?? "").trim();
 
   if (!text) {
-    return false;
+    return [];
   }
 
-  splitLines(text).forEach((line) => entries.push(classifiedLine(line)));
+  return [{ entries: splitLines(text).map((line) => classifiedLine(line)), exempt: false }];
+}
 
-  return true;
+// CHUNKS IN, PAINTED LINES OUT.
+//
+// The cap, the arithmetic and the marker WORDING all come from the shared module; this
+// function only decides where the marker lands in the entry sequence, and it does that from
+// the chunks the shared rule KEPT rather than by re-counting lines.
+function paintChunks(chunks, options) {
+  const list = Array.isArray(chunks) ? chunks : [];
+
+  if (options.unbounded) {
+    return list.flatMap((chunk) => chunk.entries);
+  }
+
+  const bounded = boundExecutionTranscriptChunks(list, { maxLines: options.maxLines });
+  const entries = [];
+
+  bounded.chunks.forEach((chunk) => entries.push(...chunk.entries));
+
+  if (bounded.markerText) {
+    const markerIndex = bounded.chunks
+      .slice(0, bounded.cutIndex)
+      .reduce((total, chunk) => total + chunk.entries.length, 0);
+
+    // `is-muted` is the vocabulary a blank line already wears: the marker is transcript
+    // furniture, not program output, and it must not read as a line the program printed.
+    entries.splice(markerIndex, 0, { modifier: "is-muted", text: bounded.markerText });
+  }
+
+  return entries;
 }
 
 function isRunCode(name) {
@@ -249,41 +305,54 @@ export function normalizeTypedPayload(payload) {
 // Total by construction. The `try` wraps the whole body because this runs on every paint,
 // and a throw here would blank the thread; the catch degrades to the text face, which is
 // the honest description of what we have.
-export function formatTypedToolResult({ error = null, name = "", outputText = "", payload } = {}) {
-  const entries = [];
+//
+// BOUNDING (P4b-2a). By default the painted transcript is bounded by LINE COUNT, with an
+// explicit marker naming exactly how many lines were hidden, and structured values are
+// clamped by admin's console caps. `unbounded: true` renders the complete content through
+// the SAME builder — that is what the pane's `Show all` control paints, so the expanded and
+// collapsed forms are one derivation and cannot disagree.
+export function formatTypedToolResult({ error = null, name = "", outputText = "", payload, unbounded = false } = {}) {
+  const options = { maxLines: EXECUTION_FORMAT_MAX_TRANSCRIPT_LINES, unbounded };
 
   try {
     const normalized = normalizeTypedPayload(payload);
     const hasPayload = normalized !== undefined && normalized !== null;
 
-    if (hasPayload && isRunCode(name) && typeof normalized === "object" && formatRunCodePayload(normalized, entries)) {
-      return Object.freeze(entries);
+    if (hasPayload && isRunCode(name) && typeof normalized === "object") {
+      const chunks = runCodeChunks(normalized, options);
+
+      if (chunks.length) {
+        return Object.freeze(paintChunks(chunks, options));
+      }
     }
 
     // An ARRAY payload is structure too (`file_list` answers with a list), so it takes the
-    // same generic path. `formatGenericPayload` fills `entries` and answers a success flag;
-    // the entries are what the caller gets, never the flag.
+    // same generic path.
     if (hasPayload && (typeof normalized === "object" || Array.isArray(normalized))) {
-      formatGenericPayload(normalized, entries);
-      return Object.freeze(entries);
+      return Object.freeze(paintChunks(genericChunks(normalized, options), options));
     }
 
     if (error) {
-      formatErrorResult(error, entries);
-      return Object.freeze(entries);
+      return Object.freeze(paintChunks(errorChunks(error), options));
     }
 
-    if (hasPayload && typeof normalized === "string" && formatTextFallback(normalized, entries)) {
-      return Object.freeze(entries);
+    if (hasPayload && typeof normalized === "string") {
+      const chunks = textChunks(normalized);
+
+      if (chunks.length) {
+        return Object.freeze(paintChunks(chunks, options));
+      }
     }
 
-    formatTextFallback(outputText, entries);
-
-    return Object.freeze(entries);
+    return Object.freeze(paintChunks(textChunks(outputText), options));
   } catch {
-    const fallback = [];
+    let fallback = [];
 
-    formatTextFallback(outputText, fallback);
+    try {
+      fallback = paintChunks(textChunks(outputText), { ...options, unbounded: true });
+    } catch {
+      fallback = [];
+    }
 
     return Object.freeze(fallback);
   }

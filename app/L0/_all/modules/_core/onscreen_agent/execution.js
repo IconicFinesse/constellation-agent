@@ -5,6 +5,7 @@ import {
 } from "./turn-boundary.js";
 import {
   appendExecutionTextBlock,
+  EXECUTION_FORMAT_MAX_DEPTH as MAX_FORMAT_DEPTH,
   formatExecutionLogArgs,
   formatExecutionTranscriptValue
 } from "/modules/_core/framework/js/execution-format.js";
@@ -23,7 +24,9 @@ const SHARED_STATE_KEY = "__spaceOnscreenAgentSharedState";
 const CONSOLE_METHODS = ["log", "info", "warn", "error", "debug", "dir", "table", "assert"];
 const INTERNAL_SCOPE_KEYS = new Set(["__spaceScope", "__spaceWindow"]);
 const WINDOW_ALIAS_KEYS = new Set(["page", "window", "globalThis", "self"]);
-const MAX_FORMAT_DEPTH = 2;
+// Sourced from the shared module (P4b-2a), not declared here. This surface still applies
+// ONLY the depth cap in its console formatter; the string/collection caps admin applies are
+// the divergence P4b-2c reconciles, and adding them here would be that lane's work.
 function isLoadedOnscreenSkill(value) {
   return Boolean(value?.__spaceSkill) && typeof value?.content === "string" && typeof value?.path === "string";
 }

@@ -1,5 +1,8 @@
 import {
   appendExecutionTextBlock,
+  EXECUTION_FORMAT_MAX_COLLECTION_ENTRIES as MAX_COLLECTION_ENTRIES,
+  EXECUTION_FORMAT_MAX_DEPTH as MAX_FORMAT_DEPTH,
+  EXECUTION_FORMAT_MAX_STRING_LENGTH as MAX_STRING_LENGTH,
   formatExecutionLogArgs,
   formatExecutionTranscriptValue
 } from "/modules/_core/framework/js/execution-format.js";
@@ -18,9 +21,10 @@ const SHARED_STATE_KEY = "__spaceAdminAgentSharedState";
 const CONSOLE_METHODS = ["log", "info", "warn", "error", "debug", "dir", "table", "assert"];
 const INTERNAL_SCOPE_KEYS = new Set(["__spaceScope", "__spaceWindow"]);
 const WINDOW_ALIAS_KEYS = new Set(["page", "window", "globalThis", "self"]);
-const MAX_STRING_LENGTH = 220;
-const MAX_COLLECTION_ENTRIES = 8;
-const MAX_FORMAT_DEPTH = 2;
+// The cap NUMBERS are not declared here any more: they are the shared module's
+// `EXECUTION_FORMAT_MAX_*` exports (P4b-2a), imported under this file's existing names so
+// every use below is unchanged. One source for the numbers; this file's formatter bodies
+// are untouched.
 
 function isLoadedAdminSkill(value) {
   return Boolean(value?.__spaceAdminSkill) && typeof value?.content === "string" && typeof value?.path === "string";
