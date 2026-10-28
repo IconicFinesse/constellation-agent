@@ -33,6 +33,14 @@ import {
   PREVIEW_PAINT_MODE,
   selectMessageContentPainter
 } from "/modules/_core/visual/conversation/preview-markdown.js";
+// THE ONE turn-progress vocabulary (P4b-2b). The turn-level indicator below and the two
+// surfaces' status lines all read their words from here, so a phase can never be spelled
+// two ways. The fence-aware block extractor stays injected through this factory's
+// `execution` config, exactly as every other separator question in this file does.
+import {
+  formatLineCount,
+  getTurnProgressLabel
+} from "/modules/_core/visual/conversation/turn-progress.js";
 
 const EXECUTION_STATUS_LINE_PATTERN = /^execution\s+(.+)$/iu;
 // `EXECUTION_PRINT_LINE_PATTERN` MOVED with the classifier it belongs to (P4b-1).
@@ -372,9 +380,14 @@ export function createAgentThreadView(config = {}) {
     return executeDisplay.blocks.reduce((total, block) => total + countCodeLines(block), 0);
   }
 
-  function formatLineCount(lineCount) {
-    return `${lineCount} ${lineCount === 1 ? "line" : "lines"}`;
-  }
+  // `formatLineCount` IS NOT DECLARED HERE (P4b-2b follow-up, audit finding 2).
+  //
+  // The promotion covered the phase phrases and left this helper behind, on the consumer
+  // file, with a divergent body: the shared copy uses `toLocaleString()` ("1,000 lines")
+  // and this one did not ("1000 lines"). Exactly two definitions tree-wide of a formatter
+  // that names a count — the defect class this campaign exists to remove. It is imported
+  // from `conversation/turn-progress.js` instead. Behaviour change, disclosed: a pane label
+  // past 999 lines gains a thousands separator.
 
   function createTerminalOutputEntries(results, options = {}) {
     const pendingState = options.pendingState || "";
@@ -732,6 +745,156 @@ export function createAgentThreadView(config = {}) {
 
     accessory.append(createMessageAvatar(role));
     return accessory;
+  }
+
+  // --- TURN-LEVEL PROGRESS AFFORDANCE (P4b-2b) --------------------------------
+  //
+  // The per-call chip spinner answers "is THIS call running". Nothing answered "is the
+  // agent working right now", so before the first token of a turn the transcript showed
+  // the user's own row and nothing else — dead air — and a turn that opened with a tool
+  // call showed chips with no turn-level context around them.
+  //
+  // PRESENCE IS DERIVED, NEVER REMEMBERED. `options.isConversationBusy` is the surface's
+  // own in-flight flag and BOTH surfaces already pass it to this renderer, so the
+  // indicator needs no new store field, no new render option and no cleanup call. It is
+  // recomputed on every paint from the same option the chip's busy state already reads,
+  // which is what makes an outliving indicator impossible: there is no stored state that
+  // a missed exit could leave behind, only a paint that would have to keep claiming a
+  // turn is live after the surface stopped saying so.
+  //
+  // THE LABEL is the ONE shared vocabulary (`turn-progress.js`), fed the content this
+  // render was handed. That content is the live assistant entry the projection already
+  // appends while a turn streams, so the label tracks the phase with no second reader.
+  // THE TAIL SLICE, NOT THE FIRST STREAMING ENTRY (P4b-2b follow-up, audit finding 1).
+  //
+  // Once a chip splits the live preview at the offset where it appeared, the projection
+  // emits [frozen prose segment, chip, frozen prose segment, ... , TAIL]. Every one of
+  // those segments carries `streaming: true`, so `history.find(...)` returned the FIRST
+  // one — prose the user had already scrolled past — while the per-delta patch paints the
+  // TAIL (`resolvePreviewTailContent`, the projection's own answer). Two painters, two
+  // derivations, and the label visibly flipped on every chip repaint:
+  //
+  //   full render -> "Writing response..."
+  //   delta patch -> "Writing 2 lines of code..."
+  //   full render -> "Writing response..."
+  //
+  // The fix is the same rule the projection uses for its tail: the LAST assistant entry
+  // still streaming that is not a FROZEN segment. When nothing is split there is exactly
+  // one such entry, so an unsplit preview reads the whole accumulated text — unchanged.
+  // Both painters therefore read one derivation (the projection's split), never two.
+  function getLiveTurnContent(history) {
+    if (!Array.isArray(history)) {
+      return "";
+    }
+
+    let liveEntry = null;
+
+    for (const entry of history) {
+      if (!entry || entry.role !== "assistant" || entry.streaming !== true) {
+        continue;
+      }
+
+      if (entry.previewSegmentFrozen === true) {
+        continue;
+      }
+
+      liveEntry = entry;
+    }
+
+    return liveEntry && typeof liveEntry.content === "string" ? liveEntry.content : "";
+  }
+
+  function createTurnProgressRow() {
+    const row = document.createElement("div");
+    row.className = "message-row assistant turn-progress-row";
+    row.dataset.turnProgress = "true";
+    // A live region, announced when it appears and when the PHASE changes. The label is
+    // written through `setElementText`, which skips an identical string, so a repaint tick
+    // that changes nothing does not re-announce. The spinner is decorative: the words carry
+    // the meaning, which is also what makes the reduced-motion variant honest.
+    row.setAttribute("role", "status");
+    row.setAttribute("aria-live", "polite");
+    row.setAttribute("aria-atomic", "true");
+
+    const bubble = document.createElement("div");
+    bubble.className = "turn-progress-bubble";
+
+    const spinner = document.createElement("span");
+    spinner.className = "turn-progress-spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    // The EXISTING icon and the EXISTING keyframes: `agent-thread-spin` already drives
+    // every running chip, so the turn indicator cannot introduce a second animation.
+    const icon = document.createElement("x-icon");
+    icon.textContent = "sync";
+    spinner.append(icon);
+
+    const label = document.createElement("span");
+    label.className = "turn-progress-label";
+    label.dataset.turnProgressLabel = "true";
+
+    bubble.append(spinner, label);
+    row.append(createMessageAvatarSpacer("assistant"), bubble);
+    return row;
+  }
+
+  // The LABEL half on its own, for the per-delta patch path. A phase change ("Thinking..." →
+  // "Writing 12 lines of code...") happens while the row is being patched in place, not
+  // only on a full render, so both painters read the SAME classifier and the SAME live
+  // content. Presence is deliberately not touched here: a patch can only run while a
+  // streaming entry exists, which is a turn in flight by definition.
+  function syncTurnProgressLabel(thread, content) {
+    if (!thread) {
+      return;
+    }
+
+    const row = thread.querySelector("[data-turn-progress]");
+
+    if (!row) {
+      return;
+    }
+
+    setElementText(
+      row.querySelector("[data-turn-progress-label]"),
+      getTurnProgressLabel(content, { extractExecuteBlocks })
+    );
+  }
+
+  function syncTurnProgress(thread, history, options = {}) {
+    if (!thread) {
+      return;
+    }
+
+    const existing = thread.querySelector("[data-turn-progress]");
+
+    if (options.isConversationBusy !== true) {
+      // ABSENT when no turn is in flight. Presence is the only thing this row ever says
+      // about liveness, so removing it IS the clear — there is no separate completion path
+      // that could be forgotten.
+      existing?.remove();
+      return;
+    }
+
+    const row = existing || createTurnProgressRow();
+    setElementText(
+      row.querySelector("[data-turn-progress-label]"),
+      getTurnProgressLabel(getLiveTurnContent(history), { extractExecuteBlocks })
+    );
+
+    if (!existing) {
+      thread.append(row);
+      return;
+    }
+
+    // KEEP IT LAST. The thread's row diff is POSITIONAL, so a row inserted here would
+    // shift every index above it. This renderer filters the indicator out of that diff (it
+    // is not a history row), and re-appending keeps the reading order stable: the words a
+    // turn is producing, then the one line saying the turn is still going.
+    const children = Array.from(thread.children || []);
+
+    if (children[children.length - 1] !== row) {
+      row.remove();
+      thread.append(row);
+    }
   }
 
   function createMessageRow(role, bubble, extraClassName = "", options = {}) {
@@ -1233,10 +1396,11 @@ export function createAgentThreadView(config = {}) {
     const bubble = document.createElement("article");
     bubble.className = "message-bubble";
 
-    if (message.streaming) {
-      bubble.classList.add("is-streaming");
-    }
-
+    // `is-streaming` USED TO BE ADDED HERE AND PAINTED NOTHING (P4b-2b). Three sites added
+    // it and no stylesheet in the tree ever had a rule for it, so it was a marker with no
+    // reader — drift that looked like a feature. The turn-level indicator
+    // (`[data-turn-progress]`, below) is now the one place a live turn is signalled, and it
+    // is a real element rather than an unread class name.
     if (message.kind === "queued") {
       bubble.classList.add("is-queued");
     }
@@ -1365,10 +1529,10 @@ export function createAgentThreadView(config = {}) {
     const bubble = document.createElement("article");
     bubble.className = "message-bubble";
 
-    if (group.sections.some((section) => Boolean(section.message.streaming))) {
-      bubble.classList.add("is-streaming");
-    }
-
+    // The second of the three dead `is-streaming` additions, removed in P4b-2b: no rule in
+    // the tree ever matched it, so it painted nothing. Whether this sequence is live is
+    // still read where it MATTERS — `section.message.streaming` drives the per-section chip
+    // state and the row's streaming mark — and turn-level liveness is the indicator's job.
     group.sections.forEach((section) => {
       const sectionElement = document.createElement("div");
       sectionElement.className = "assistant-sequence-section assistant-message-shell";
@@ -1538,7 +1702,9 @@ export function createAgentThreadView(config = {}) {
       return false;
     }
 
-    bubble.classList.add("is-streaming");
+    // The third dead `is-streaming` addition, removed in P4b-2b: it repainted a class no
+    // rule ever matched on every live frame. `message.streaming` still decides everything
+    // this patch actually does below (chip vocabulary, tier reading, narration).
     row.dataset.streamingMessageId = message.id;
     const lineCount = getExecuteDisplayLineCount(executeDisplay);
     // ONE VOCABULARY PER TIER, on the live path too (item 1). The patch used to force
@@ -2386,6 +2552,14 @@ export function createAgentThreadView(config = {}) {
     const renderedMessages = queuedMessages.length ? [...history, ...queuedMessages] : history;
     const groups = renderedMessages.length ? applyAvatarGrouping(buildMessageDisplayGroups(renderedMessages, options)) : [];
 
+    // BEFORE THE EMPTY-STATE EARLY RETURN, ALWAYS. That return exists so a settled empty
+    // session is not rebuilt on every paint, but it also runs on the paint that ENDS a
+    // turn — and this lane's own first draft put the sync after it, so the clear was
+    // skipped and the indicator outlived its turn (caught by a headless probe, not by
+    // review). The clear must run on every paint path, including the ones that draw
+    // nothing.
+    syncTurnProgress(thread, renderedMessages, options);
+
     if (!groups.length && thread.classList.contains("is-empty")) {
       return;
     }
@@ -2409,6 +2583,10 @@ export function createAgentThreadView(config = {}) {
       thread.innerHTML = "";
       thread.classList.add("is-empty");
       thread.append(emptyState || buildDefaultEmptyState(options.emptyStateText || defaultEmptyStateText));
+      // THE DEAD-AIR CASE. A fresh chat whose first turn is already in flight has no rows
+      // at all, and this branch is the whole paint. Synced AFTER the wipe, because the
+      // wipe took the previous indicator with it.
+      syncTurnProgress(thread, renderedMessages, options);
       window.requestAnimationFrame(() => {
         restoreThreadScrollSnapshots(thread, scrollSnapshots, options);
       });
@@ -2416,7 +2594,13 @@ export function createAgentThreadView(config = {}) {
     }
 
     const wasEmpty = thread.classList.contains("is-empty");
-    const existingRows = wasEmpty ? [] : Array.from(thread.children);
+    // THE INDICATOR IS NOT A HISTORY ROW. `existingRows` is compared POSITIONALLY against
+    // the group list, so leaving the turn-progress row in it would shift every index by
+    // one and rebuild the whole thread on each paint. It is filtered out here and synced
+    // separately, which keeps the row diff exactly as it was.
+    const existingRows = wasEmpty
+      ? []
+      : Array.from(thread.children).filter((child) => child?.dataset?.turnProgress === undefined);
     let stablePrefixLength = 0;
     const comparisonCount = Math.min(existingRows.length, groups.length);
 
@@ -2449,6 +2633,10 @@ export function createAgentThreadView(config = {}) {
       thread.append(buildGroupRow(groups[index], options));
     }
 
+    // Synced AFTER the rows so it sits last, and BEFORE the scroll restore so the extra
+    // height it adds is part of what the restore measures.
+    syncTurnProgress(thread, renderedMessages, options);
+
     window.requestAnimationFrame(() => {
       restoreThreadScrollSnapshots(thread, scrollSnapshots, options);
     });
@@ -2464,6 +2652,13 @@ export function createAgentThreadView(config = {}) {
     const row = thread.querySelector(`[data-streaming-message-id="${message.id}"]`);
     const executeDisplay = parseExecuteDisplayContent(message.content);
     const showAvatar = row?.__spaceThreadShowAvatar !== false;
+    // THE ONE LABEL SOURCE ON THIS PATH (P4b-2b follow-up, audit finding 1). The label is
+    // derived from the SAME slice the preview painter writes: the projection's tail when a
+    // chip has split the preview, the whole accumulated content when it has not. Passing
+    // `message.content` here while the full render read a different segment is what made
+    // the label flip on every chip repaint.
+    const progressLabelSource =
+      typeof options.previewTailContent === "string" ? options.previewTailContent : message.content;
 
     if (!row) {
       return false;
@@ -2493,6 +2688,10 @@ export function createAgentThreadView(config = {}) {
 
       // Same preview path as the row build: this node exists only while streaming.
       renderPreviewMarkdown(textBlock, previewSource);
+      // The PHASE is part of what the user reads while this row streams ("Thinking..." →
+      // "Writing 12 lines of code..." → "Writing response..."), and this patch is the only
+      // painter running per delta. Same classifier, same live content.
+      syncTurnProgressLabel(thread, progressLabelSource);
       setRowRenderState(
         row,
         buildStreamingRenderGroup(message, {
@@ -2541,6 +2740,11 @@ export function createAgentThreadView(config = {}) {
         options
       );
     }
+
+    // Same phase sync as the text branch: a turn that streams a tool card also changes
+    // phase (`Preparing code...` → `Writing N lines of code...` → `Writing response...`)
+    // and this patch is the only painter running while it does.
+    syncTurnProgressLabel(thread, progressLabelSource);
 
     if (stickyBottom && scroller) {
       scroller.scrollTop = getMaxScrollTop(scroller);

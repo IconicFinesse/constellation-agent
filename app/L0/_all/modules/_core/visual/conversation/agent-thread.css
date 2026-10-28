@@ -742,6 +742,57 @@
   border-top: 1px solid var(--agent-thread-terminal-divider);
 }
 
+/* --- TURN-LEVEL PROGRESS INDICATOR (P4b-2b) ---------------------------------
+
+   The per-call chip spinner says "this call is running". This row says "the agent is
+   working right now", which is the only thing on screen before the first token arrives.
+
+   It reuses `agent-thread-spin` — the SAME keyframes every running chip already uses —
+   so no second animation exists. The label carries the meaning; the spinner is
+   decorative (`aria-hidden` on the icon), which is also what keeps the reduced-motion
+   variant honest: with motion off, the row still says what is happening. */
+
+.agent-thread-surface .turn-progress-row {
+  align-items: center;
+}
+
+.agent-thread-surface .turn-progress-bubble {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  min-height: 0;
+  color: var(--agent-thread-muted-color);
+  font-size: 0.82rem;
+}
+
+.agent-thread-surface .turn-progress-spinner {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: var(--color-accent-primary);
+}
+
+.agent-thread-surface .turn-progress-spinner x-icon {
+  font-size: 18px;
+  animation: agent-thread-spin 0.9s linear infinite;
+}
+
+.agent-thread-surface .turn-progress-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-thread-surface .turn-progress-spinner x-icon {
+    animation: none;
+  }
+}
+
 @keyframes agent-thread-spin {
   from {
     transform: rotate(0deg);

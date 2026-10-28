@@ -5,6 +5,14 @@ import * as agentApi from "/modules/_core/onscreen_agent/api.js";
 // evidence — one module, two surfaces, and no surface-owned copy to drift.
 import { buildChatRenderProjection, resolvePreviewTailContent } from "/modules/_core/framework/js/engine-swap/chat-projection.js";
 import { createToolRunOpenState } from "/modules/_core/visual/conversation/tool-run.js";
+// THE turn-progress vocabulary, shared with the admin surface and the thread view
+// (P4b-2b). The status phrases are user-visible, so they are declared once.
+import {
+  countDisplayLines,
+  formatLineCount,
+  getTurnProgressLabel,
+  TURN_PROGRESS_THINKING
+} from "/modules/_core/visual/conversation/turn-progress.js";
 import {
   installPromptItemAccess,
   rebalancePromptBudgetRatios
@@ -1327,40 +1335,19 @@ function waitForDomUpdate() {
   });
 }
 
-function countDisplayLines(text) {
-  const normalizedText =
-    typeof text === "string" ? text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trimEnd() : "";
-
-  if (!normalizedText.trim()) {
-    return 0;
-  }
-
-  return normalizedText.split("\n").length;
-}
-
-function formatLineCount(lineCount) {
-  return `${lineCount.toLocaleString()} ${lineCount === 1 ? "line" : "lines"}`;
-}
-
+// THE SHARED TURN-PROGRESS VOCABULARY (P4b-2b). The four strings this surface used to
+// declare privately now live in `visual/conversation/turn-progress.js`, because the
+// thread view needs the same words for the turn-level progress indicator and the admin
+// surface needs them for its own status line. One definition, three consumers — a second
+// copy of a user-visible phrase is exactly the drift this campaign removes.
+//
+// Only the fence-aware block extractor is injected: this surface owns
+// `onscreen_agent/execution.js`, admin owns its own, and a second copy of fence logic is
+// the BUG-007 anti-pattern.
 function getStreamingAssistantStatus(content) {
-  const normalizedContent = typeof content === "string" ? content : "";
-  const executeBlocks = execution.extractExecuteBlocks(normalizedContent);
-
-  if (executeBlocks.length) {
-    const codeLineCount = countDisplayLines(executeBlocks[0]?.code || "");
-
-    if (codeLineCount > 0) {
-      return `Writing ${formatLineCount(codeLineCount)} of code...`;
-    }
-
-    return "Preparing code...";
-  }
-
-  if (normalizedContent.trim()) {
-    return "Writing response...";
-  }
-
-  return "Thinking...";
+  return getTurnProgressLabel(content, {
+    extractExecuteBlocks: execution.extractExecuteBlocks
+  });
 }
 
 function getExecutionStatusText(code, index, total) {
@@ -5191,7 +5178,7 @@ const model = {
           : "Loading local LLM...";
       }
     } else {
-      this.status = "Thinking...";
+      this.status = TURN_PROGRESS_THINKING;
     }
 
     const controller = new AbortController();
@@ -5749,7 +5736,7 @@ const model = {
         // this is a preview of the same prefix, never a second source of truth.
         this.history = [...requestMessages];
         this.activeTurnRequestMessages = requestMessages;
-        this.status = "Thinking...";
+        this.status = TURN_PROGRESS_THINKING;
         this.render();
         await this.persistPendingTurnHistory(requestMessages);
 
