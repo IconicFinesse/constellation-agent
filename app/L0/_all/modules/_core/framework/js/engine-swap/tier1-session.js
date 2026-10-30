@@ -33,11 +33,36 @@ import { TOOL_TURN_STOP_REASON, runToolTurn } from "./tool-turn-loop.js";
 
 export const TIER1_TURN_STATUS = Object.freeze({
   ANSWERED: "answered",
+  // BUG-008: the turn's text claimed display-only, so its calls were refused. NOT
+  // `error` (nothing failed) and NOT `held` (nothing is waiting for consent).
+  DISPLAY_REFUSED: "display-refused",
   ERROR: "error",
   HELD: "held",
   ITERATION_CAP: "iteration-cap",
   STOPPED: "stopped"
 });
+
+// ONE reason -> status mapping, used by `run()` AND by the post-hold continuation.
+// The continuation used to spell this as a binary
+// `reason === answered ? answered : held`, which would report a BUG-008 display
+// refusal as a HOLD — a consent bar for a refusal that has already happened. One
+// mapper means a new reason cannot be mislabelled on a path nobody re-read.
+export function tier1StatusForReason(reason) {
+  switch (reason) {
+    case TOOL_TURN_STOP_REASON.DISPLAY_REFUSED:
+      return TIER1_TURN_STATUS.DISPLAY_REFUSED;
+    case TOOL_TURN_STOP_REASON.HELD:
+      return TIER1_TURN_STATUS.HELD;
+    case TOOL_TURN_STOP_REASON.ERROR:
+      return TIER1_TURN_STATUS.ERROR;
+    case TOOL_TURN_STOP_REASON.ITERATION_CAP:
+      return TIER1_TURN_STATUS.ITERATION_CAP;
+    case TOOL_TURN_STOP_REASON.STOPPED:
+      return TIER1_TURN_STATUS.STOPPED;
+    default:
+      return TIER1_TURN_STATUS.ANSWERED;
+  }
+}
 
 // Reads the tool calls out of a completion. Accepts BOTH shapes the transport can
 // produce since P3:
@@ -311,31 +336,21 @@ export function createTier1Session({
         tools: assembled.tools
       });
 
-      let status = TIER1_TURN_STATUS.ANSWERED;
-
-      switch (outcome.reason) {
-        case TOOL_TURN_STOP_REASON.HELD:
-          status = TIER1_TURN_STATUS.HELD;
-          break;
-        case TOOL_TURN_STOP_REASON.ERROR:
-          status = TIER1_TURN_STATUS.ERROR;
-          break;
-        case TOOL_TURN_STOP_REASON.ITERATION_CAP:
-          status = TIER1_TURN_STATUS.ITERATION_CAP;
-          break;
-        case TOOL_TURN_STOP_REASON.STOPPED:
-          status = TIER1_TURN_STATUS.STOPPED;
-          break;
-        default:
-          status = TIER1_TURN_STATUS.ANSWERED;
-      }
+      let status = tier1StatusForReason(outcome.reason);
 
       return Object.freeze({
         answer: outcome.answer || "",
         capabilities: assembled.capabilities,
+        // BUG-008, report-only: what the loop refused and why. `refused` is one record
+        // per answered call, `displayClaim` the phrase that armed the guard (empty on
+        // a turn that was never refused). Nothing branches on these — they exist so a
+        // test and the owner's report can name WHICH claim refused WHICH call, instead
+        // of inferring it from a status word.
+        displayClaim: outcome.displayClaim || "",
         error: outcome.error || "",
         hold: outcome.hold || null,
         messages: outcome.messages,
+        refused: Array.isArray(outcome.refused) ? outcome.refused : [],
         status,
         turns: outcome.turns,
         // Cache accounting for the settled turn, DERIVED from the turn records rather
@@ -409,7 +424,11 @@ export function createTier1Session({
         answer: outcome.answer || "",
         messages: outcome.messages,
         reason: outcome.reason,
-        status: outcome.reason === TOOL_TURN_STOP_REASON.ANSWERED ? TIER1_TURN_STATUS.ANSWERED : TIER1_TURN_STATUS.HELD,
+        // ONE mapper, shared with `run()`: the previous binary
+        // `answered ? answered : held` reported any non-answer (a BUG-008 display
+        // refusal included) as a HOLD, which would paint a consent bar for a turn
+        // that refused. A refusal and a hold are different outcomes by contract.
+        status: tier1StatusForReason(outcome.reason),
         turns: outcome.turns
       });
     },

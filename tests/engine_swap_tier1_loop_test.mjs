@@ -798,8 +798,15 @@ test("runToolTurn refuses to start without a sender or a pipeline", async () => 
 });
 
 test("a stop reason enum covers every exit", () => {
+  // STILL EXHAUSTIVE, deliberately: `display-refused` is a SIXTH exit (BUG-008), not
+  // a loosening. A turn whose own text claimed display-only ends there, and reporting
+  // it as `error` would say something failed when nothing did, while reporting it as
+  // `held` would paint a consent bar for a refusal. The mirror in `turn-log.js` and
+  // the server's OUTCOMES whitelist carry the same word, and the display-guard suite
+  // asserts both mirrors against this list.
   assert.deepEqual(Object.values(TOOL_TURN_STOP_REASON).sort(), [
     "answered",
+    "display-refused",
     "error",
     "held",
     "iteration-cap",

@@ -33,11 +33,16 @@ import {
 } from "./canonical.js";
 import { DISPATCH_OUTCOME, formatToolResultForModel } from "./dispatch-pipeline.js";
 import { formatHeldToolResult } from "./destructive-gate.js";
+import { createDisplayRefusalError, findDisplayClaim } from "./display-claim.js";
 
 export const TOOL_TURN_MAX_ITERATIONS = 12;
 
 export const TOOL_TURN_STOP_REASON = Object.freeze({
   ANSWERED: "answered",
+  // BUG-008: the turn's own text claimed it was only SHOWING the action, so its
+  // calls were refused rather than dispatched. Its own reason rather than `error`:
+  // the turn did what the reply promised, and nothing failed.
+  DISPLAY_REFUSED: "display-refused",
   ERROR: "error",
   HELD: "held",
   ITERATION_CAP: "iteration-cap",
@@ -242,6 +247,72 @@ export async function runToolTurn({
         toolCalls: announced
       })
     );
+
+    // BUG-008: THE DISPLAY-ONLY REFUSAL.
+    //
+    // The measured defect: the model printed the code, told the user it was "not
+    // executed" / "nothing was created", and ALSO dispatched the real call, which
+    // ran. In all five non-clean turns the shape was identical — this turn's TEXT
+    // carried the claim and the dispatch arrived in the same assistant turn as a
+    // separate call — which is why the rule lives HERE, at the loop, and not in a
+    // dispatch-time dry-run mode, a per-tool opt-out or a schema flag.
+    //
+    // Order is load-bearing, in both directions:
+    //   - AFTER the announcement, so the calls exist in the message list and can be
+    //     answered. A refusal that dropped them would leave unanswered
+    //     `tool_call_id`s, which breaks every later turn — the one shape this loop
+    //     exists to prevent.
+    //   - BEFORE the dispatch loop, so ZERO handlers run. The guard's whole value is
+    //     that no side effect happens, so it cannot be a post-dispatch filter.
+    //
+    // The refusal is a REAL `policy` dispatch error (the closed taxonomy), one per
+    // announced call, while the destroyed-turn outcome is its own stop reason. It is
+    // deliberately not a hold: a hold asks the user a question and paints a confirm
+    // bar; this has already refused, on the strength of what the reply told them.
+    const displayClaim = findDisplayClaim(text);
+
+    if (displayClaim) {
+      const refused = [];
+
+      toolCalls.forEach((call, position) => {
+        const error = createDisplayRefusalError({
+          callId: String(call?.id || ""),
+          count: toolCalls.length,
+          tool: String(call?.name || "")
+        });
+        const outcome = Object.freeze({ call, error, status: DISPATCH_OUTCOME.ERROR });
+        const resultContent = formatToolResultForModel(outcome);
+
+        messages.push(
+          createToolResultMessage({
+            content: resultContent,
+            isError: true,
+            toolCallId: call.id
+          })
+        );
+        refused.push({ callId: String(call?.id || ""), name: String(call?.name || ""), position });
+        emit({
+          call,
+          claim: displayClaim,
+          outcome,
+          position,
+          refusedCount: toolCalls.length,
+          result: { content: resultContent, isError: true },
+          type: "display-claim-refused"
+        });
+      });
+
+      return Object.freeze({
+        // The reply the user was shown IS this turn's answer: it said the action
+        // would not run, and now it did not.
+        answer: text,
+        displayClaim,
+        messages: Object.freeze(messages),
+        reason: TOOL_TURN_STOP_REASON.DISPLAY_REFUSED,
+        refused,
+        turns: Object.freeze(turns)
+      });
+    }
 
     let heldOutcome = null;
 

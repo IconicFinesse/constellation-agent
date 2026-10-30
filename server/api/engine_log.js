@@ -24,7 +24,7 @@ export const MAX_TURN_LOG_RECORDS = 500;
 
 export const TURN_LOG_LIMIT_DEFAULT = 50;
 
-export const OUTCOMES = Object.freeze(["answered", "error", "held", "iteration-cap", "stopped"]);
+export const OUTCOMES = Object.freeze(["answered", "display-refused", "error", "held", "iteration-cap", "stopped"]);
 
 // A turn appends TWO records sharing one `turnId`: a `started` snapshot written before the
 // first model call, and the `finished` record written on completion. The JSONL ring buffer
@@ -47,6 +47,7 @@ export const USAGE_COUNT_FIELDS = Object.freeze([
 export const STEP_TYPES = Object.freeze([
   "assistant-turn",
   "dispatch",
+  "display-claim-refused",
   "incomplete-arguments-refused",
   "turn-error"
 ]);
@@ -127,6 +128,15 @@ function requireStep(step, index) {
     return {
       iteration: requireCount(step.iteration, `steps[${index}].iteration`),
       message: requireString(step.message, `steps[${index}].message`),
+      type
+    };
+  }
+
+  // BUG-008. Content-free like the incomplete-arguments step: a COUNT, never the
+  // claim phrase or any message text.
+  if (type === "display-claim-refused") {
+    return {
+      refusedCount: requireCount(step.refusedCount, `steps[${index}].refusedCount`),
       type
     };
   }
