@@ -879,8 +879,18 @@ test("cancel clears the hold and the session slot", () => {
       cancelled += 1;
     }
   };
+  // A held cancel now SETTLES the transcript and repaints it (BUG-009), so this
+  // DOM-less case stubs paint for the same reason its confirm and deny siblings do.
+  const previousRender = store.render;
+  const previousPersist = store.persistHistory;
+
+  store.render = () => {};
+  store.persistHistory = async () => {};
 
   store.cancelEngineSwapHold();
+
+  store.render = previousRender;
+  store.persistHistory = previousPersist;
 
   assert.equal(cancelled, 1, "cancel must tell the gate the episode is over");
   assert.equal(store.engineSwapPendingHold, null);

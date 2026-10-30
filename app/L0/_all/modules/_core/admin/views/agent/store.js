@@ -45,9 +45,16 @@ import {
   normalizeTypedHistoryFields,
   projectHistoryEntryForDisplay,
   projectHistoryEntryForPrompt,
-  replaceHeldToolResult,
-  serializeTypedHistoryFields
+  serializeTypedHistoryFields,
+  settleGateOutcome
 } from "/modules/_core/framework/js/engine-swap/history-shapes.js";
+// The USER-FACING gate sentences (BUG-009). Same three words onscreen commits, from
+// the same leaf, so one hold can never be described two ways on two surfaces.
+import {
+  formatGateCancelledMessage,
+  formatGateConfirmedMessage,
+  formatGateDeniedMessage
+} from "/modules/_core/framework/js/engine-swap/gate-message.js";
 // The admin surface's bridge into the shared engine-swap layer (P4a-3c): ONE tier
 // resolver, ONE turn driver, ONE tool-turn transport — the same three onscreen uses.
 // Admin imports the BRIDGE, not the engine modules themselves, so `store.js` carries no
@@ -1468,9 +1475,12 @@ const model = {
     // REPLACE, never append: exactly one result may exist per call id, or the next
     // Tier 1 request is invalid on the wire. Shared with onscreen through the ONE
     // implementation in `history-shapes.js`.
-    this.history = replaceHeldToolResult(this.history, {
+    // SETTLE + SPEAK: the held result row is replaced and the user-facing
+    // acknowledgement is committed beside it, through the ONE shared helper.
+    this.history = settleGateOutcome(this.history, {
       content: toolResultText,
       isError: !executed || executed.status !== "ok",
+      message: formatGateConfirmedMessage(hold, executed),
       toolCallId: callId
     });
     await this.persistHistory({
@@ -1520,6 +1530,7 @@ const model = {
     // CANCEL-BY-DENY: the gate settles to `denied` and the call NEVER reaches the
     // pipeline, so nothing on disk changes. The transcript still records the refusal,
     // replacing the held row so one result per call id stays true.
+    const hold = this.engineSwapPendingHold;
     const settled = session.denyHeld?.();
     const callId = settled?.callId || this.engineSwapPendingHold?.callId || "";
     const description = settled?.description || settled?.tool || "the action";
@@ -1527,9 +1538,12 @@ const model = {
     this.engineSwapPendingHold = null;
     this.engineSwapTier1Session = null;
     this.engineSwapHeldMessages = null;
-    this.history = replaceHeldToolResult(this.history, {
+    // A denial is a decision, and the reader of the saved transcript is entitled to it:
+    // the held row becomes a policy result and the user-facing sentence is committed.
+    this.history = settleGateOutcome(this.history, {
       content: `policy: the user denied ${description}.`,
       isError: true,
+      message: formatGateDeniedMessage(settled || hold || {}),
       toolCallId: callId
     });
     await this.persistHistory({
@@ -1544,10 +1558,27 @@ const model = {
   cancelEngineSwapHold() {
     // A stop or a chat clear ends the episode: tell the gate so its state machine
     // reaches a terminal status instead of being abandoned mid-hold.
-    this.engineSwapTier1Session?.cancelHeld?.();
+    const session = this.engineSwapTier1Session;
+    const hold = this.engineSwapPendingHold;
+
+    session?.cancelHeld?.();
     this.engineSwapTier1Session = null;
     this.engineSwapPendingHold = null;
     this.engineSwapHeldMessages = null;
+
+    // CANCELLED while held. The transcript must not keep claiming a decision is
+    // pending once nothing is waiting on the user, so the hold settles to a terminal
+    // policy result and the sentence says so.
+    if (hold) {
+      this.history = settleGateOutcome(this.history, {
+        content: `policy: the pending ${hold.description || hold.tool || "action"} was cancelled. Nothing was executed.`,
+        isError: true,
+        message: formatGateCancelledMessage(hold),
+        toolCallId: hold.callId || ""
+      });
+      this.persistHistory({ immediate: true }).catch(() => {});
+      this.render();
+    }
   },
 
   async flushHistoryPersistence() {
@@ -1960,6 +1991,11 @@ const model = {
 
     this.stopRequested = true;
     this.activeRequestController?.abort();
+    // A held destructive call must not outlive the stop: the hold is a consent
+    // question, and "stop" is an answer (BUG-009). Onscreen has always done this;
+    // admin did NOT until now, so a stop while held left the saved admin transcript
+    // ending on a placeholder that no reachable control could ever settle.
+    this.cancelEngineSwapHold();
     this.status = "Stopping after the current step...";
   },
 
@@ -2329,6 +2365,11 @@ const model = {
     });
 
     this.render();
+    // Clearing the chat also clears any pending consent question (BUG-009). The
+    // history has already been emptied here, so the settle finds nothing to retire and
+    // writes no sentence into the chat the user just cleared — which is exactly why
+    // `settleGateOutcome` acknowledges only when it actually changed something.
+    this.cancelEngineSwapHold();
     this.status = "Admin chat cleared and execution context reset.";
   },
 

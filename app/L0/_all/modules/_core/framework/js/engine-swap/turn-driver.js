@@ -42,7 +42,17 @@ import {
   resolveTier1CorrectiveRetry,
   sanitizeTier1WireMessages
 } from "/modules/_core/framework/js/engine-swap/wire-hygiene.js";
-import { canonicalMessagesToTypedEntries } from "/modules/_core/framework/js/engine-swap/history-shapes.js";
+import {
+  appendGateOutcomeMessage,
+  canonicalMessagesToTypedEntries
+} from "/modules/_core/framework/js/engine-swap/history-shapes.js";
+// The USER-FACING gate sentences (BUG-009). The gate has always told the MODEL what
+// happened; these are the words a HUMAN reads, and they are committed to history so a
+// pending decision survives a reload instead of living only in transient UI state.
+import {
+  formatGateCancelledMessage,
+  formatGateHeldMessage
+} from "/modules/_core/framework/js/engine-swap/gate-message.js";
 // The ENGINE TURN LOG (P7-1). A dependency-free leaf, so importing it here keeps the
 // dispatch-OFF import graph exactly as inert as it was: this file is statically
 // imported by both surface stores, and nothing below allocates, logs or writes until a
@@ -946,7 +956,15 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
           // affordance that lied about being actionable (P2 audit non-blocker 1).
           surface.setPendingHold(null);
           state.engineSwapHeldMessages = null;
-          surface.setHistory([...requestMessages, ...tailEntries]);
+          // This hold was CANCELLED by the policy (one consent question at a time), so the
+          // transcript says so. Without it the kept tail would end on a held placeholder
+          // that no reachable control can ever settle, which is the same silence BUG-009
+          // is about, just reached through a different door.
+          surface.setHistory(
+            appendGateOutcomeMessage([...requestMessages, ...tailEntries], {
+              content: formatGateCancelledMessage(result.hold || {})
+            })
+          );
           await surface.persistHistory({ immediate: true });
           surface.render();
           surface.setStatus("A confirmation is already waiting; finish it before starting another.");
@@ -959,7 +977,17 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
         // confirmation can resume the loop from it and let the model report what
         // actually happened, instead of stranding the user with a chip.
         state.engineSwapHeldMessages = Array.isArray(result.messages) ? [...result.messages] : null;
-        surface.setHistory([...requestMessages, ...tailEntries]);
+        // THE COMMITTED SENTENCE (BUG-009). The held sentence the model receives is a tool
+        // RESULT, so on its own the saved transcript ends at a tool row and a reader cannot
+        // tell a decision is pending. This appends the user-facing line as a real assistant
+        // entry — the same message shape every normal reply uses — so it persists, reloads
+        // and paints through the ordinary path. Both surfaces retire it when the hold
+        // settles (`settleGateOutcome`) or is cancelled.
+        surface.setHistory(
+          appendGateOutcomeMessage([...requestMessages, ...tailEntries], {
+            content: formatGateHeldMessage(result.hold || {})
+          })
+        );
         await surface.persistHistory({ immediate: true });
         surface.render();
         surface.setStatus("Waiting for your confirmation to delete.");

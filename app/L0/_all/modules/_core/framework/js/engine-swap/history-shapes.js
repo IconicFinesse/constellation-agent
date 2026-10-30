@@ -345,6 +345,88 @@ export function replaceHeldToolResult(history, { content = "", isError = false, 
   return next;
 }
 
+// THE PLAIN ASSISTANT MESSAGE SHAPE, written by the shared layer (BUG-009).
+//
+// A gate outcome needs a real committed assistant row, and every surface already writes
+// exactly this shape for a normal reply (`createMessage("assistant", content)` in
+// `onscreen_agent/store.js` and `admin/views/agent/store.js`, and the plain-assistant
+// branch of `canonicalMessagesToTypedEntries`). This is that shape and nothing else —
+// `{ attachments, content, id, kind, role }` — so the persistence writer, the reader, the
+// render projection and the prompt projection all handle it through the paths they
+// already have. No bespoke rendering, no second message type.
+//
+// `kind` is a plain tag (`execution-output` and `queued` are the same idea) and it is
+// what lets a settle find and retire the *pending* sentence it is superseding. It is
+// plainly a message to every reader: the only `kind` branches in the renderer are for
+// `execution-output` and `queued`.
+export const GATE_OUTCOME_MESSAGE_KIND = "gate-outcome";
+
+export function createGateOutcomeMessageEntry({ content = "", id = "" } = {}) {
+  return Object.freeze({
+    attachments: [],
+    content: normalizeText(content),
+    // Same id convention the surfaces' own `createMessage("assistant", ...)` uses.
+    id: normalizeText(id) || `assistant-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    kind: GATE_OUTCOME_MESSAGE_KIND,
+    role: "assistant"
+  });
+}
+
+// Drops the trailing gate rows of the CURRENT episode. Only a trailing run is removed:
+// a gate sentence from an earlier turn is history the user already read, and rewriting it
+// would edit the transcript behind them. Returns a new array either way.
+function withoutTrailingGateMessages(history) {
+  const next = Array.isArray(history) ? [...history] : [];
+
+  while (next.length) {
+    const last = next[next.length - 1];
+
+    if (normalizeText(last?.kind).trim() !== GATE_OUTCOME_MESSAGE_KIND) {
+      break;
+    }
+
+    next.pop();
+  }
+
+  return next;
+}
+
+// Commits the USER-FACING sentence for a gate outcome, keeping exactly one per episode.
+//
+// Used by the turn driver for HELD, so the pending decision is visible to a reader of the
+// saved transcript; both surfaces use `settleGateOutcome` to retire it again.
+export function appendGateOutcomeMessage(history, { content = "", id = "" } = {}) {
+  return [...withoutTrailingGateMessages(history), createGateOutcomeMessageEntry({ content, id })];
+}
+
+// Settles a held call AND commits the sentence describing the outcome, as one operation.
+//
+// The order is load-bearing. `replaceHeldToolResult` only rewrites the LAST entry, because
+// that is the call the turn ended on; the pending gate sentence now sits after that row,
+// so it is retired FIRST and only then is the held result replaced. Doing it the other way
+// round would find the gate sentence in the last position, match nothing, and leave the
+// placeholder claiming a decision that has been made.
+export function settleGateOutcome(
+  history,
+  { content = "", isError = false, message = "", toolCallId = "" } = {}
+) {
+  const base = withoutTrailingGateMessages(history);
+  const replaced = replaceHeldToolResult(base, { content, isError, toolCallId });
+
+  // NOTHING TO SETTLE, NOTHING TO SAY. Clearing the chat empties the history and then
+  // ends the hold, so a call can arrive with no row left to replace and no sentence left
+  // to retire. Appending there would write a gate sentence into a chat the user just
+  // cleared. Acknowledge only when this call actually changed something.
+  const settledARow = replaced.length === base.length && replaced.some((entry, index) => entry !== base[index]);
+  const retiredASentence = base.length !== (Array.isArray(history) ? history.length : 0);
+
+  if (!settledARow && !retiredASentence) {
+    return replaced;
+  }
+
+  return [...replaced, createGateOutcomeMessageEntry({ content: message })];
+}
+
 // Persistence mapping, used by BOTH the writer and the reader so they cannot
 // drift. Returns `{}` for a legacy message: its stored shape stays byte-identical
 // to before, with no new keys.
