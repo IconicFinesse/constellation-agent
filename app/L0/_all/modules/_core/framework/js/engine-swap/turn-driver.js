@@ -44,6 +44,7 @@ import {
 } from "/modules/_core/framework/js/engine-swap/wire-hygiene.js";
 import {
   appendGateOutcomeMessage,
+  appendTurnNoticeMessage,
   canonicalMessagesToTypedEntries
 } from "/modules/_core/framework/js/engine-swap/history-shapes.js";
 // The USER-FACING gate sentences (BUG-009). The gate has always told the MODEL what
@@ -58,6 +59,7 @@ import {
 // imported by both surface stores, and nothing below allocates, logs or writes until a
 // real Tier 1 turn begins.
 import {
+  TURN_LOG_STEP_TYPE,
   appendTurnLogStep,
   createTurnLogRecord,
   createTurnLogStartRecord,
@@ -65,6 +67,17 @@ import {
   finalizeTurnLogRecord,
   turnLogStepFromEvent
 } from "/modules/_core/framework/js/engine-swap/turn-log.js";
+// THE NO-PROGRESS WATCHDOG (BUG-013). Also a dependency-free leaf: a turn that stops
+// responding must FAIL VISIBLY instead of hanging in silence, and the window measures
+// SILENCE (re-armed by every sign of life) rather than how long a turn is taking -- a
+// real beta build took 108 s for its first step and must not be aborted for it.
+import {
+  STALLED_TURN_STATUS,
+  STALL_WATCHDOG_WINDOW_MS,
+  createStallWatchdog,
+  formatStallMessage,
+  formatStallStatus
+} from "/modules/_core/framework/js/engine-swap/stall-watchdog.js";
 
 // The closed dispatch-outcome mapping. A status outside the `DISPATCH_OUTCOME` set is not
 // a settle signal — the chip stays `Running` rather than having an outcome invented for it.
@@ -595,6 +608,165 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
 
       surface.setActiveRequestController(controller);
 
+      // --- THE NO-PROGRESS WATCHDOG (BUG-013) --------------------------------
+      //
+      // ONE watchdog per turn, armed before the first model call and re-armed by every
+      // sign of life. It measures SILENCE, never the length of a turn: a beta build
+      // legitimately took 108 s for its first step and must not be aborted for it,
+      // while the wedge this exists for produced 282 s with zero requests, zero stream
+      // events, zero dispatches and no console output at all.
+      //
+      // `isExempt` is consulted AT FIRE TIME rather than trusted from a paired cleanup
+      // call (the derived-not-cleared rule). A held destructive call is a consent
+      // QUESTION: a human is deciding, and that can legitimately outlast the window, so
+      // it must never be killed as a stall. Reading the surface's own pending-hold
+      // affordance here means no exit path can leave the exemption unset.
+      //
+      // THE CLOCK IS INJECTABLE. Production passes nothing and `stall-watchdog.js` uses
+      // real timers; a suite hands in a fake clock so it can advance 4.5 minutes
+      // instantly. A watchdog whose own tests sleep for its window is a suite nobody runs,
+      // and a suite nobody runs is not evidence.
+      const watchdogClock = (() => {
+        try {
+          const resolved = typeof inputs.stallWatchdogClock === "function" ? inputs.stallWatchdogClock() : null;
+
+          return resolved && typeof resolved === "object" ? resolved : {};
+        } catch {
+          return {};
+        }
+      })();
+
+      const watchdog = createStallWatchdog({
+        cancel: watchdogClock.cancel,
+        // `now` and `schedule` travel together: a clock that reports fake time while
+        // scheduling on real timers (or the reverse) would produce a watchdog that cannot
+        // be driven deterministically, which is the same as untested.
+        now: watchdogClock.now,
+        schedule: watchdogClock.schedule,
+        isExempt: () => {
+          try {
+            return Boolean(surface.getPendingHold?.());
+          } catch {
+            return false;
+          }
+        },
+        onFire: ({ silenceMs, windowMs }) => {
+          // THE ONE EXISTING STOP MECHANISM. `requestStop()` aborts this very
+          // controller, so a hung fetch is cut by the path already proven to cut one;
+          // no second stop path is introduced, and the stop control is not gated on
+          // this in any direction.
+          try {
+            controller.abort();
+          } catch {
+            // The race below frees the turn even if the abort itself throws.
+          }
+
+          try {
+            console.warn(
+              `[engine-swap] no-progress watchdog fired after ${Math.round(
+                Number(silenceMs || 0) / 1000
+              )}s of silence (window ${Math.round(Number(windowMs || 0) / 1000)}s).`
+            );
+          } catch {
+            // Logging must never break a turn.
+          }
+        }
+      });
+
+      // THE ONLY PLACE A TURN STOPS WAITING. A promise that never settles cannot be
+      // unwound by anything else: the session stays busy, the send loop never reaches
+      // its `finally`, and the user's only cure is a reload. Racing the turn against
+      // the watchdog frees it, and the abandoned promise keeps running harmlessly.
+      //
+      // Its LATE rejection is swallowed deliberately. The measured wedge produced no
+      // unhandled rejection; a fix that manufactured one would be a new defect.
+      const raceWatchdog = async (pending) => {
+        const guarded = Promise.resolve(pending);
+
+        guarded.catch(() => {});
+
+        return Promise.race([
+          guarded.then((value) => ({ status: "progress", value })),
+          watchdog.stalled.then((info) => ({ info, status: "stalled" }))
+        ]);
+      };
+
+      // ONE liveness funnel. Every sign of life a turn can produce (a streamed delta, a
+      // completed tool call, an iteration boundary, a dispatch start or finish, a model
+      // call starting or finishing) reports through here, so there is exactly one place
+      // that re-arms the window and no signal can acquire a second meaning.
+      const noteActivity = () => {
+        try {
+          watchdog.touch();
+        } catch {
+          // Re-arming must never break a turn.
+        }
+      };
+
+      // THE settled shape of a stalled turn, built ONCE so both raced call sites (the
+      // main attempt and the corrective retry) cannot describe one stall two ways.
+      //
+      // `messages: []` is the honest payload: a hung turn's own message list is
+      // unreachable, and inventing entries for it would put words in the model's mouth.
+      // The commit path therefore composes the user's request plus the stall notice and
+      // nothing else -- exactly the shape the measured wedge left behind (one user entry,
+      // no explanation), plus the explanation this lane exists to add.
+      const settleStall = (info) => {
+        const silenceMs = Math.max(0, Number(info?.silenceMs) || 0);
+        const windowMs = Math.max(0, Number(info?.windowMs) || STALL_WATCHDOG_WINDOW_MS);
+
+        // A USER STOP WINS (BUG-013). The fire already aborted the controller, which the
+        // loop turns into `stopped` -- but the measured wedge can hang with NO request in
+        // flight, where an abort reaches nothing and the promise never resolves. In that
+        // case the window elapses with a stop already requested, and reporting it as a
+        // stall would blame the engine for a turn the human ended. So the same check the
+        // loop makes is made here, and the turn settles as the stop it was.
+        let stoppedByUser = false;
+
+        try {
+          stoppedByUser = inputs.stopRequested() === true;
+        } catch {
+          stoppedByUser = false;
+        }
+
+        if (stoppedByUser) {
+          turnLogOutcome = "stopped";
+
+          return {
+            correctiveRetry: false,
+            result: { answer: "", messages: [], status: "stopped", turns: [] },
+            session: null,
+            wireHygiene: sanitized,
+            wireMessageCount: messages.length
+          };
+        }
+
+        turnLogOutcome = STALLED_TURN_STATUS;
+        // Content-free: TWO DURATIONS, never any message text. Routed through the ONE
+        // event-to-step choke point so the log records it the same way it records
+        // everything else.
+        driver.recordEngineTurnLogEvent({
+          silenceMs,
+          type: TURN_LOG_STEP_TYPE.STALLED,
+          windowMs
+        });
+
+        return {
+          correctiveRetry: false,
+          result: {
+            answer: "",
+            messages: [],
+            stall: { silenceMs, windowMs },
+            status: STALLED_TURN_STATUS,
+            turns: []
+          },
+          session: null,
+          stall: { silenceMs, windowMs },
+          wireHygiene: sanitized,
+          wireMessageCount: messages.length
+        };
+      };
+
       // The preview ACCUMULATES across this turn's iterations (owner-reported
       // transcript defect, 2026-10-27): it used to be cleared at the start of every
       // `sendCompletion`, so iteration 1's prose blinked out the moment iteration 2
@@ -607,6 +779,10 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
       let previewBoundaryPending = false;
 
       const appendPreviewDelta = (delta) => {
+        // A streamed token IS progress (BUG-013): a turn whose reply is arriving must
+        // never be scored as silent, however long the whole reply takes.
+        noteActivity();
+
         if (previewBoundaryPending) {
           previewBoundaryPending = false;
           driver.appendEngineSwapStreamingDelta("\n\n");
@@ -624,7 +800,17 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
         model: String(inputs.settings().model || ""),
         params: inputs.parseParams(inputs.settings().paramsText || ""),
         providerKey: "",
-        onEvent,
+        // EVERY LOOP EVENT IS LIVENESS (BUG-013), and the surface ALSO sees it exactly as
+        // before. This is the seal that makes the watchdog a NO-PROGRESS measure: an
+        // `assistant-turn`, a `dispatch`, a `dispatch-start`, a `turn-error` or an
+        // incomplete-arguments refusal all mean the engine is doing something, so any of
+        // them re-arms the full window. One wrapper, one meaning, and the chip-settle
+        // handler and turn log still receive the untouched event.
+        onEvent: (event) => {
+          noteActivity();
+
+          return onEvent(event);
+        },
         sendCompletion
       });
 
@@ -646,7 +832,11 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
           tier: String(plan?.tier || "")
         });
 
-        const turn = await inputs.runTier1Turn(buildTurnRequest({
+        // ARMED BEFORE THE FIRST MODEL CALL (BUG-013). Everything below may hang; the
+        // window starts now and every sign of life re-arms it.
+        watchdog.arm();
+
+        const mainAttempt = await raceWatchdog(inputs.runTier1Turn(buildTurnRequest({
           initialMessages: messages,
           // SETTLE-ON-DISPATCH: the loop emits `{ type: "dispatch", call, outcome }` the
           // moment a call has been dispatched. Display-only subscription: it settles the
@@ -683,13 +873,27 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
               // A call whose arguments COMPLETE paints a provisional `running` chip
               // immediately (item 2). Display only: the loop still dispatches from the
               // assembled turn, and every chip is cleared at ONE cleanup site.
-              onToolCallComplete: (call) => driver.recordEngineSwapProvisionalCall(call),
+              onToolCallComplete: (call) => {
+                noteActivity();
+
+                return driver.recordEngineSwapProvisionalCall(call);
+              },
               requestBody: request.body,
               settings: inputs.settings(),
               signal: controller.signal
             });
           }
-        }));
+        })));
+
+        // THE STALL EXIT (BUG-013). The race resolved because the window elapsed with no
+        // activity at all, so there is no turn to read, no tool count to report and no
+        // corrective retry to consider. Settling here means the surface frees the session
+        // and commits the visible failure instead of waiting forever.
+        if (mainAttempt.status === "stalled") {
+          return settleStall(mainAttempt.info);
+        }
+
+        const turn = mainAttempt.value;
 
         // How many tools the model was actually OFFERED, read off the session that
         // built the request list rather than re-derived from config: a logged count
@@ -768,7 +972,10 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
           previewBoundaryPending = true;
 
           try {
-            const second = await inputs.runTier1Turn(buildTurnRequest({
+            // THE SAME RACE, because the retry is a turn of the same session and can
+            // hang in exactly the same place (BUG-013). A stall here settles the whole
+            // turn as stalled rather than letting the retry wait forever.
+            const retryAttempt = await raceWatchdog(inputs.runTier1Turn(buildTurnRequest({
               initialMessages: continuedMessages,
               // The corrective retry is a CONTINUATION of the same turn, so it subscribes
               // through the same handler. A retry that dispatched silently would leave the
@@ -782,13 +989,26 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
 
                 return inputs.streamToolTurn({
                   onDelta: (delta) => appendPreviewDelta(delta),
-                  onToolCallComplete: (call) => driver.recordEngineSwapProvisionalCall(call),
+                  onToolCallComplete: (call) => {
+                    noteActivity();
+
+                    return driver.recordEngineSwapProvisionalCall(call);
+                  },
                   requestBody: request.body,
                   settings: inputs.settings(),
                   signal: controller.signal
                 });
               }
-            }));
+            })));
+
+            // A retry that stalls settles the TURN as stalled. The first attempt already
+            // produced an answer, but nothing is waiting on that promise any more and the
+            // user is owed a visible failure rather than a retry that never returns.
+            if (retryAttempt.status === "stalled") {
+              return settleStall(retryAttempt.info);
+            }
+
+            const second = retryAttempt.value;
 
             turnLogToolCount = Number(second?.session?.assembled?.tools?.length) || turnLogToolCount;
 
@@ -849,6 +1069,15 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
         // line, and a record left open by the one path that never returns would be the
         // same stranding defect the preview slot was fixed for. Delivered fire-and-forget:
         // nothing is awaited, so logging cannot delay the turn either.
+        // THE WATCHDOG DIES WITH THE TURN (BUG-013). Success, stall, transport error,
+        // user stop, held, iteration cap and a thrown turn all cross this line, so no
+        // timer can outlive the turn that armed it and fire into the next one.
+        try {
+          watchdog.disarm();
+        } catch {
+          // Observation must never break a turn.
+        }
+
         try {
           driver.finishEngineTurnLog({
             outcome: turnLogOutcome,
@@ -966,6 +1195,51 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
       const composedHistory = [...requestMessages, ...tailEntries];
 
       driver.syncEngineSwapDisplayOnlyIds(composedHistory);
+
+      // THE STALL COMMIT (BUG-013), and it comes FIRST because a stalled turn has no
+      // tail to slice, no session to keep and nothing to confirm.
+      //
+      // Four duties, in this order: say it out loud, persist it, free everything the turn
+      // was holding, and report a distinct outcome. A committed assistant row is what makes
+      // the failure survive a RELOAD -- the measured wedge left one entry (the user prompt)
+      // and no explanation anywhere, which is why the only cure was refreshing the page.
+      if (result?.status === STALLED_TURN_STATUS) {
+        const silenceMs = Math.max(0, Number(result?.stall?.silenceMs) || 0);
+        const notice = formatStallMessage({ seconds: silenceMs / 1000 });
+
+        // The hung session is abandoned, never reused: it is mid-await inside a promise
+        // nothing waits on any more, so keeping it would let a later confirm or a later
+        // turn talk to a dead object. `cancelHeld` is defensive only -- a stall inside a
+        // consent wait cannot happen, because the watchdog is exempt while a hold is
+        // pending, and that exemption is itself tested.
+        try {
+          session?.cancelHeld?.();
+        } catch {
+          // Nothing to cancel is not a failure.
+        }
+
+        state.engineSwapTier1Session = null;
+        state.engineSwapHeldMessages = null;
+        surface.setPendingHold?.(null);
+
+        // The notice is the LAST entry, so the transcript reads: the user's request, then
+        // the engine explaining that it stopped responding. Nothing is invented in
+        // between, because a stalled turn's own messages are unreachable.
+        surface.setHistory(
+          appendTurnNoticeMessage([...requestMessages, ...tailEntries], { content: notice })
+        );
+
+        // IMMEDIATE, not deferred: the whole point is that this survives a reload, and a
+        // coalesced write can be lost by the very teardown a wedged tab invites.
+        await surface.persistHistory({ immediate: true });
+        surface.setStatus(formatStallStatus());
+        surface.render();
+
+        // Its own outcome, not `complete` and not `failed`: the submission series must
+        // stop (no queued message is sent into a chat whose last turn stalled) and must not
+        // paint `Ready.` as if the turn had finished.
+        return STALLED_TURN_STATUS;
+      }
 
       if (result?.status === "held") {
         // The destructive call is HELD: nothing executed, and the chat now renders an

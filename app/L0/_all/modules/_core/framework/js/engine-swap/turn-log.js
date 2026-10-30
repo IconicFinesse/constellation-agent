@@ -74,6 +74,14 @@ export const TURN_LOG_OUTCOME = Object.freeze({
   ERROR: "error",
   HELD: "held",
   ITERATION_CAP: "iteration-cap",
+  // BUG-013: the turn stopped making progress and the surface's no-progress watchdog
+  // ended it. Mirrored from `TOOL_TURN_STOP_REASON` (a named test asserts the mirror),
+  // and listed in `server/api/engine_log.js` OUTCOMES, because a word the endpoint does
+  // not know would 400 the write and the stall would vanish from the trail — which is
+  // exactly the silence this lane exists to remove. Distinguishable from a wedge that
+  // killed the tab: that one leaves `started` with NO record after it, while this leaves
+  // `started` PLUS a `finished` record whose outcome is `stalled`.
+  STALLED: "stalled",
   STOPPED: "stopped"
 });
 
@@ -91,6 +99,11 @@ export const TURN_LOG_STEP_TYPE = Object.freeze({
   // step type the endpoint does not know would 400 the write.
   DISPLAY_CLAIM_REFUSED: "display-claim-refused",
   INCOMPLETE_ARGUMENTS_REFUSED: "incomplete-arguments-refused",
+  // BUG-013: the no-progress watchdog fired. Content-free like its siblings: the only
+  // numbers are HOW LONG the silence lasted and WHICH window was exceeded, never any
+  // message text. Mirrored in `server/api/engine_log.js` STEP_TYPES for the same reason
+  // the outcome word is: an unknown step type would 400 the whole record.
+  STALLED: "stalled",
   TURN_ERROR: "turn-error"
 });
 
@@ -349,6 +362,17 @@ export function turnLogStepFromEvent(event, { durationMs = 0 } = {}) {
     return {
       refusedCount: toInteger(event?.refusedCount),
       type
+    };
+  }
+
+  // BUG-013. Two durations and nothing else: how long nothing arrived, and the
+  // window that decided it was too long. No message text, no model output, no ids —
+  // the same privacy rule as every sibling above.
+  if (type === TURN_LOG_STEP_TYPE.STALLED) {
+    return {
+      silenceMs: toInteger(event?.silenceMs),
+      type,
+      windowMs: toInteger(event?.windowMs)
     };
   }
 

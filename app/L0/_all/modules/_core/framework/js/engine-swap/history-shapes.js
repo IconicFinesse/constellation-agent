@@ -361,15 +361,47 @@ export function replaceHeldToolResult(history, { content = "", isError = false, 
 // `execution-output` and `queued`.
 export const GATE_OUTCOME_MESSAGE_KIND = "gate-outcome";
 
-export function createGateOutcomeMessageEntry({ content = "", id = "" } = {}) {
+// BUG-013: the tag for "the engine itself ended this turn and is telling the reader".
+// A second `kind` rather than a second SHAPE: the entry below is the same plain
+// assistant message a gate outcome writes, and the renderer's only `kind` branches stay
+// the pre-existing `execution-output` / `queued` ones, so a turn notice paints through
+// the ordinary assistant path exactly like a normal reply.
+//
+// It is deliberately NOT `GATE_OUTCOME_MESSAGE_KIND`: a gate sentence describes a
+// consent question and is RETIRED when that question settles. A stall notice describes
+// something that already happened and must survive, so giving it the gate tag would let
+// a later `settleGateOutcome` delete the only explanation the user has.
+export const TURN_NOTICE_MESSAGE_KIND = "turn-notice";
+
+// THE ONE plain-assistant entry constructor. Both the gate layer and the turn-notice
+// layer build their rows through it, so 'a committed notice' has exactly one shape
+// (`{ attachments, content, id, kind, role }`) and one id convention -- the same one the
+// surfaces' own `createMessage("assistant", content)` uses.
+function createAssistantNoticeEntry({ content = "", id = "", kind = "" } = {}) {
   return Object.freeze({
     attachments: [],
     content: normalizeText(content),
     // Same id convention the surfaces' own `createMessage("assistant", ...)` uses.
     id: normalizeText(id) || `assistant-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-    kind: GATE_OUTCOME_MESSAGE_KIND,
+    kind: normalizeText(kind),
     role: "assistant"
   });
+}
+
+export function createGateOutcomeMessageEntry({ content = "", id = "" } = {}) {
+  return createAssistantNoticeEntry({ content, id, kind: GATE_OUTCOME_MESSAGE_KIND });
+}
+
+// BUG-013: commits the sentence that explains why a turn ended itself, and keeps it.
+//
+// No retire rule, unlike its gate sibling: a stall is not a pending question, so there is
+// nothing later that supersedes it. Appending is the whole operation, and a caller that
+// fires twice (a race between two exits) gets one row per fire rather than one row
+// silently deleting another.
+export function appendTurnNoticeMessage(history, { content = "", id = "" } = {}) {
+  const base = Array.isArray(history) ? [...history] : [];
+
+  return [...base, createAssistantNoticeEntry({ content, id, kind: TURN_NOTICE_MESSAGE_KIND })];
 }
 
 // Drops the trailing gate rows of the CURRENT episode. Only a trailing run is removed:
