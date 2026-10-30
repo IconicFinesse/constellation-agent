@@ -145,11 +145,6 @@ the same contract upstream gave its users, now given by this fork.
 
 <!-- WHATS-NEW:START -->
 
-**`v1.2.1`**
-
-- Ship the fence contract
-- Fence-aware extraction so fenced displays never execute (BUG-007)
-
 **`v1.5.0`**
 
 - Record the engine-swap beta in the roadmap and plan
@@ -160,6 +155,17 @@ the same contract upstream gave its users, now given by this fork.
 - Carry API CORS headers on the unknown-endpoint 404
 - Reject unterminated flow values and name unknown API endpoints
 - Gate usage-on-stream behind a measured capability, make caching truthful
+
+**`v1.5.1`**
+
+- Record the engine hardening beta in the roadmap and plan
+- Bump manifests to 1.5.1 for the engine hardening beta
+- Unref the watchdog timer so it never holds a process open
+- Fail visibly when a turn stops making progress
+- Refuse dispatch in a turn that claims display-only
+- Keep render refresh off the agent turn's critical path
+- Refuse deletions from run_code and route to the gated tool
+- Record turn starts and per-turn token usage
 
 _Newest releases only. The full per-release record lives in [`ROADMAP.md`](./ROADMAP.md). Generated from `baseline-2026-06-08..HEAD` by `packaging/scripts/whats-new.js`._
 <!-- WHATS-NEW:END -->
