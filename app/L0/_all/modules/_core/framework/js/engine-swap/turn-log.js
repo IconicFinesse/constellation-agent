@@ -66,6 +66,11 @@ export const TURN_LOG_USAGE_FIELDS = Object.freeze([
 // value here equals the loop's constant, so the two cannot drift silently.
 export const TURN_LOG_OUTCOME = Object.freeze({
   ANSWERED: "answered",
+  // BUG-008: the turn refused its own calls because its text claimed display-only.
+  // Mirrored from `TOOL_TURN_STOP_REASON` (a named test asserts the mirror), and
+  // listed in `server/api/engine_log.js` OUTCOMES, because a reason the endpoint
+  // does not know would 400 the write and the refusal would vanish from the trail.
+  DISPLAY_REFUSED: "display-refused",
   ERROR: "error",
   HELD: "held",
   ITERATION_CAP: "iteration-cap",
@@ -80,6 +85,11 @@ const KNOWN_OUTCOMES = new Set(Object.values(TURN_LOG_OUTCOME));
 export const TURN_LOG_STEP_TYPE = Object.freeze({
   ASSISTANT_TURN: "assistant-turn",
   DISPATCH: "dispatch",
+  // BUG-008: the loop refused the turn's calls because its text claimed display-only.
+  // Content-free like its sibling below — a COUNT, never the claim phrase or any
+  // message text — and mirrored in `server/api/engine_log.js` STEP_TYPES, because a
+  // step type the endpoint does not know would 400 the write.
+  DISPLAY_CLAIM_REFUSED: "display-claim-refused",
   INCOMPLETE_ARGUMENTS_REFUSED: "incomplete-arguments-refused",
   TURN_ERROR: "turn-error"
 });
@@ -328,6 +338,16 @@ export function turnLogStepFromEvent(event, { durationMs = 0 } = {}) {
   if (type === TURN_LOG_STEP_TYPE.INCOMPLETE_ARGUMENTS_REFUSED) {
     return {
       incompleteCount: toInteger(event?.incompleteCount),
+      type
+    };
+  }
+
+  // BUG-008. Content-free by construction: the COUNT of refused calls and nothing
+  // else. The matched claim phrase rides on the live event for tests, but message
+  // text never enters this record — the same rule the sibling above follows.
+  if (type === TURN_LOG_STEP_TYPE.DISPLAY_CLAIM_REFUSED) {
+    return {
+      refusedCount: toInteger(event?.refusedCount),
       type
     };
   }
