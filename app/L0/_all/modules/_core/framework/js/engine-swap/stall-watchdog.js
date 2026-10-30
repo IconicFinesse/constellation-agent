@@ -62,8 +62,26 @@ export function formatStallStatus() {
   return "Stalled: the turn stopped responding and was ended. You can retry.";
 }
 
+// A WATCHDOG IS AN OBSERVER AND MUST NEVER BE THE REASON A PROCESS STAYS ALIVE.
+//
+// A bare `setTimeout` keeps the Node event loop open for the whole window. That is
+// invisible in a browser, but every headless harness that constructs a real driver
+// inherits it: the suite finishes its assertions, prints its results, and then sits for
+// four and a half minutes with nothing to do. It was found exactly that way -- a suite
+// that passes 11 of 11 and never exits, while the same suite on the base commit exits
+// cleanly.
+//
+// `unref()` is a Node timer method and browsers do not have it, so the call is guarded
+// rather than assumed. Unref'd timers still fire normally; they simply stop holding a
+// process open when nothing else is pending. An armed watchdog is therefore still armed.
 function defaultSchedule(handler, delayMs) {
-  return setTimeout(handler, delayMs);
+  const handle = setTimeout(handler, delayMs);
+
+  if (typeof handle?.unref === "function") {
+    handle.unref();
+  }
+
+  return handle;
 }
 
 function defaultCancel(handle) {
