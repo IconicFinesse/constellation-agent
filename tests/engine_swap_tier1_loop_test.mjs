@@ -798,18 +798,27 @@ test("runToolTurn refuses to start without a sender or a pipeline", async () => 
 });
 
 test("a stop reason enum covers every exit", () => {
-  // STILL EXHAUSTIVE, deliberately: `display-refused` is a SIXTH exit (BUG-008), not
-  // a loosening. A turn whose own text claimed display-only ends there, and reporting
-  // it as `error` would say something failed when nothing did, while reporting it as
-  // `held` would paint a consent bar for a refusal. The mirror in `turn-log.js` and
-  // the server's OUTCOMES whitelist carry the same word, and the display-guard suite
-  // asserts both mirrors against this list.
+  // STILL EXHAUSTIVE, deliberately. Both later entries are EXTENSIONS, not loosening:
+  //
+  // - `display-refused` is a SIXTH exit (BUG-008). A turn whose own text claimed
+  //   display-only ends there, and reporting it as `error` would say something failed
+  //   when nothing did, while reporting it as `held` would paint a consent bar for a
+  //   refusal.
+  // - `stalled` is a SEVENTH exit (BUG-013's no-progress watchdog). A turn that stopped
+  //   making progress ends there. Reporting it as `stopped` would blame the user for a
+  //   stall they did not cause, and `error` would hide the one fact that matters: the
+  //   turn was abandoned for silence, not because anything reported a fault.
+  //
+  // The mirror in `turn-log.js` and the server's OUTCOMES whitelist carry the same
+  // words, and the display-guard and stall-watchdog suites each assert their mirror
+  // against this list.
   assert.deepEqual(Object.values(TOOL_TURN_STOP_REASON).sort(), [
     "answered",
     "display-refused",
     "error",
     "held",
     "iteration-cap",
+    "stalled",
     "stopped"
   ]);
 });
