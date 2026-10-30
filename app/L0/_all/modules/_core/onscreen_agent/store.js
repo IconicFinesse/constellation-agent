@@ -25,8 +25,17 @@ import {
   projectHistoryEntryForDisplay,
   projectHistoryEntryForPrompt,
   replaceHeldToolResult,
-  serializeTypedHistoryFields
+  serializeTypedHistoryFields,
+  settleGateOutcome
 } from "/modules/_core/framework/js/engine-swap/history-shapes.js";
+// The USER-FACING gate sentences (BUG-009). The model has always been told what a
+// hold did; these are the words a HUMAN reads, and they are committed to history so
+// the decision survives a reload instead of living only in transient UI state.
+import {
+  formatGateCancelledMessage,
+  formatGateConfirmedMessage,
+  formatGateDeniedMessage
+} from "/modules/_core/framework/js/engine-swap/gate-message.js";
 import { createTier1TurnDriver } from "/modules/_core/framework/js/engine-swap/turn-driver.js";
 import {
   resolveOnscreenTier1Plan,
@@ -5578,9 +5587,13 @@ const model = {
       : "error: the held call could not be executed.";
     const callId = executed?.call?.callId || hold.callId || "";
 
-    this.history = this.replaceEngineSwapHeldResult({
+    // SETTLE + SPEAK, as one operation: the held result row is replaced (one result per
+    // call id) and the user-facing acknowledgement is committed beside it, through the
+    // shared helper both surfaces use.
+    this.history = settleGateOutcome(this.history, {
       content: toolResultText,
       isError: !executed || executed.status !== "ok",
+      message: formatGateConfirmedMessage(hold, executed),
       toolCallId: callId
     });
     await this.persistHistory({ immediate: true });
@@ -5633,6 +5646,7 @@ const model = {
       return;
     }
 
+    const hold = this.engineSwapPendingHold;
     const settled = session.denyHeld();
     const callId = settled?.callId || "";
 
@@ -5640,10 +5654,12 @@ const model = {
     this.engineSwapTier1Session = null;
     this.engineSwapHeldMessages = null;
     // Replace, never append: exactly one tool result may exist per call id, or the
-    // next Tier 1 request is invalid on the wire.
-    this.history = this.replaceEngineSwapHeldResult({
+    // next Tier 1 request is invalid on the wire. A denial leaves no committed
+    // assistant words otherwise, so the user-facing sentence is written here too.
+    this.history = settleGateOutcome(this.history, {
       content: `policy: the user denied ${settled?.description || settled?.tool || "the action"}.`,
       isError: true,
+      message: formatGateDeniedMessage(settled || hold || {}),
       toolCallId: callId
     });
     await this.persistHistory({ immediate: true });
@@ -5652,10 +5668,27 @@ const model = {
   },
 
   cancelEngineSwapHold() {
-    this.engineSwapTier1Session?.cancelHeld?.();
+    const session = this.engineSwapTier1Session;
+    const hold = this.engineSwapPendingHold;
+
+    session?.cancelHeld?.();
     this.engineSwapTier1Session = null;
     this.engineSwapPendingHold = null;
     this.engineSwapHeldMessages = null;
+
+    // CANCELLED while held (stop, chat clear, session end). The transcript must not keep
+    // telling a later reader that a decision is still pending, so the hold settles to a
+    // terminal policy result and the user-facing sentence says it was cancelled.
+    if (hold) {
+      this.history = settleGateOutcome(this.history, {
+        content: `policy: the pending ${hold.description || hold.tool || "action"} was cancelled. Nothing was executed.`,
+        isError: true,
+        message: formatGateCancelledMessage(hold),
+        toolCallId: hold.callId || ""
+      });
+      this.persistHistory({ immediate: true }).catch(() => {});
+      this.render();
+    }
   },
 
   async runConversationLoop(initialUserMessage) {
