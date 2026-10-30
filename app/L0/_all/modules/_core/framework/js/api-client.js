@@ -431,6 +431,31 @@ function normalizeFileWriteEncodingArgument(encoding) {
   );
 }
 
+// Models also express a write option as a FOURTH positional argument, for
+// example `fileWrite(path, "line\n", "utf8", { operation: "append" })`.
+// `fileWrite` has no fourth parameter, so JavaScript discards that object with
+// no error, the request goes out without `operation`, and the server treats the
+// write as a full replace: the file is clobbered to the new content and a
+// success result comes back. This is the same silent-drop family as the
+// encoding-slot guard above, in the one slot that never got it.
+//
+// There is nothing to read in that slot, so the only safe answer is to refuse
+// the call before it is sent and name the shapes that really carry options.
+function assertNoExtraFileWriteArguments(argumentCount) {
+  if (argumentCount <= 3) {
+    return;
+  }
+
+  throw new Error(
+    `Unsupported fileWrite arguments: ${argumentCount} positional arguments were passed, ` +
+    "but fileWrite accepts at most three (path, content, encoding). " +
+    "A write option after the encoding is dropped without error and the write is sent as a full replace. " +
+    "Pass the write options in one object argument instead: " +
+    '{ path, content, operation: "append" | "prepend" | "insert" }, ' +
+    "send a batch as { files: [...] }, or call the typed file_write tool with { path, content, operation }."
+  );
+}
+
 function createFileWriteRequest(pathOrFiles, content, encoding) {
   const normalizedEncoding = normalizeFileWriteEncodingArgument(encoding);
 
@@ -604,6 +629,52 @@ function createFileListRequest(pathOrOptions, recursive = false) {
   }
 
   return request;
+}
+
+// `fileList` takes a boolean second argument. Models (and the typed `file_list`
+// dispatch adapter) sometimes pass the options object there instead:
+// `fileList(path, { access: "write", writableOnly: true })`. That object was
+// stringified into the query as `recursive=[object Object]` and every filter
+// inside it was dropped, so a caller asking for writable paths silently got a
+// normal readable listing back. Fold the object back into the options object the
+// request builder already understands; the explicit path argument still wins.
+function normalizeFileListArguments(pathOrOptions, recursive = false) {
+  if (!isPlainObject(recursive)) {
+    return {
+      options: pathOrOptions,
+      recursive
+    };
+  }
+
+  const base = isPlainObject(pathOrOptions) ? { ...pathOrOptions } : { path: pathOrOptions };
+  const merged = { ...base, ...recursive };
+
+  if (typeof base.path === "string") {
+    merged.path = base.path;
+  }
+
+  return {
+    options: merged,
+    recursive: false
+  };
+}
+
+// Same silent-drop family as the write guard: a third positional argument to
+// `fileList` has nowhere to go, so its contents vanish instead of narrowing the
+// listing. Refuse it and name the shape that carries the options.
+function assertNoExtraFileListArguments(argumentCount) {
+  if (argumentCount <= 2) {
+    return;
+  }
+
+  throw new Error(
+    `Unsupported fileList arguments: ${argumentCount} positional arguments were passed, ` +
+    "but fileList accepts at most two (path, recursive). " +
+    "Options after the recursive flag are dropped without error and the listing is sent with their defaults. " +
+    "Pass the options in one object argument instead: " +
+    '{ path, recursive, access: "read" | "write", writableOnly, gitRepositories }, ' +
+    "or call the typed file_list tool with the same fields."
+  );
 }
 
 function createFolderDownloadQuery(pathOrOptions) {
@@ -1096,6 +1167,8 @@ export function createApiClient(options = {}) {
    * @returns {Promise<FileApiResult | FileBatchApiResult>}
    */
   async function fileWrite(pathOrFiles, content, encoding = "utf8") {
+    assertNoExtraFileWriteArguments(arguments.length);
+
     return call("file_write", createFileWriteRequest(pathOrFiles, content, encoding));
   }
 
@@ -1152,9 +1225,13 @@ export function createApiClient(options = {}) {
    * @returns {Promise<FileApiResult>}
    */
   async function fileList(path, recursive = false) {
+    assertNoExtraFileListArguments(arguments.length);
+
+    const normalized = normalizeFileListArguments(path, recursive);
+
     return call("file_list", {
       method: "GET",
-      query: createFileListRequest(path, recursive)
+      query: createFileListRequest(normalized.options, normalized.recursive)
     });
   }
 
