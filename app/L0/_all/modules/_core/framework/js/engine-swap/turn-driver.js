@@ -60,6 +60,7 @@ import {
 import {
   appendTurnLogStep,
   createTurnLogRecord,
+  createTurnLogStartRecord,
   emitTurnLogRecord,
   finalizeTurnLogRecord,
   turnLogStepFromEvent
@@ -409,6 +410,14 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
     // error, user stop, held, iteration cap, AND a thrown transport that never reaches
     // a return statement at all. Recording the end there means a turn that dies cannot
     // leave a record permanently open, which a return-site record would.
+    //
+    // IT EMITS A START RECORD, not just allocates one. The log used to write ONLY on
+    // completion, so a turn that WEDGED -- the single most interesting turn there is, per a
+    // live beta wedge with 43 requests and no hanging response -- left no record anywhere.
+    // The start record is emitted HERE, before the first model call, so a turn that never
+    // returns still leaves a trace naming when it began, what tier/model it resolved and
+    // its turn id. Both records carry that same id (see `turn-log.js`), so a reader pairs
+    // started-without-finished against finished by id and sees the wedge.
     beginEngineTurnLog({ model = "", tier = "", wireMessageCount = 0 } = {}) {
       try {
         state.engineSwapTurnLog = {
@@ -416,6 +425,14 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
           record: createTurnLogRecord({ model, startedAt: Date.now(), tier })
         };
         state.engineSwapTurnLog.record.wireMessageCount = Number(wireMessageCount) || 0;
+
+        // A SNAPSHOT, not the live record: the live one keeps accumulating steps and is
+        // finalized in the `finally`, and handing the writer a reference to it would let
+        // later mutation rewrite a record already sent. Fire-and-forget, so a slow or dead
+        // log endpoint can never delay the first model call.
+        emitTurnLogRecord(createTurnLogStartRecord(state.engineSwapTurnLog.record), {
+          api: inputs.runtime()?.api || null
+        });
       } catch {
         state.engineSwapTurnLog = null;
       }
@@ -443,7 +460,11 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
       }
     },
 
-    finishEngineTurnLog({ outcome = "", toolCount = 0, wireMessageCount = 0 } = {}) {
+    // `turns` is the loop's own per-model-call record list, handed in so the usage counts
+    // are DERIVED from the one place a model call's usage is stored rather than summed a
+    // second time beside it. Omitted (a turn that died before returning a result) leaves
+    // the usage `null`, which is the honest reading for a turn that never reported.
+    finishEngineTurnLog({ outcome = "", toolCount = 0, turns = [], wireMessageCount = 0 } = {}) {
       try {
         const active = state.engineSwapTurnLog;
 
@@ -457,6 +478,7 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
           endedAt: Date.now(),
           outcome,
           toolCount,
+          turns,
           wireMessageCount
         });
 
@@ -607,9 +629,13 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
       });
 
       // ENGINE TURN LOG (P7-1). Declared OUTSIDE the try so the `finally` below can
-      // close the record on every exit; both are assigned inside it.
+      // close the record on every exit; all three are assigned inside it.
       let turnLogOutcome = "";
       let turnLogToolCount = 0;
+      // The loop's own per-model-call records, the ONE place a call's token usage is
+      // stored. Left empty when the turn dies before returning a result, which the
+      // recorder reads as `usage: null` -- a turn that never reported, not a free one.
+      let turnLogTurns = [];
 
       try {
         // One record per turn, opened before the first provider call so the turn's own
@@ -804,6 +830,10 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
         // the loop rather than re-decided here. A thrown turn never reaches this line,
         // which the recorder reports as `error` -- the honest word for it.
         turnLogOutcome = String(finalTurn?.result?.status || "");
+        // The per-model-call records of the turn that actually settled. A corrective
+        // retry's calls are part of the same turn's cost, and `finalTurn` already merges
+        // them, so this reads the one list the commit reads.
+        turnLogTurns = Array.isArray(finalTurn?.result?.turns) ? finalTurn.result.turns : [];
 
         return {
           correctiveRetry: retry,
@@ -823,6 +853,7 @@ export function createTier1TurnDriver({ surface = {}, inputs = {} } = {}) {
           driver.finishEngineTurnLog({
             outcome: turnLogOutcome,
             toolCount: turnLogToolCount,
+            turns: turnLogTurns,
             wireMessageCount: messages.length
           });
         } catch {
