@@ -6044,6 +6044,16 @@ const model = {
           break;
         }
 
+        // BUG-013. A STALLED turn ends the series. It is not `complete` (nothing was
+        // answered), it is not `stopped` (the user did not ask) and it is not `failed` (no
+        // provider error was reported) -- and it must never fall through to the queued path
+        // or be overwritten by a `Ready.` status, because the visible sentence the driver
+        // already committed is the whole point of the failure. A NEW message sent afterwards
+        // starts a fresh submission series, which is what proves the session is free.
+        if (outcome === "stalled") {
+          break;
+        }
+
         const queuedMessage = this.consumeNextQueuedSubmissionMessage();
 
         if (queuedMessage) {
@@ -6257,6 +6267,10 @@ function getTier1TurnDriver() {
         settings: () => onscreenAgent.settings,
         shapeSystemPrompt: (shapeRequest) => shapeOnscreenSystemPromptForTier(shapeRequest),
         stopRequested: () => onscreenAgent.stopRequested,
+        // THE WATCHDOG CLOCK (BUG-013). Absent in production, so `stall-watchdog.js` uses
+        // real timers; a suite replaces this accessor with a fake clock and advances
+        // minutes instantly instead of sleeping them.
+        stallWatchdogClock: () => onscreenAgent.stallWatchdogClock || null,
         streamToolTurn: (transportRequest) => agentApi.streamOnscreenAgentToolTurn(transportRequest),
         // THE COMPOSITION SEAMS. `runTier1TurnAndCommit` composes the conversation
         // turn and the display-only derivation, and on this surface BOTH are public

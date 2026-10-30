@@ -2871,6 +2871,13 @@ const model = {
           break;
         }
 
+        // BUG-013, the same branch the onscreen series takes: a stalled turn ends the
+        // series with the driver's own visible sentence, never `Ready.` and never a queued
+        // send into a chat whose last turn stopped responding.
+        if (outcome === "stalled") {
+          break;
+        }
+
         const queuedMessage = this.consumeNextQueuedSubmissionMessage();
 
         if (queuedMessage) {
@@ -3088,6 +3095,9 @@ function getTier1TurnDriver() {
         settings: () => adminAgent.settings,
         shapeSystemPrompt: (shapeRequest) => engineSwapBridge.shapeAdminSystemPromptForTier(shapeRequest),
         stopRequested: () => adminAgent.stopRequested,
+        // THE WATCHDOG CLOCK (BUG-013), the same seam the onscreen surface exposes:
+        // absent in production, replaced by a fake clock in a suite.
+        stallWatchdogClock: () => adminAgent.stallWatchdogClock || null,
         streamToolTurn: (transportRequest) => engineSwapBridge.streamAdminToolTurn(transportRequest),
         // THE COMPOSITION SEAMS. Both are public store methods a caller may replace; a
         // suite stubs the conversation turn to drive the commit path with no transport.

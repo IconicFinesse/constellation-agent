@@ -24,7 +24,18 @@ export const MAX_TURN_LOG_RECORDS = 500;
 
 export const TURN_LOG_LIMIT_DEFAULT = 50;
 
-export const OUTCOMES = Object.freeze(["answered", "display-refused", "error", "held", "iteration-cap", "stopped"]);
+// BUG-013 adds `stalled`. ADDITIVE ONLY: every word here is one the client can
+// legitimately send, and a word this list does not know is a 400 -- which is how a stall
+// would vanish from the trail the owner reads.
+export const OUTCOMES = Object.freeze([
+  "answered",
+  "display-refused",
+  "error",
+  "held",
+  "iteration-cap",
+  "stalled",
+  "stopped"
+]);
 
 // A turn appends TWO records sharing one `turnId`: a `started` snapshot written before the
 // first model call, and the `finished` record written on completion. The JSONL ring buffer
@@ -49,6 +60,10 @@ export const STEP_TYPES = Object.freeze([
   "dispatch",
   "display-claim-refused",
   "incomplete-arguments-refused",
+  // BUG-013: the no-progress watchdog fired. Content-free like its siblings -- two
+  // durations, no message text -- and listed here because an unknown step type would
+  // reject the WHOLE record, which is how a stall would vanish from the trail.
+  "stalled",
   "turn-error"
 ]);
 
@@ -138,6 +153,16 @@ function requireStep(step, index) {
     return {
       refusedCount: requireCount(step.refusedCount, `steps[${index}].refusedCount`),
       type
+    };
+  }
+
+  // BUG-013. Two DURATIONS and nothing else: how long nothing arrived, and the window
+  // that decided it was too long. Same content-free rule as every sibling here.
+  if (type === "stalled") {
+    return {
+      silenceMs: requireCount(step.silenceMs, `steps[${index}].silenceMs`),
+      type,
+      windowMs: requireCount(step.windowMs, `steps[${index}].windowMs`)
     };
   }
 

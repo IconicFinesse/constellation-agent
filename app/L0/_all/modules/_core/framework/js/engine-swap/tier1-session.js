@@ -39,6 +39,10 @@ export const TIER1_TURN_STATUS = Object.freeze({
   ERROR: "error",
   HELD: "held",
   ITERATION_CAP: "iteration-cap",
+  // BUG-013: the user's turn stopped making progress and the surface watchdog ended
+  // it. Its own status rather than `error` (nothing failed at the provider) and rather
+  // than `stopped` (the user did not ask) -- and the word the turn log records.
+  STALLED: "stalled",
   STOPPED: "stopped"
 });
 
@@ -57,6 +61,10 @@ export function tier1StatusForReason(reason) {
       return TIER1_TURN_STATUS.ERROR;
     case TOOL_TURN_STOP_REASON.ITERATION_CAP:
       return TIER1_TURN_STATUS.ITERATION_CAP;
+    // BUG-013. Without this case the mapper's default would report a stalled turn as
+    // `answered`, which is the exact silent-success reading this lane exists to kill.
+    case TOOL_TURN_STOP_REASON.STALLED:
+      return TIER1_TURN_STATUS.STALLED;
     case TOOL_TURN_STOP_REASON.STOPPED:
       return TIER1_TURN_STATUS.STOPPED;
     default:

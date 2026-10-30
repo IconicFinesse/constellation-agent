@@ -46,6 +46,14 @@ export const TOOL_TURN_STOP_REASON = Object.freeze({
   ERROR: "error",
   HELD: "held",
   ITERATION_CAP: "iteration-cap",
+  // BUG-013: the turn stopped making progress and the surface's watchdog ended it.
+  // The LOOP cannot produce this reason -- the loop is the thing that stopped
+  // responding -- so it is settled by `turn-driver.js` when its no-progress watchdog
+  // fires. It lives in this closed enum anyway because `turn-log.js` is forbidden to
+  // import the loop and mirrors this vocabulary instead, and a named test asserts the
+  // mirror equals this constant value for value: a word only one side knew would
+  // either 400 the log write or vanish from the trail.
+  STALLED: "stalled",
   STOPPED: "stopped"
 });
 
@@ -337,6 +345,15 @@ export async function runToolTurn({
         );
         continue;
       }
+
+      // LIVENESS, REPORT ONLY (BUG-013). A `run_code` of a real build can execute for
+      // minutes, and during it the loop emits nothing at all -- indistinguishable, from
+      // the surface, from a wedged engine. This event says "work is in flight", so a
+      // no-progress watchdog can tell a long execution from silence and must not kill a
+      // healthy build. It is emitted ONLY for a call that really dispatches (a deferred
+      // sibling continues above and never reaches here), it changes no state, and the
+      // turn log ignores a type it does not know by design rather than inventing a step.
+      emit({ call, position, type: "dispatch-start" });
 
       const outcome = await dispatch.dispatchToolCall({
         argumentsJson: announced[position].arguments,
