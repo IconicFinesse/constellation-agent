@@ -34,6 +34,7 @@ Current persistence paths:
 History is TWO shapes, and admin reads and writes both through the shared layer:
 
 - shape A — the legacy text protocol (`{ attachments, content, id, kind, role }`), every history on disk today, forever;
+- BUG-013 reached this surface through the SHARED turn driver, so admin gets the same no-progress watchdog with no admin-local code: `stallWatchdogClock` is the one injectable seam this store supplies (absent in production, replaced by a fake clock in a suite), a stalled turn commits the same plain-assistant `turn-notice` row the onscreen surface commits, and `runSubmissionSeries` treats the `stalled` outcome as its own ended state so the status is never overwritten with `Ready.`. Nothing here duplicates the watchdog.
 - shape B — typed tool entries (`kind: "tool_call"` with `toolCall`, `kind: "tool_result"` with `toolResult`), written by a Tier 1 turn.
 
 `store.js` does the mapping in four places and NOWHERE else, all through
