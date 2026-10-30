@@ -9,7 +9,7 @@ check-in points, open decisions.
 Working evidence lives in the maintainer's local checkout: paths under
 `fixes/`, `prs/`, `worktrees/`, and `local/` are not tracked in this repository.
 
-Updated: 2026-10-28 — **`v1.5.0` BETA is the engine swap. The typed tool-call loop is the default engine rather than an opt-in flag, every Tier 1 turn leaves a content-free per-turn record on disk, a config that cannot tool-call says so in the chat instead of falling back silently, a malformed YAML manifest fails loudly instead of parsing into the wrong type, and a mistyped API endpoint names itself instead of reporting a missing file. This tag is the owner's own beta window; the fixes it produces, plus new default modules, land as `v2.0.0`.**
+Updated: 2026-10-30 — **`v1.5.1` BETA is engine hardening, not new surface. Six defects from the `v1.5.0` beta window, each fixed at the mechanism rather than by asking the model to behave: an append that silently replaced the whole file, a confirmation gate that left no trace in the transcript, deletions from `run_code` that skipped the gate entirely, a turn that could say it was only displaying code and dispatch it anyway, a turn that could hang in total silence with no record and no exit but a reload, and render refreshes sitting on an agent turn's critical path. The turn log now records a `started` record before the first model call, so the one turn that never finishes is no longer invisible, and per-turn token usage is recorded with absent-as-null rather than zero. The engine still needs testing before `v2.0.0`, which brings new default modules on top of a solid engine.**
 
 ## Phase status
 

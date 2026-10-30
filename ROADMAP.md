@@ -34,6 +34,60 @@ honestly provide, contract decisions now and content decisions from use.
 The fork began at upstream commit `10f4ffd` (tag `baseline-2026-06-08`, the v0.66
 era). Everything below diverges from that point.
 
+### `v1.5.1` — Engine Hardening (BETA)
+
+Six defects found in the `v1.5.0` beta window, all fixed at the mechanism rather
+than by asking the model to behave better. Still a BETA: this release exists so
+the engine can be tested harder before `v2.0.0` brings new default modules.
+
+- **Append stops overwriting.** `space.api.fileWrite(path, content, "utf8",
+  { operation: "append" })` had its fourth argument silently discarded by
+  JavaScript, so an intended append replaced the whole file and reported
+  success. That shape now throws a corrective error naming the object form, the
+  batch form, and the typed tool. The same audit closed a second silent-drop
+  hole: the typed `file_list` had been passing options into the `recursive`
+  slot, so `access` and `writableOnly` were dead on that path for its whole life.
+- **The confirmation gate speaks in the transcript.** A held, confirmed, denied,
+  or cancelled destructive call used to end the turn with no user-facing
+  message — the saved history stopped at the tool result, and a reader could not
+  tell a decision was pending. Each outcome now commits a plain assistant
+  message through one shared wording leaf, so both surfaces word it identically
+  and the pending sentence is retired rather than stacked.
+- **Deletions from `run_code` are refused.** Free-form code reaches the file
+  layer directly, underneath the guard that holds the typed delete tool, and
+  deletes batched into a bigger job took that path 7 times out of 9. The
+  execution scope now gets a `space` facade whose `fileDelete` always throws
+  with coaching that routes to the gated tool. This is a guardrail, not a
+  boundary: the real client is untouched so the Files dialog keeps working, and
+  code that deliberately reaches `globalThis.space.api.fileDelete` can still
+  delete.
+- **A turn that claims display-only cannot dispatch.** The old engine enforced
+  "displayed code never executes" structurally; the typed loop had no
+  representation of display intent at all, so a turn could print code, say it
+  was not running it, and dispatch it anyway. A conservative predicate over the
+  turn's own text now refuses every tool call in such a turn, with every
+  announced call id still answered. It is a text heuristic and says so.
+- **A stalled turn fails visibly.** A wedged turn produced 282 seconds of total
+  silence with no error, no record, and no way out but a reload. A no-progress
+  watchdog now treats 270 seconds of *pure* silence as a stall — re-armed by
+  every sign of life, exempting a held consent wait — and on fire commits a
+  message, logs a `stalled` outcome, frees the session and aborts through the
+  existing controller. A total-turn deadline was rejected: a real build's first
+  step took 108 seconds.
+- **Render refreshes leave the turn's critical path.** Fifteen agent-reachable
+  `await handleExternalMutation(...)` sites made a space operation wait for
+  viewport, layout and thumbnail work. They are now scheduled through a
+  dirty-flag drain loop with a real catch, and the `Current Widget` transient is
+  re-emitted when the refresh lands so the envelope fills in behind a fast
+  return. This removes the suspected stall cause; it does not prove the wedge is
+  gone.
+- **Every turn now leaves a start record.** The log used to write only on
+  completion, so the most interesting turn — the one that never finished — left
+  no trace anywhere. A `started` record is written before the first model call
+  and paired with its `finished` record by `turnId`, so started-without-finished
+  is readable. Per-turn token usage is recorded with **absent as null, never
+  zero**.
+
 ### `v1.5.0` — First Light (BETA)
 
 The engine swap. The typed tool-call loop stops being an opt-in and becomes the
