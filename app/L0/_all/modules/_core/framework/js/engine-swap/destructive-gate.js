@@ -5,10 +5,22 @@
 // conflating them teaches the model to retry a call that is already waiting for a
 // human.
 //
-// This is a consent affordance, not a security boundary. Say it plainly because
-// the plan says it plainly (rev 2): the same deletion performed inside `run_code`
-// is ungated by construction. The gate exists so an approved deletion has a visible
-// moment of consent, not so deletion becomes impossible.
+// This is a consent affordance, not a security boundary. The gate exists so an
+// approved deletion has a visible moment of consent, not so deletion becomes
+// impossible.
+//
+// `run_code` IS NOW PARTIALLY GUARDED (BUG-014). It used to be ungated by
+// construction and it was not academic: multi-step jobs batched into one code block
+// and 7 of 7 observed ungated deletes ran `space.api.fileDelete(...)` there. The
+// execution scope now hands `run_code` its own `space` facade whose
+// `api.fileDelete` always throws and names this gated tool, so the model's natural
+// batched path fails loudly instead of deleting instantly. The real `globalThis.space.api`
+// is untouched, because the Files dialog and six other first-party callers use it.
+//
+// It remains a GUARDRAIL, not a boundary: the executed block runs in this realm, so
+// code that deliberately goes around the facade (`globalThis.space.api.fileDelete`,
+// a saved client reference, a raw backend call) still deletes without consent. Do not
+// describe the deletion path as closed.",
 //
 // State machine — every state has a guaranteed exit:
 //
