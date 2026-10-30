@@ -26,6 +26,24 @@ export const TURN_LOG_LIMIT_DEFAULT = 50;
 
 export const OUTCOMES = Object.freeze(["answered", "error", "held", "iteration-cap", "stopped"]);
 
+// A turn appends TWO records sharing one `turnId`: a `started` snapshot written before the
+// first model call, and the `finished` record written on completion. The JSONL ring buffer
+// is append-only, so "update the record in place" is not an option this storage offers and
+// a status field is how a start is expressed. The consequence is the feature: a turn that
+// WEDGES never writes `finished`, so its `started` record is the whole trail.
+export const STATUSES = Object.freeze(["finished", "started"]);
+
+// The provider usage counts a finished record may carry. Every one is NULLABLE: a provider
+// that reported nothing is `null` (unknown), which is NOT the same fact as zero tokens, and
+// the endpoint rejects a value that cannot tell the two apart.
+export const USAGE_COUNT_FIELDS = Object.freeze([
+  "cachedTokens",
+  "completionTokens",
+  "createdCacheTokens",
+  "promptTokens",
+  "totalTokens"
+]);
+
 export const STEP_TYPES = Object.freeze([
   "assistant-turn",
   "dispatch",
@@ -119,6 +137,41 @@ function requireStep(step, index) {
   };
 }
 
+// A usage count may be NULL. Null is the documented spelling of "the provider did not
+// report this", and it must survive normalization as null: coercing it to 0 would store a
+// measurement the provider never made, which is the defect this field exists to end.
+function requireNullableCount(value, field) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return requireCount(value, field);
+}
+
+// Usage is normalized to the documented key set, so an unknown key is dropped here for the
+// same reason an unknown top-level key is: nothing reaches the file that this endpoint does
+// not name. `null` in, `null` out.
+function requireUsage(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (!isPlainObject(value)) {
+    throw createHttpError("Engine log record field `usage` must be an object or null.", 400);
+  }
+
+  const usage = {
+    modelCalls: requireCount(value.modelCalls ?? 0, "usage.modelCalls"),
+    turnsWithUsage: requireCount(value.turnsWithUsage ?? 0, "usage.turnsWithUsage")
+  };
+
+  for (const field of USAGE_COUNT_FIELDS) {
+    usage[field] = requireNullableCount(value[field], `usage.${field}`);
+  }
+
+  return usage;
+}
+
 // Validation RETURNS the normalized record rather than only judging it, so what gets
 // written is the exact set of documented fields. A caller that smuggled an extra key
 // into a record -- the failure mode that would let conversation content reach the
@@ -134,9 +187,30 @@ export function normalizeTurnLogRecord(body) {
     throw createHttpError("Engine log record field `steps` must be an array.", 400);
   }
 
-  const outcome = requireString(body.outcome, "outcome");
+  // Absent status means `finished`: a record written before this field existed is a
+  // completed turn, and defaulting it here keeps such a record storable instead of
+  // rejecting it for missing a field nobody had invented yet.
+  const status = body.status === undefined ? "finished" : requireString(body.status, "status");
 
-  if (!OUTCOMES.includes(outcome)) {
+  if (!STATUSES.includes(status)) {
+    throw createHttpError(`Engine log record has an unknown status: ${status || "(empty)"}.`, 400);
+  }
+
+  const outcome = requireString(body.outcome, "outcome");
+  const usage = requireUsage(body.usage);
+
+  if (status === "started") {
+    // A START HAS NO OUTCOME AND NO USAGE YET, and accepting either would let a caller
+    // store a finished-shaped record under a started label, which is the one thing this
+    // field exists to make impossible to confuse.
+    if (outcome !== "") {
+      throw createHttpError("Engine log record with status `started` must carry an empty outcome.", 400);
+    }
+
+    if (usage !== null) {
+      throw createHttpError("Engine log record with status `started` must not carry usage.", 400);
+    }
+  } else if (!OUTCOMES.includes(outcome)) {
     throw createHttpError(`Engine log record has an unknown outcome: ${outcome || "(empty)"}.`, 400);
   }
 
@@ -146,10 +220,13 @@ export function normalizeTurnLogRecord(body) {
     model: requireString(body.model, "model"),
     outcome,
     sessionId: requireString(body.sessionId, "sessionId"),
+    status,
     steps: steps.map((step, index) => requireStep(step, index)),
     tier: requireString(body.tier, "tier"),
     toolCount: requireCount(body.toolCount, "toolCount"),
     ts: requireString(body.ts, "ts"),
+    turnId: body.turnId === undefined ? "" : requireString(body.turnId, "turnId"),
+    usage,
     wireMessageCount: requireCount(body.wireMessageCount, "wireMessageCount")
   };
 }

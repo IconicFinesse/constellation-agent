@@ -36,6 +36,31 @@
 
 export const TURN_LOG_MAX_ERROR_CHARS = 500;
 
+// A turn leaves TWO records sharing ONE `turnId`: a `started` snapshot written BEFORE
+// the first model call, and the `finished` record written on completion. The append-only
+// JSONL ring buffer cannot update a record in place, so a status field is the honest way
+// to express "this turn began" without inventing a second file or a second endpoint.
+// The consequence is the point of the lane: a turn that WEDGES and never completes leaves
+// its `started` record alone in the log, and a reader can tell started-without-finished
+// from finished by pairing records on the id.
+export const TURN_LOG_STATUS = Object.freeze({
+  FINISHED: "finished",
+  STARTED: "started"
+});
+
+// The provider usage counts this log carries, unchanged from the normalized record the
+// engine already parses (`normalizeUsageBlock` in `stream-assembly.js`). Mirrored here
+// rather than imported: see the module header. `tests/engine_swap_turn_log_test.mjs`
+// drives both normalizers over one corpus and asserts they agree value for value, so the
+// mirror cannot drift while the import graph stays inert.
+export const TURN_LOG_USAGE_FIELDS = Object.freeze([
+  "cachedTokens",
+  "completionTokens",
+  "createdCacheTokens",
+  "promptTokens",
+  "totalTokens"
+]);
+
 // Mirror of `TOOL_TURN_STOP_REASON` in `tool-turn-loop.js`. Deliberately NOT an
 // import: see the module header. `tests/engine_swap_turn_log_test.mjs` asserts every
 // value here equals the loop's constant, so the two cannot drift silently.
@@ -122,30 +147,131 @@ export function isTurnLogOutcome(value) {
   return KNOWN_OUTCOMES.has(String(value || ""));
 }
 
-// One record per turn. `triplet` fields that are not known yet (iterations, outcome,
-// the two counts) start at an honest zero/empty and are filled by finalize.
+export function isTurnLogStatus(value) {
+  return Object.values(TURN_LOG_STATUS).includes(String(value || ""));
+}
+
+// A short id per TURN, stable across its `started` and `finished` records. The counter is
+// what makes two turns created inside the same millisecond distinguishable; the random
+// suffix only keeps ids from two browser tabs of one page session apart. Deliberately not
+// a security token and not derived from message content.
+let turnCounter = 0;
+
+export function createTurnLogTurnId(now = Date.now()) {
+  turnCounter += 1;
+
+  return `t-${toInteger(now).toString(36)}-${turnCounter.toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 6)}`;
+}
+
+// A count that is ALLOWED to be unknown. Distinct from `toInteger`, which coerces a
+// missing value to 0: for token accounting that coercion is the defect this lane exists to
+// fix, because "the provider reported nothing" and "the provider reported zero" are
+// different facts and only one of them is a measurement.
+function toNullableCount(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+// THE per-turn usage summary, derived from the loop's own `turns[]` records -- the ONE
+// place a model call's usage is stored (`tool-turn-loop.js`). A tool turn makes SEVERAL
+// model calls, so the turn's cost is their SUM, never the last call's numbers alone.
+//
+// THE RULE: a total is only reported when every model call of the turn reported that
+// field. One unknown part makes the total unknown (`null`), because summing the known
+// parts would silently understate the turn and read as a measurement. `turnsWithUsage`
+// and `modelCalls` are recorded so a reader can tell how complete the reading is without
+// having to trust a boolean.
+//
+// `null` for the whole `usage` field means the provider said nothing at all. It never
+// means zero.
+export function summarizeTurnLogUsage(turns) {
+  const list = Array.isArray(turns) ? turns : [];
+  const reported = list.filter((turn) => turn && typeof turn.usage === "object" && turn.usage !== null);
+
+  if (!reported.length) {
+    return null;
+  }
+
+  const summary = {
+    modelCalls: list.length,
+    turnsWithUsage: reported.length
+  };
+
+  const complete = reported.length === list.length;
+
+  for (const field of TURN_LOG_USAGE_FIELDS) {
+    const values = reported.map((turn) => toNullableCount(turn.usage[field]));
+
+    summary[field] = complete && values.every((value) => value !== null)
+      ? values.reduce((sum, value) => sum + value, 0)
+      : null;
+  }
+
+  return Object.freeze(summary);
+}
+
+// One live record per turn. Fields that are not known until the turn ends (`iterations`,
+// `outcome`, the counts, the usage) start at an honest empty/zero/`null` and are filled by
+// finalize. The record itself is NEVER emitted; `createTurnLogStartRecord` snapshots it.
 export function createTurnLogRecord({
   model = "",
   sessionId = "",
   startedAt = Date.now(),
-  tier = ""
+  tier = "",
+  turnId = ""
 } = {}) {
+  const at = toInteger(startedAt) || Date.now();
   const record = {
     durationMs: 0,
     iterations: 0,
     model: String(model || ""),
     outcome: "",
     sessionId: resolveTurnLogSessionId(sessionId),
+    status: TURN_LOG_STATUS.STARTED,
     steps: [],
     tier: String(tier || ""),
     toolCount: 0,
-    ts: new Date(toInteger(startedAt) || Date.now()).toISOString(),
+    ts: new Date(at).toISOString(),
+    turnId: String(turnId || "") || createTurnLogTurnId(at),
+    usage: null,
     wireMessageCount: 0
   };
 
-  STARTED_AT.set(record, toInteger(startedAt) || Date.now());
+  STARTED_AT.set(record, at);
 
   return record;
+}
+
+// The record a turn leaves BEHIND IF IT NEVER FINISHES. This is the whole point of the
+// lane: the log used to write only on completion, so a wedged turn -- the most interesting
+// turn there is -- left nothing anywhere. It is a fresh object with fresh arrays, not a
+// reference to the live record, so a later step append into the live record cannot mutate
+// the snapshot that was already handed to the writer.
+//
+// Only start-known facts travel: when it began, which tier/model it resolved, its session
+// and its turn id. Everything measured during the turn stays zero/empty here and appears
+// on the `finished` record that shares this id.
+export function createTurnLogStartRecord(record) {
+  if (!record || typeof record !== "object") {
+    return null;
+  }
+
+  return {
+    durationMs: 0,
+    iterations: 0,
+    model: String(record.model || ""),
+    outcome: "",
+    sessionId: String(record.sessionId || ""),
+    status: TURN_LOG_STATUS.STARTED,
+    steps: [],
+    tier: String(record.tier || ""),
+    toolCount: 0,
+    ts: String(record.ts || ""),
+    turnId: String(record.turnId || ""),
+    usage: null,
+    wireMessageCount: 0
+  };
 }
 
 export function appendTurnLogStep(record, step) {
@@ -216,6 +342,7 @@ export function finalizeTurnLogRecord(record, {
   endedAt = Date.now(),
   outcome = "",
   toolCount = 0,
+  turns = [],
   wireMessageCount = 0
 } = {}) {
   if (!record || typeof record !== "object") {
@@ -229,7 +356,10 @@ export function finalizeTurnLogRecord(record, {
     ? record.steps.filter((step) => step?.type === TURN_LOG_STEP_TYPE.ASSISTANT_TURN).length
     : 0;
   record.outcome = isTurnLogOutcome(outcome) ? String(outcome) : TURN_LOG_OUTCOME.ERROR;
+  record.status = TURN_LOG_STATUS.FINISHED;
   record.toolCount = toInteger(toolCount);
+  // NULL when the provider reported nothing, a number when it did. Never coerced.
+  record.usage = summarizeTurnLogUsage(turns);
   record.wireMessageCount = toInteger(wireMessageCount);
 
   return record;
