@@ -309,8 +309,96 @@ function getScopedWindowValue(targetWindow, key, boundWindowMethods) {
   return boundWindowMethod;
 }
 
+// SCOPE-GUARDED DELETION (BUG-014) — A GUARDRAIL, NOT A SECURITY BOUNDARY.
+//
+// THE DEFECT. The destructive-confirmation gate guards the typed `file_delete` tool and
+// nothing else, so a delete written as one step inside a bigger `run_code` job executed
+// instantly with no confirmation. Saved histories show 7 of 9 multi-step deletes taking
+// exactly that path, every one of them reaching the file layer as
+// `space.api.fileDelete(...)` in generated code.
+//
+// WHY THE SHARED CLIENT IS NOT TOUCHED. `space.api` is a page-wide singleton
+// (`framework/js/runtime.js` `createApiClient`) and `space.api.fileDelete` has seven
+// first-party callers with no gate and no session — the human Files delete dialog among
+// them. Requiring consent on the shared client would break the product's own delete UI.
+// So the REAL client keeps its behaviour and only the `run_code` scope gets a facade.
+//
+// WHAT THIS DOES AND DOES NOT DO. Generated code reaches this scope through
+// `with (__spaceScope)`, so `space.api.fileDelete(...)` inside an execution now fails
+// loudly and names the gated tool to use instead. That is the model's natural batched
+// path and it is the path every observed ungated delete took. It is NOT a boundary:
+// the executed block runs in this realm, so code that deliberately goes around the
+// facade — `globalThis.space.api.fileDelete(...)`, a saved reference read before the
+// guard, `window.space`, a raw backend call — still reaches the unguarded client. Say
+// that plainly; do not claim this closes the path.
+const RUN_CODE_DELETE_REFUSAL_CODE = "run_code_delete_refused";
+
+// Model-facing coaching, matching the tone of `formatHeldToolResult` in
+// `engine-swap/destructive-gate.js` and the write-argument guard in
+// `framework/js/api-client.js`: name the mistake, name what was NOT done, and name the
+// exact next move that works.
+export function formatRunCodeDeleteRefusal() {
+  return [
+    "not permitted: deleting files from inside run_code is refused.",
+    "Nothing was deleted. Use the typed file_delete tool instead: it takes the path (or the paths) explicitly and it asks the user to confirm before anything is removed.",
+    "Do not look for another way to delete from code. Deleting around this guard removes the confirmation step, and the user has not agreed to that."
+  ].join("\n");
+}
+
+function createRefusingFileDelete() {
+  return function fileDelete() {
+    const error = new Error(formatRunCodeDeleteRefusal());
+    error.name = "RunCodeDeleteRefusedError";
+    error.code = RUN_CODE_DELETE_REFUSAL_CODE;
+    throw error;
+  };
+}
+
+const refusingFileDelete = createRefusingFileDelete();
+
+// The `run_code` scope's own `space` facade. Everything delegates to the real runtime
+// object EXCEPT `api.fileDelete`, which always throws: one path, an array of paths, a
+// `{ paths: [...] }` batch, a `files` array, or anything else delete-shaped. The refusal
+// is argument-blind on purpose — a shape table is a bypass waiting to be discovered, and
+// the typed tool is the only delete the user has consented to.
+//
+// Both facades are Proxies over the real objects, so a key added to the runtime after
+// this is built still resolves, and every method keeps its own identity and closure —
+// `space.api.fileWrite({ operation: "append" })` from inside code behaves exactly as it
+// does today.
+export function createRunCodeSpaceFacade(realSpace) {
+  if (!realSpace || (typeof realSpace !== "object" && typeof realSpace !== "function")) {
+    return realSpace;
+  }
+
+  const realApi = realSpace.api;
+  const apiFacade = new Proxy(
+    realApi && (typeof realApi === "object" || typeof realApi === "function") ? realApi : {},
+    {
+      get(target, key) {
+        if (key === "fileDelete") {
+          return refusingFileDelete;
+        }
+
+        return Reflect.get(target, key);
+      }
+    }
+  );
+
+  return new Proxy(realSpace, {
+    get(target, key) {
+      if (key === "api") {
+        return apiFacade;
+      }
+
+      return Reflect.get(target, key);
+    }
+  });
+}
+
 function createExecutionScope(targetWindow, sharedState) {
   const boundWindowMethods = new WeakMap();
+  let spaceFacade = null;
 
   return new Proxy(sharedState, {
     has(_target, key) {
@@ -342,7 +430,13 @@ function createExecutionScope(targetWindow, sharedState) {
       }
 
       if (key === "space") {
-        return targetWindow.space;
+        // Built once per scope so repeated reads inside one executed block see the same
+        // facade object; the real `targetWindow.space` is only ever read, never written.
+        if (!spaceFacade) {
+          spaceFacade = createRunCodeSpaceFacade(targetWindow.space);
+        }
+
+        return spaceFacade;
       }
 
       if (Reflect.has(target, key)) {
