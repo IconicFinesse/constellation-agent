@@ -460,7 +460,7 @@ function ensureSpacesRuntimeNamespace() {
       }
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleExternalMutation(createdSpace.id);
+        void scheduleDecoupledSpacesRefresh(createdSpace.id);
       }
 
       return createdSpace;
@@ -485,7 +485,7 @@ function ensureSpacesRuntimeNamespace() {
       });
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleExternalMutation(duplicatedSpace.id);
+        void scheduleDecoupledSpacesRefresh(duplicatedSpace.id);
       }
 
       return duplicatedSpace;
@@ -500,7 +500,7 @@ function ensureSpacesRuntimeNamespace() {
       }
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleExternalMutation(createdSpace.id);
+        void scheduleDecoupledSpacesRefresh(createdSpace.id);
       }
 
       return createdSpace;
@@ -559,7 +559,7 @@ function ensureSpacesRuntimeNamespace() {
       });
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleExternalMutation(targetSpaceId, {
+        void scheduleDecoupledSpacesRefresh(targetSpaceId, {
           captureThumbnail: true
         });
       }
@@ -582,7 +582,7 @@ function ensureSpacesRuntimeNamespace() {
       });
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleExternalMutation(targetSpaceId, {
+        void scheduleDecoupledSpacesRefresh(targetSpaceId, {
           captureThumbnail: true,
           widgetId: result.widgetId
         });
@@ -617,7 +617,7 @@ function ensureSpacesRuntimeNamespace() {
       });
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleExternalMutation(targetSpaceId, {
+        void scheduleDecoupledSpacesRefresh(targetSpaceId, {
           captureThumbnail: true
         });
       }
@@ -678,7 +678,18 @@ function ensureSpacesRuntimeNamespace() {
       });
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleRemovedSpace(targetSpaceId);
+        // Decoupled on purpose: removing a space must return its tool result as
+        // soon as the tree is deleted. The list reload and the post-removal
+        // route change are scheduled instead, because a route transition that
+        // the agent turn waits on is exactly the stall this lane removes. The
+        // scheduled task is tracked with its own catch -> logger + notice.
+        const removedStore = activeSpacesStore;
+
+        void trackDecoupledSpacesTask(() => removedStore.handleRemovedSpace(targetSpaceId), {
+          context: "scheduled removed-space refresh failed",
+          spaceId: targetSpaceId,
+          store: removedStore
+        });
       }
 
       return result;
@@ -696,7 +707,7 @@ function ensureSpacesRuntimeNamespace() {
       });
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleExternalMutation(targetSpaceId, {
+        void scheduleDecoupledSpacesRefresh(targetSpaceId, {
           captureThumbnail: true
         });
       }
@@ -718,7 +729,7 @@ function ensureSpacesRuntimeNamespace() {
       });
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleExternalMutation(targetSpaceId, {
+        void scheduleDecoupledSpacesRefresh(targetSpaceId, {
           captureThumbnail: true
         });
       }
@@ -753,7 +764,7 @@ function ensureSpacesRuntimeNamespace() {
             };
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleExternalMutation(targetSpaceId, {
+        void scheduleDecoupledSpacesRefresh(targetSpaceId, {
           captureThumbnail: true
         });
       }
@@ -775,7 +786,7 @@ function ensureSpacesRuntimeNamespace() {
       });
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleExternalMutation(targetSpaceId, {
+        void scheduleDecoupledSpacesRefresh(targetSpaceId, {
           captureThumbnail: true,
           widgetId: result.widgetId
         });
@@ -792,7 +803,7 @@ function ensureSpacesRuntimeNamespace() {
       const savedSpace = await saveSpaceLayout(options);
 
       if (activeSpacesStore && options.refresh !== false) {
-        await activeSpacesStore.handleExternalMutation(savedSpace.id, {
+        void scheduleDecoupledSpacesRefresh(savedSpace.id, {
           captureThumbnail: true
         });
       }
@@ -803,7 +814,7 @@ function ensureSpacesRuntimeNamespace() {
       const savedSpace = await saveSpaceMeta(options);
 
       if (activeSpacesStore && options.refresh !== false) {
-        await activeSpacesStore.handleExternalMutation(savedSpace.id, {
+        void scheduleDecoupledSpacesRefresh(savedSpace.id, {
           captureThumbnail: true
         });
       }
@@ -824,7 +835,7 @@ function ensureSpacesRuntimeNamespace() {
       });
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleExternalMutation(targetSpaceId, {
+        void scheduleDecoupledSpacesRefresh(targetSpaceId, {
           captureThumbnail: true
         });
       }
@@ -844,7 +855,7 @@ function ensureSpacesRuntimeNamespace() {
       });
 
       if (activeSpacesStore && options.refresh !== false) {
-        await activeSpacesStore.handleExternalMutation(targetSpaceId, {
+        void scheduleDecoupledSpacesRefresh(targetSpaceId, {
           captureThumbnail: true,
           resetCamera: options.resetCamera === true,
           widgetId: result.widgetId
@@ -870,7 +881,7 @@ function ensureSpacesRuntimeNamespace() {
       });
 
       if (activeSpacesStore && options.refresh !== false) {
-        await activeSpacesStore.handleExternalMutation(targetSpaceId, {
+        void scheduleDecoupledSpacesRefresh(targetSpaceId, {
           captureThumbnail: true,
           resetCamera: options.resetCamera === true
         });
@@ -913,6 +924,216 @@ function logSpacesError(context, error, details = undefined) {
   }
 
   console.error(`[spaces] ${context}`, details, error);
+}
+
+// Decoupled refresh bookkeeping. Agent-driven mutations return their tool result
+// as soon as the files are persisted; the render refresh that used to hold the
+// agent turn open is scheduled here instead. Every scheduled refresh is tracked
+// so it can be proven to have been queued AND to have actually run.
+const decoupledSpacesRefreshState = {
+  completed: 0,
+  failed: 0,
+  pending: new Map()
+};
+
+async function emitCurrentWidgetTransientForRefresh(spaceId, widgetId, operationLabel = "refreshWidget(...)") {
+  const normalizedSpaceId = normalizeOptionalSpaceId(spaceId);
+  const normalizedWidgetId = normalizeOptionalWidgetId(widgetId);
+
+  if (!normalizedSpaceId || !normalizedWidgetId) {
+    return false;
+  }
+
+  let widgetText = "";
+
+  try {
+    widgetText = await readWidgetFromStorage({
+      spaceId: normalizedSpaceId,
+      widgetName: normalizedWidgetId
+    });
+  } catch {
+    widgetText = "";
+  }
+
+  const widgetRender = getWidgetRenderCheckForSpace(normalizedSpaceId, normalizedWidgetId);
+  const widgetView = readMountedWidgetHtmlEnvelope({
+    full: false,
+    spaceId: normalizedSpaceId,
+    widgetId: normalizedWidgetId,
+    widgetRender
+  });
+  const widgetPath = buildSpaceWidgetFilePath(normalizedSpaceId, normalizedWidgetId);
+  const transientUpdated = updateCurrentWidgetTransientSection({
+    spaceId: normalizedSpaceId,
+    widgetId: normalizedWidgetId,
+    widgetPath,
+    widgetStatusText: "",
+    widgetHtml: widgetView.html,
+    widgetHtmlAvailable: widgetView.available,
+    widgetHtmlUnavailableReason: widgetView.unavailableReason,
+    widgetText
+  });
+
+  if (!transientUpdated) {
+    return false;
+  }
+
+  updateCurrentWidgetTransientSection({
+    spaceId: normalizedSpaceId,
+    widgetId: normalizedWidgetId,
+    widgetPath,
+    widgetStatusText: formatWidgetOperationStatusText(normalizedWidgetId, operationLabel, widgetRender, {
+      transientUpdated
+    }),
+    widgetHtml: widgetView.html,
+    widgetHtmlAvailable: widgetView.available,
+    widgetHtmlUnavailableReason: widgetView.unavailableReason,
+    widgetText
+  });
+
+  return true;
+}
+
+async function runDecoupledSpacesRefreshLoop(entry) {
+  do {
+    // Clear the dirty flag before the run so work that arrives *during* this
+    // pass is guaranteed to trigger another pass instead of being swallowed.
+    entry.dirty = false;
+
+    const options = {
+      ...entry.refreshOptions,
+      widgetId: normalizeOptionalWidgetId(entry.refreshOptions.widgetId)
+    };
+    const touchedWidgetIds = [...entry.widgetIds];
+
+    try {
+      await entry.store.handleExternalMutation(entry.spaceId, options);
+
+      for (const widgetId of touchedWidgetIds) {
+        await emitCurrentWidgetTransientForRefresh(entry.spaceId, widgetId);
+      }
+
+      decoupledSpacesRefreshState.completed += 1;
+    } catch (error) {
+      decoupledSpacesRefreshState.failed += 1;
+      logSpacesError("scheduled external mutation refresh failed", error, {
+        spaceId: entry.spaceId
+      });
+      entry.store.setNotice(formatErrorMessage(error, "Unable to refresh the current space."), "error");
+
+      // Do not spin on a failing refresh; the next mutation re-arms it.
+      return false;
+    }
+  } while (entry.dirty);
+
+  return true;
+}
+
+// Takes the render refresh off the caller's critical path without deleting it.
+// Calls for the same space coalesce into one in-flight refresh, but a call that
+// arrives mid-refresh marks the entry dirty so the loop runs again: a decoupled
+// refresh is never dropped. Every touched widget gets its `Current Widget`
+// transient re-emitted after the refresh lands, so the agent envelope fills in
+// behind the fast return instead of going stale or disappearing.
+//
+// The returned task never rejects (the loop catches and reports), so callers
+// can safely fire it with `void`.
+function scheduleDecoupledSpacesRefresh(spaceId, options = {}) {
+  const store = activeSpacesStore;
+
+  if (!store) {
+    return Promise.resolve(null);
+  }
+
+  const targetSpaceId = normalizeOptionalSpaceId(spaceId);
+  const targetWidgetId = normalizeOptionalWidgetId(options.widgetId);
+  const refreshKey = targetSpaceId || "__all__";
+  let entry = decoupledSpacesRefreshState.pending.get(refreshKey);
+
+  if (!entry) {
+    entry = {
+      dirty: false,
+      refreshOptions: {},
+      spaceId: targetSpaceId,
+      store,
+      task: null,
+      widgetIds: new Set()
+    };
+    decoupledSpacesRefreshState.pending.set(refreshKey, entry);
+  }
+
+  entry.refreshOptions = {
+    ...entry.refreshOptions,
+    ...options
+  };
+
+  if (targetWidgetId && targetSpaceId && store.currentSpaceId === targetSpaceId) {
+    entry.widgetIds.add(targetWidgetId);
+  }
+
+  if (entry.task) {
+    entry.dirty = true;
+    return entry.task;
+  }
+
+  entry.task = runDecoupledSpacesRefreshLoop(entry).finally(() => {
+    decoupledSpacesRefreshState.pending.delete(refreshKey);
+  });
+
+  return entry.task;
+}
+
+// Runs an already-started decoupled store task (for example a removed-space
+// refresh that must load the list before it can route) with the same logging
+// and notice contract, so no decoupled call is left as a floating promise.
+function trackDecoupledSpacesTask(factory, { context, spaceId = "", store = null } = {}) {
+  const owner = store || activeSpacesStore;
+
+  return Promise.resolve()
+    .then(factory)
+    .catch((error) => {
+      decoupledSpacesRefreshState.failed += 1;
+      logSpacesError(context || "decoupled spaces task failed", error, {
+        spaceId
+      });
+      owner?.setNotice(formatErrorMessage(error, "Unable to refresh the current space."), "error");
+    });
+}
+
+// Test/diagnostic seam. The node harness cannot observe the wedge, so the one
+// thing it must be able to prove is that a decoupled refresh was actually
+// scheduled and actually ran. This exposes that bookkeeping without widening
+// the production runtime namespace.
+export function readDecoupledSpacesRefreshDiagnostics() {
+  return {
+    completed: decoupledSpacesRefreshState.completed,
+    failed: decoupledSpacesRefreshState.failed,
+    pendingKeys: [...decoupledSpacesRefreshState.pending.keys()]
+  };
+}
+
+export function waitForDecoupledSpacesRefreshIdle() {
+  const pendingTasks = () =>
+    [...decoupledSpacesRefreshState.pending.values()]
+      .map((entry) => entry.task)
+      .filter(Boolean);
+
+  const poll = async () => {
+    let guard = 0;
+
+    while (pendingTasks().length > 0) {
+      guard += 1;
+
+      if (guard > 5000) {
+        throw new Error("Timed out waiting for decoupled spaces refreshes to settle.");
+      }
+
+      await Promise.allSettled(pendingTasks());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  };
+
+  return poll();
 }
 
 function normalizeOptionalSpaceId(value) {
@@ -4238,6 +4459,10 @@ const spacesModel = {
         spaceId: this.currentSpace.id,
         widgetId
       });
+      // Kept awaited on purpose: closeWidget is a user-local shell control, not
+      // an agent turn. The click handler already fires it with void, so this
+      // await never blocks a tool result; it keeps the local error notice tied
+      // to the button that triggered it.
       await this.handleExternalMutation(this.currentSpace.id, {
         captureThumbnail: true
       });
@@ -4813,6 +5038,10 @@ const spacesModel = {
     await Promise.allSettled(renderJobs);
   },
 
+  // Kept awaited on purpose: this is the explicit refresh/reload seam
+  // (refreshFromUi and space.spaces.reloadCurrentSpace) whose whole contract is
+  // "refresh now, tell me when it is done". Callers that must not block use the
+  // decoupled scheduler instead; agent mutation paths no longer route here.
   async reloadCurrentSpace(options = {}) {
     await this.handleExternalMutation(this.currentSpaceId, options);
   },
