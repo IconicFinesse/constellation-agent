@@ -169,4 +169,4 @@ Rules:
 
 ## Child DOX Index
 
-- [js/engine-swap/AGENTS.md](js/engine-swap/AGENTS.md) - shared transport, tool-registry and dispatch layer for the LLM action-envelope upgrade: the single capability seam, tool records, shadow-diff artifacts, the ordered dispatch pipeline, the destructive consent gate, the both-shapes history reader, and the `ENGINE_SWAP_SHADOW` / `ENGINE_SWAP_DISPATCH` flags.
+- [js/engine-swap/AGENTS.md](js/engine-swap/AGENTS.md) - shared transport, tool-registry and dispatch layer for the LLM action-envelope upgrade: the single capability seam, tool records, shadow-diff artifacts, the ordered dispatch pipeline, the destructive consent gate, the BUG-008 display-claim guard (a turn that says it is only showing code cannot also run it), the both-shapes history reader, and the `ENGINE_SWAP_SHADOW` / `ENGINE_SWAP_DISPATCH` flags.
